@@ -439,8 +439,9 @@ function cancelIdlePark() {
 }
 
 /**
- * Persistent output element and the MediaStream sink feeding it. The chime is
- * routed through an HTMLMediaElement (see {@link audioSink}) rather than straight
+ * Persistent output element and the MediaStream sink feeding it — Apple platforms
+ * only (elsewhere both stay null; see {@link audioSink}). There the chime is
+ * routed through an HTMLMediaElement rather than straight
  * to `AudioContext.destination`, because a macOS sleep/wake wedges the WKWebView's
  * Web-Audio output path **process-wide**: the shared context keeps reporting
  * `state === 'running'` with an advancing clock, yet every note is silent — a
@@ -668,8 +669,9 @@ export function unlockAudio() {
     ac = audioContext();
     if (!ac) { areport('error', 'unlockAudio: rebuild failed — Web Audio unavailable'); return; }
   }
-  // Start the media-element sink within this gesture so automatic chimes can feed
-  // the already-playing element without a gesture of their own (see audioSink).
+  // Start the media-element sink (Apple only) within this gesture so automatic
+  // chimes can feed the already-playing element without a gesture of their own
+  // (see audioSink).
   primeSink(ac);
   wakeContext(ac);
 }
@@ -785,22 +787,30 @@ export function playChime(params = {}) {
 }
 
 /**
- * Resolve the node the chime's master gain connects to. Prefers an
- * HTMLMediaElement sink — a {@link MediaStreamAudioDestinationNode} whose stream
- * drives a persistent `<audio>` element — over the context's own `destination`,
- * because the media-element output path survives the process-wide sleep/wake wedge
- * that silences `AudioContext.destination` (see {@link mediaEl}). The stream is a
- * live `srcObject` (no `data:`/`blob:` URL), so it needs no `media-src` in the CSP.
+ * Resolve the node the chime's master gain connects to. On Apple platforms that
+ * is an HTMLMediaElement sink — a {@link MediaStreamAudioDestinationNode} whose
+ * stream drives a persistent `<audio>` element — rather than the context's own
+ * `destination`, because the media-element output path survives the process-wide
+ * sleep/wake wedge that silences `AudioContext.destination` (see {@link mediaEl}).
+ * The stream is a live `srcObject` (no `data:`/`blob:` URL), so it needs no
+ * `media-src` in the CSP.
+ *
+ * Everywhere else the chime goes straight to `ac.destination`. That wedge does
+ * not exist there, and the sink actively breaks: those platforms idle-park the
+ * context between chimes (see {@link keepAudioContextWarm}), and WebKitGTK's
+ * media-element pipeline holds what a resumed context feeds it — every chime
+ * silent, then hours later the whole backlog played back to back.
  *
  * The sink is (re)built whenever it isn't bound to the current context — first use,
  * or after a rebuild via {@link recreateContext}. Falls back to `ac.destination`
  * where no media-element path exists (e.g. `Audio` or `createMediaStreamDestination`
  * unavailable), so playback still routes somewhere rather than throwing.
  * @param {AudioContext} ac - The running context the chime is scheduled on.
+ * @param {boolean} [useMediaSink] - Whether to route through the media element; injected for tests.
  * @returns {AudioNode} The node to connect the chime's master gain to.
- * @private
  */
-function audioSink(ac) {
+export function audioSink(ac, useMediaSink = keepAudioContextWarm()) {
+  if (!useMediaSink) return ac.destination;
   const AudioEl = /** @type {any} */ (window).Audio;
   if (typeof AudioEl !== 'function' || typeof ac.createMediaStreamDestination !== 'function') {
     return ac.destination; // no media-element path — best-effort direct output
@@ -820,7 +830,7 @@ function audioSink(ac) {
  * Build and start the output element from inside a user gesture, so later
  * *automatic* chimes (which fire with no gesture of their own) can feed the
  * already-playing element. Called by {@link unlockAudio}; a no-op where no
- * media-element path exists.
+ * media-element path exists or the platform doesn't use one (see {@link audioSink}).
  * @param {AudioContext} ac - The context to bind the sink to.
  * @returns {void}
  * @private
@@ -847,8 +857,9 @@ function scheduleChime(ac, { notes, gain, duration, sound }) {
   const partials = sound.partials;
 
   // Shared master so `volume` scales the whole motif and the stacked notes share
-  // one route to the speakers — via the media-element sink, which survives the
-  // sleep/wake wedge that silences ac.destination (see audioSink).
+  // one route to the speakers — on Apple via the media-element sink, which
+  // survives the sleep/wake wedge that silences ac.destination; elsewhere
+  // ac.destination itself (see audioSink).
   const master = ac.createGain();
   master.gain.value = gain;
   master.connect(audioSink(ac));

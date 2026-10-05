@@ -23,7 +23,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { wakeContext, isContextWedged, rearmAudio, recoverThenSchedule, shouldAutoResume } from '../../js/utils/chime-synth.js';
+import { wakeContext, isContextWedged, rearmAudio, recoverThenSchedule, shouldAutoResume, audioSink } from '../../js/utils/chime-synth.js';
 
 /**
  * @typedef {object} TestResult
@@ -236,6 +236,24 @@ export async function runTests() {
     assert(shouldAutoResume('interrupted', false) === true, 'interrupted is an OS park — resume');
     assert(shouldAutoResume('interrupted', true) === true, 'interrupted is never our idle-park — still resume');
     assert(shouldAutoResume('closed', true) === true, 'closed → attempt resume (rejects, handled elsewhere)');
+  });
+
+  // ── output route: the media-element sink is for Apple only ──────────────────
+  // Off Apple the context is idle-parked between chimes, and WebKitGTK's
+  // media-element pipeline holds what a resumed context feeds it, then plays the
+  // whole backlog at once hours later. There the chime must go straight to the context's
+  // own destination, never through a MediaStream.
+
+  await run('audioSink off Apple routes to ac.destination and builds no MediaStream', () => {
+    let streamDests = 0;
+    const destination = { id: 'destination' };
+    const ac = {
+      destination,
+      createMediaStreamDestination() { streamDests++; return { context: this, stream: null }; },
+    };
+    const node = audioSink(/** @type {any} */ (ac), false);
+    assert(node === destination, 'off Apple the chime must connect to ac.destination');
+    assert(streamDests === 0, `off Apple no MediaStream destination may be built, got ${streamDests}`);
   });
 
   return { passed, failed, errors };
