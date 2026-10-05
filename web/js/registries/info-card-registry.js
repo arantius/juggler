@@ -8,7 +8,7 @@ import { getExtensionCapabilities } from '../services/extensions.js';
 
 /**
  * InfoCardRegistry — loads the "info card" plugins the sidebar rail renders
- * (Tips, Usage, Git status, …). Cards are viewer-only capabilities: they touch
+ * (Usage, Git status, …). Cards are viewer-only capabilities: they touch
  * the DOM and never run in the engine worker, so this registry is only ever
  * initialised in the viewer realm (see reload-registries.js).
  *

@@ -919,7 +919,7 @@ class ConversationBar extends JugglerElement {
       nav.appendChild(tabsMenu);
     }
 
-    // Ambient info cards (Tips, Git status, …), parked in the empty space above
+    // Ambient info cards (Usage, Git status, …), parked in the empty space above
     // the Bin. Created once and cached; it manages its own visibility and measures
     // the sidebar's free space to decide how many cards fit, reconciling off its
     // own ResizeObserver rather than anything here. Sits between the flex:1 tabs

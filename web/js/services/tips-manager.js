@@ -4,18 +4,17 @@
 
 /**
  * TipsManager — the source of truth for onboarding tips: short hints that raise
- * awareness of features a new user is unlikely to stumble on. Presentation lives
- * in the `@juggler/core` extension's tips info card; this module just owns the tip list
- * and the persisted "seen" state.
+ * awareness of features a new user is unlikely to stumble on. They are shown by
+ * the rolling tip at the foot of a new conversation's starting hint
+ * ({@link module:components/empty-hint-tips}); this module just owns the tip list
+ * and the persisted "seen" state, which decides the tip that strip opens on.
  *
  * Shortcut tips are *derived* from the {@link module:services/key-shortcut-manager
  * KeyShortcutManager} by id, so their title and key glyph can't drift from the
  * real (rebindable) binding. Feature tips are hand-authored for gestures with no
  * key. "Seen" state follows the person rather than the project or the window
  * (see services/prefs.js): a tip learnt once is learnt, and putting it in a
- * project's session would have every new project teach every tip again. Whether
- * the Tips card is shown at all is a separate concern owned by
- * {@link module:services/info-cards-manager}.
+ * project's session would have every new project teach every tip again.
  * @module services/tips-manager
  */
 
@@ -25,12 +24,8 @@ import { cachedUserPref, setUserPref, notifyPrefChanged, reconcilePref } from '.
 /** The user preference holding `{ seen: string[] }`. */
 const PREF_NAME = 'juggler-tips';
 
-/**
- * Fired on `window` whenever a tip is retired (learn-by-doing, or the seen set
- * otherwise changes). The sidebar rail listens so it re-syncs immediately instead
- * of waiting for an unrelated render.
- */
-export const TIPS_CHANGED_EVENT = 'juggler:tips-changed';
+/** Fired on `window` whenever the seen set changes. */
+const TIPS_CHANGED_EVENT = 'juggler:tips-changed';
 
 /**
  * A materialized tip ready for display.
@@ -131,7 +126,7 @@ export function allTips() {
     const def = keyShortcutManager.all().find((d) => d.id === entry.id);
     // Drop a dangling id, and any command with no key on this platform — a tip
     // exists to teach a keystroke, so one we deliberately left unbound here has
-    // nothing to teach. (The card renders the binding live, so a command that
+    // nothing to teach. (The strip renders the binding live, so a command that
     // keeps a different key here still gets its tip, showing that key.)
     if (!def || keyShortcutManager.getBindings(entry.id).length === 0) continue;
     shortcuts.push({ id: entry.id, kind: 'shortcut', title: def.label, body: entry.body, shortcutId: entry.id });
@@ -162,21 +157,9 @@ export function markSeen(id) {
   }
 }
 
-/**
- * Clear the "seen" record so every tip plays again from the top. Called when the
- * user re-enables the Tips card — otherwise, once all tips are seen, turning the
- * card back on would show nothing and there'd be no way to replay them.
- * @returns {void}
- */
-export function resetSeen() {
-  writeState({ seen: [] });
-  notifyPrefChanged(TIPS_CHANGED_EVENT);
-}
-
-// Ask for this person's seen set at boot, and tell the rail if it says something
-// the cache did not. Reads are synchronous by design — a tip shown for a moment
-// longer than it should be is a far smaller cost than a card that cannot render
-// until a round trip finishes.
+// Ask for this person's seen set at boot. Reads are synchronous by design — a
+// strip that opens on an already-learnt tip is a far smaller cost than one that
+// cannot render until a round trip finishes.
 if (typeof document !== 'undefined') {
   void reconcilePref('user', PREF_NAME, TIPS_CHANGED_EVENT);
 }

@@ -4,7 +4,8 @@
 
 /**
  * What a conversation with no history says before its first message: the four
- * composer gestures a first-time user has no way to guess, and nothing else.
+ * composer gestures a first-time user has no way to guess, then one rolling tip
+ * ({@link module:components/empty-hint-tips}) for everything past the composer.
  *
  * Two places show it, and exactly one of them at a time. A conversation with
  * nothing to ask floats it over the empty background (`conversation-empty-hint`,
@@ -21,6 +22,7 @@
  */
 
 import { formatBindingForPlatform, isMac } from '../services/key-shortcut-manager.js';
+import './empty-hint-tips.js';
 
 /**
  * The hint's content as one block.
@@ -57,6 +59,7 @@ export function emptyHintStackMarkup() {
         </div>
       </div>
       <p class="empty-hint-lead empty-hint-pointer">Drag-and-drop a file or image to attach it</p>
+      <empty-hint-tips class="empty-hint-tips"></empty-hint-tips>
     </div>
   `;
 }

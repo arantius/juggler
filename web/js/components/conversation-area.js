@@ -1883,7 +1883,7 @@ class ConversationArea extends HTMLElement {
     if (hasHistory) {
       // Retired: drop the band measurements too, so a later re-show starts from
       // the element's layout, not a band staler than the DOM.
-      hint.classList.remove('no-room');
+      hint.classList.remove('no-room', 'no-room-for-tips');
       hint.style.top = '';
       hint.style.height = '';
       this._teardownEmptyHintObserver();
@@ -1950,9 +1950,18 @@ class ConversationArea extends HTMLElement {
     const scrollerRect = scroller.getBoundingClientRect();
     const bandTop = innerRect.bottom;
     const bandBottom = scrollerRect.bottom;
-    const hintHeight = stack.offsetHeight;
     const bandHeight = bandBottom - bandTop;
-    const fits = bandHeight - hintHeight >= EMPTY_HINT_CLEARANCE_PX;
+
+    // The rolling tip at the stack's foot is the first thing to give: a band
+    // that holds the composer gestures only without it sheds the tip and keeps
+    // the gestures. Measured whole first, so a band that has grown back gets
+    // the tip back.
+    hint.classList.remove('no-room-for-tips');
+    let fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
+    if (!fits && stack.querySelector('.empty-hint-tips')) {
+      hint.classList.add('no-room-for-tips');
+      fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
+    }
 
     if (!fits) {
       hint.classList.add('no-room');

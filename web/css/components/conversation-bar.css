@@ -1056,7 +1056,7 @@ conversation-bar .info-cards-button[aria-expanded="true"] {
 
 /* ----------------------------------------------------------------------------
    Ambient info rail (web/js/components/info-rail.js) — a stack of info cards
-   (Tips, Git status, …) sitting above the Bin. The rail sizes to its own cards
+   (Usage, Git status, …) sitting above the Bin. The rail sizes to its own cards
    (flex: 0 0 auto) and the conversation list takes everything above it (see
    .conversation-tabs), so the list always runs right down to the topmost card:
    it scrolls only when the column is genuinely full, never beside dead space.
@@ -1137,12 +1137,6 @@ conversation-bar .info-card__content {
     gap: 0.25rem;
 }
 
-/* Cards whose content advances on click (Tips) take a pointer cursor. Selection
-   is already off for the whole sidebar; see the selection policy in styles.css. */
-conversation-bar .info-card__content--interactive {
-    cursor: pointer;
-}
-
 conversation-bar .info-card__header {
     display: flex;
     align-items: center;
@@ -1182,32 +1176,6 @@ conversation-bar .info-card__close:hover {
     opacity: 1;
     background: var(--bg-tertiary);
     color: var(--text-primary);
-}
-
-conversation-bar .info-card__title {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    line-height: 1.5;
-    color: var(--text-primary);
-}
-
-/* Inline keycap: inverted (panel colours swapped) so it reads as a key against
-   the flat sidebar, and an inline-block <span> so following title text wraps
-   around it rather than dropping to its own line. */
-conversation-bar .info-card__key {
-    display: inline-block;
-    margin-right: 0.5rem;
-    padding: 0.0625rem 0.375rem;
-    border-radius: var(--radius-md);
-
-    /* Softened so the chip reads as a quiet key, not a high-contrast badge. */
-    background: color-mix(in srgb, var(--text-primary) 60%, transparent);
-    color: var(--bg-primary);
-    font-family: var(--font-ui);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    white-space: nowrap;
-    vertical-align: baseline;
 }
 
 conversation-bar .info-card__body {

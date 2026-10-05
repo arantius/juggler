@@ -106,6 +106,7 @@ conversation-empty-hint.no-room {
     align-items: center;
     gap: 0.75rem;
     flex-shrink: 0;
+    max-width: 100%;
 }
 
 .empty-hint-lead {
@@ -148,6 +149,71 @@ conversation-empty-hint.no-room {
     .empty-hint-pointer {
         display: none;
     }
+}
+
+/* The rolling tip at the foot of the hint (empty-hint-tips.js): the tip between
+   a ‹ and a › that step through the rest, under a short centred hairline that
+   sets it apart from the composer gestures above. The strip has a set width
+   (the tip takes whatever the buttons leave) and the tip enough height for the
+   longest one, so stepping neither moves the buttons nor re-centres the whole
+   stack. The width must not come from the text: a strip sized by its tip
+   stretches to the column for a long one and shrinks for a short one, so the
+   group lurches off-centre and the buttons slide out from under the pointer.
+   In a column narrower than the set width the strip gives up the difference
+   and the tip wraps, so it never runs past the hint's margins. The hint as a
+   whole passes clicks through to the background; the buttons take theirs
+   back. */
+.empty-hint-tips {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 31rem;
+    max-width: 100%;
+    padding-top: 1rem;
+    background: linear-gradient(var(--border-color), var(--border-color)) top center / 4rem 0.0625rem no-repeat;
+}
+
+/* The band holds the hint only without the tip (see _positionEmptyHint):
+   display:none, so the stack the fit test re-measures really is shorter. */
+conversation-empty-hint.no-room-for-tips .empty-hint-tips {
+    display: none;
+}
+
+.empty-hint-tips__tip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 6.5rem;
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+}
+
+.empty-hint-tips__title {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* The same keycap as the rows above, inline so the title wraps around it. */
+.empty-hint-tips__key {
+    display: inline-block;
+    min-width: 0;
+    margin-right: 0.5rem;
+    font-weight: normal;
+}
+
+/* Chrome (resting transparency, hover fill, press dip) is the header bar's
+   .btn-ghost, which the buttons also carry; this is only their box. */
+.empty-hint-tips__nav {
+    pointer-events: auto;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
 }
 
 .conversation-message-list::-webkit-scrollbar {

@@ -43,7 +43,7 @@ func coreFS(manifest, version string) fstest.MapFS {
 		"extensions/juggler-core/context-items/rules/go-idioms.js":        {Data: []byte("// nested, not matched")},
 		"extensions/juggler-core/strategies/default-strategy-type.js":     {Data: []byte("//")},
 		"extensions/juggler-core/commands/clear-command-type.js":          {Data: []byte("//")},
-		"extensions/juggler-core/cards/tips-card.js":                      {Data: []byte("//")},
+		"extensions/juggler-core/cards/usage-card.js":                     {Data: []byte("//")},
 		"extensions/juggler-core/pins/file-pin.js":                        {Data: []byte("//")},
 		"extensions/juggler-core/pins/file-pin.meta.js":                   {Data: []byte("//")},
 		"sdk/version.js": {Data: []byte("export const ENGINE_API_VERSION = '" + version + "';")},
@@ -88,7 +88,7 @@ func TestExtensionsValidCore(t *testing.T) {
 	assertURLs(t, "contextItems", ext.Capabilities.ContextItems, wantCtx)
 	assertURLs(t, "strategies", ext.Capabilities.Strategies, []string{"/extensions/juggler-core/strategies/default-strategy-type.js"})
 	assertURLs(t, "commands", ext.Capabilities.Commands, []string{"/extensions/juggler-core/commands/clear-command-type.js"})
-	assertURLs(t, "infoCards", ext.Capabilities.InfoCards, []string{"/extensions/juggler-core/cards/tips-card.js"})
+	assertURLs(t, "infoCards", ext.Capabilities.InfoCards, []string{"/extensions/juggler-core/cards/usage-card.js"})
 	// The two pin globs must not swallow each other: a descriptor is not an item type
 	// (it is loaded in the engine worker, where the item type would fail on import),
 	// and an item type is not a descriptor.

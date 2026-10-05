@@ -39,7 +39,7 @@ export const REQUIRED_INFO_CARD_MANIFEST_FIELDS = [...REQUIRED_MANIFEST_FIELDS, 
  * InfoCardType — base class for Juggler "info card" plugins.
  *
  * Info cards are the ambient tiles parked in the empty sidebar space above the
- * Bin (Tips, Usage, Git status, …). Each card fills a content region the host
+ * Bin (Usage, Git status, …). Each card fills a content region the host
  * chrome (eyebrow label + × close) wraps around. Cards are **viewer-only** — they
  * touch the DOM and never run in the engine worker, so unlike strategy/
  * context-item/command there is no `-worker.js` twin of this base class.
@@ -123,8 +123,7 @@ class InfoCardType {
 
   /**
    * Whether the card has anything to show right now. Override to drop the card
-   * from the rail when it has no content (the Tips card does this once every tip
-   * is seen). Defaults to always-renderable.
+   * from the rail when it has nothing to say. Defaults to always-renderable.
    * @returns {boolean} True if the card should be mounted.
    */
   hasContent() {
@@ -133,8 +132,8 @@ class InfoCardType {
 
   /**
    * Hook run when the card transitions from hidden to shown (the user un-hides it
-   * from the info-cards menu). Optional — the Tips card uses it to replay its
-   * tips. Default is a no-op.
+   * from the info-cards menu). Optional — for a card that should start afresh
+   * when it comes back. Default is a no-op.
    * @returns {void}
    */
   onEnabled() {}

@@ -65,7 +65,7 @@
 }
 
 /* Persistent chrome. `conversation-bar` covers the sidebar tabs, the Bin and
-   the ambient info rail (Tips / Usage / Git status cards) in one go, and
+   the ambient info rail (Usage / Git status cards) in one go, and
    `.pinboard-panel` covers the board's own bands — its toolbar, tab strip, item
    title and status line — leaving only what an item type renders selectable.
    `properties-panel-empty` is the whole panel whenever nothing is selected: it

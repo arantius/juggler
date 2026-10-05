@@ -22,7 +22,7 @@ An extension bundles any mix of six capability types — each a class you
 | **Context Item** | A tool the LLM can call (read a file, search, run a command) | `juggler/context-item` | `glob`, `read_file`, `write_file` |
 | **Strategy** | Controls how the agentic loop runs — turns, tools, stopping | `juggler/strategy-type` | `default`, `read-only`, `yolo` |
 | **Command** | A user-invoked slash command (`/clear`, `/compact`) | `juggler/command-type` | `clear`, `compact`, `thread` |
-| **Info Card** | An ambient tile in the sidebar's spare space | `juggler/info-card-type` | `tips`, `usage`, `git-status` |
+| **Info Card** | An ambient tile in the sidebar's spare space | `juggler/info-card-type` | `usage`, `git-status` |
 | **Pinboard Item** | A tab on the Pinboard, the workbench behind the right edge | `juggler/pinboard-item-type` | `file` |
 | **File Viewer** | How a file type is shown to you and extracted for the model | `juggler/file-viewer` | `text`, `pdf`, `image` |
 | **Workspace Provider** | Makes and looks after a place a conversation works in | `juggler/workspace-provider` | — |
@@ -577,8 +577,8 @@ command that only opens a panel), and setting them there is harmless.
 
 ### Info Card — an ambient tile in the sidebar
 
-Info cards are the tiles parked in the sidebar's spare space above the Bin (Tips,
-Usage, Git status). Your card fills a content region; the host chrome supplies
+Info cards are the tiles parked in the sidebar's spare space above the Bin (Usage,
+Git status). Your card fills a content region; the host chrome supplies
 the eyebrow label and the close button around it.
 
 Cards are **viewer-only** — they touch the DOM and never run in the engine, so
@@ -622,8 +622,8 @@ cache.
 
 Return a teardown for anything that outlives the element (timers, listeners,
 observers), or a resize will leak one per drop. Full reference:
-**`web/sdk/info-card-type.js`**. Templates: `cards/tips-card.js` (uses
-`hasContent()` and `onEnabled()`), `cards/git-status-card.js` (polls the host).
+**`web/sdk/info-card-type.js`**. Templates: `cards/usage-card.js` and
+`cards/git-status-card.js` (both poll the host).
 
 ### Pinboard Item — a tab on the Pinboard
 

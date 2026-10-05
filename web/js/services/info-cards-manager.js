@@ -89,8 +89,7 @@ export function hideCard(id) {
 
 /**
  * Un-hide a card in this window (the info-cards menu). On the genuine
- * hidden→shown transition the card's optional `onEnabled` hook runs first (the
- * Tips card uses it to replay all tips).
+ * hidden→shown transition the card's optional `onEnabled` hook runs first.
  * @param {string} id - A card id.
  * @returns {void}
  */

@@ -4,8 +4,8 @@
 
 /**
  * <info-cards-button> — the small "i" control heading the info rail in the tab
- * column, managing the per-window visibility of the ambient info cards (Tips,
- * Usage, Git status, …). It is mounted as the rail's first child (see
+ * column, managing the per-window visibility of the ambient info cards (Usage,
+ * Git status, …). It is mounted as the rail's first child (see
  * {@link module:components/info-rail}), so it sits immediately above the cards.
  *
  * It is the un-hide surface for gate 2: the × on a card {@link module:services/info-cards-manager|hides}

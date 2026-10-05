@@ -4,7 +4,7 @@
 
 /**
  * <info-rail> — the ambient stack of "info cards" parked in the empty sidebar
- * space just above the Bin (Tips, Git status, …). Each card gets the same chrome:
+ * space just above the Bin (Usage, Git status, …). Each card gets the same chrome:
  * an eyebrow label, a × that hides it (bring it back from the info-cards menu the
  * rail heads the stack with), and a content region the card fills itself. The
  * gate-1 enabled card instances are supplied by
@@ -47,7 +47,6 @@
  */
 
 import { providers, isHidden, hideCard, INFO_CARDS_CHANGED_EVENT } from '../services/info-cards-manager.js';
-import { TIPS_CHANGED_EVENT } from '../services/tips-manager.js';
 import './info-cards-button.js';
 import JugglerElement from './juggler-element.js';
 
@@ -132,7 +131,6 @@ class InfoRail extends JugglerElement {
     }
 
     this.onWindow(INFO_CARDS_CHANGED_EVENT, () => this._reconcile());
-    this.onWindow(TIPS_CHANGED_EVENT, () => this._reconcile());
 
     // Reconcile SYNCHRONOUSLY: a ResizeObserver callback runs after layout but
     // before paint, so dropping a card that no longer fits here means the clipped
