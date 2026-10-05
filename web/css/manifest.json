@@ -66,6 +66,7 @@
 				"bell-button",
 				"col-resize-handle",
 				"column-container",
+				"column-viewport",
 				"conversation-area",
 				"conversation-message-list-wrapper",
 				"conversation-tab",

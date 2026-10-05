@@ -14,28 +14,38 @@
  * Both are only worth having if they are keyed to the truth: a fade on a chain
  * that fits is a false cue, and a peek that moves a view the user was already
  * reading is worse than none. That is what these pin.
+ *
+ * The fade is drawn by column-viewport, the box that holds the scroller, and
+ * never by column-container, the scroller itself. WebKitGTK composites a masked
+ * scroll container wrongly: mid-scroll it paints the mask and clip at a stale
+ * offset, so faded copies of columns flash up across the window, even over the
+ * header and sidebar.
  * @module unit-tests/column-edge-test
  */
 
 import { assert } from '../utilities/test-helpers.js';
 import { columnScrollDelta } from '../../js/utils/column-resize.js';
+import '../../js/components/conversation-tab.js';
 
-/** The container, for the CSS half. 1000px of room, 600 tall, off to one side. */
-const CONTAINER_STYLE = 'position:absolute;left:0;top:0;width:1000px;height:600px;';
+/** The viewport, for the CSS half. 1000px of room, 600 tall, off to one side. */
+const VIEWPORT_STYLE = 'position:absolute;left:0;top:0;width:1000px;height:600px;';
 
 /**
- * A mounted column container, to read computed style off the real stylesheet.
- * @param {string[]} classes - Classes to put on it.
- * @returns {{container: HTMLElement, teardown: () => void}} The container and the removal of it.
+ * A mounted viewport and column container, to read computed style off the real
+ * stylesheet.
+ * @param {string[]} classes - Classes to put on both, so a rule keyed to either
+ *   element is given its chance to apply.
+ * @returns {{viewport: HTMLElement, container: HTMLElement, teardown: () => void}} The two elements and the removal of them.
  */
-function mountContainer(classes) {
+function mountViewport(classes) {
+  const viewport = document.createElement('column-viewport');
+  viewport.setAttribute('style', VIEWPORT_STYLE);
   const container = document.createElement('column-container');
-  container.setAttribute('style', CONTAINER_STYLE);
-  container.classList.add(...classes);
-  const column = document.createElement('conversation-area');
-  container.appendChild(column);
-  document.body.appendChild(container);
-  return { container, teardown: () => container.remove() };
+  for (const el of [viewport, container]) el.classList.add(...classes);
+  container.appendChild(document.createElement('conversation-area'));
+  viewport.appendChild(container);
+  document.body.appendChild(viewport);
+  return { viewport, container, teardown: () => viewport.remove() };
 }
 
 /** A container occupying 0…1000 in client coordinates. */
@@ -117,29 +127,78 @@ export async function runTests() {
   check('a chain that fits is not faded', () => {
     // No classes, because _updateColumnOverflow sets neither when there is
     // nothing past either edge. A fade that is always there says nothing.
-    const { container, teardown } = mountContainer([]);
+    const { viewport, teardown } = mountViewport([]);
     try {
-      const mask = window.getComputedStyle(container).maskImage;
+      const mask = window.getComputedStyle(viewport).maskImage;
       assert(mask === 'none',
-        `an unmarked container carries no mask at all, got ${mask}`);
+        `an unmarked viewport carries no mask at all, got ${mask}`);
     } finally {
       teardown();
     }
   });
 
   check('a chain with columns past an edge fades that edge, and only that edge', () => {
-    const { container, teardown } = mountContainer(['overflow-end']);
+    const { viewport, teardown } = mountViewport(['overflow-end']);
     try {
-      const style = window.getComputedStyle(container);
+      const style = window.getComputedStyle(viewport);
       const mask = style.maskImage;
       assert(mask !== 'none' && mask.includes('gradient'),
-        `the marked container masks its edge, got ${mask}`);
+        `the marked viewport masks its edge, got ${mask}`);
       assert(style.getPropertyValue('--column-fade-end').trim() !== '',
         'the end stop is opened up');
       assert(style.getPropertyValue('--column-fade-start').trim() === '',
         'while the start stop, with nothing hidden behind it, is left closed');
     } finally {
       teardown();
+    }
+  });
+
+  check('the scroller itself is never masked', () => {
+    const { container, teardown } = mountViewport(['overflow-start', 'overflow-end']);
+    try {
+      const mask = window.getComputedStyle(container).maskImage;
+      assert(mask === 'none',
+        `column-container scrolls, so it must not carry the fade, got ${mask}`);
+    } finally {
+      teardown();
+    }
+  });
+
+  check('a tab marks the edges on its viewport, from its scroller\'s position', () => {
+    const host = document.createElement('div');
+    host.setAttribute('style', 'position:absolute;left:-9999px;top:0;width:1000px;height:600px;display:flex;');
+    document.body.appendChild(host);
+    try {
+      const tab = /** @type {any} */ (document.createElement('conversation-tab'));
+      tab.classList.add('active');
+      host.appendChild(tab);
+      const viewport = /** @type {HTMLElement|null} */ (tab.querySelector('column-viewport'));
+      const container = /** @type {HTMLElement|null} */ (tab.querySelector('column-viewport > column-container'));
+      assert(!!viewport && !!container, 'the tab renders its scroller inside a column-viewport');
+      if (!viewport || !container) return;
+      // Snapping is the phone layout's; pin the desktop row so the scroll
+      // positions below are taken as written whatever width the window has.
+      container.style.scrollSnapType = 'none';
+      // And the app's smooth scrolling would animate the jump to the end
+      // rather than land it before the next line reads it back.
+      container.style.scrollBehavior = 'auto';
+      const wide = document.createElement('div');
+      wide.style.cssText = 'flex:0 0 3000px;height:10px;';
+      container.appendChild(wide);
+
+      tab._updateColumnOverflow();
+      assert(viewport.classList.contains('overflow-end') && !viewport.classList.contains('overflow-start'),
+        `at the start, only the end is marked, got "${viewport.className}"`);
+
+      container.scrollLeft = container.scrollWidth;
+      tab._updateColumnOverflow();
+      assert(viewport.classList.contains('overflow-start') && !viewport.classList.contains('overflow-end'),
+        `at the end, only the start is marked, got "${viewport.className}"`);
+
+      assert(!container.classList.contains('overflow-start') && !container.classList.contains('overflow-end'),
+        `and the scroller carries neither, got "${container.className}"`);
+    } finally {
+      host.remove();
     }
   });
 

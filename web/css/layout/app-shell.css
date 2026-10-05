@@ -322,10 +322,21 @@ conversation-tab.hidden {
     display: none; /* Explicitly hide inactive tabs */
 }
 
-/* Column container - holds conversation-area columns + properties-panel */
-column-container {
+/* Column viewport - the box that holds the column container and draws its
+   edge fades. It never scrolls; column-container, inside it, does. The zero
+   minimums keep it from growing to fit the columns, which would hand the overflow
+   to whatever holds it and put the fades past the edges they mark. */
+column-viewport {
     --column-fade: 2.5rem;
 
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* Column container - holds conversation-area columns + properties-panel */
+column-container {
     display: flex;
     flex: 1;
     overflow: auto hidden;
@@ -336,18 +347,26 @@ column-container {
 /* A column cut off by an edge of the container looks exactly like a column that
    ends there. Nothing else says otherwise: macOS draws its scrollbar as an
    overlay that fades out at rest, so a chain wider than the window sits there
-   presenting itself as the whole chain. So the container softens whichever edge
-   it is hiding columns behind — the same affordance, and the same shape of one,
-   as the settings tab strip (.settings-tabs-scroll in components/settings.css).
+   presenting itself as the whole chain. So the viewport softens whichever edge
+   the container is hiding columns behind — the same affordance, and the same
+   shape of one, as the settings tab strip (.settings-tabs-scroll in
+   components/settings.css).
+
+   The mask goes on column-viewport, never on column-container. WebKitGTK
+   composites a masked scroll container wrongly: mid-scroll it applies the mask
+   and clip at a stale scroll offset, so faded copies of columns flash up across
+   the window, even over the header and sidebar. A mask on a box that does not
+   scroll stays where it was put.
 
    Keyed to real overflow by _updateColumnOverflow in conversation-tab.js, which
-   toggles .overflow-start / .overflow-end from the scroll position: a chain that
-   fits shows no fade on either edge, and the right fade goes the moment the last
-   column is reached. The mask is declared on those classes rather than on
-   column-container itself so that a chain that fits is not masked at all —
-   masking every conversation in the app to paint nothing is not free. */
-column-container.overflow-start,
-column-container.overflow-end {
+   toggles .overflow-start / .overflow-end on the viewport from the container's
+   scroll position: a chain that fits shows no fade on either edge, and the right
+   fade goes the moment the last column is reached. The mask is declared on those
+   classes rather than on column-viewport itself so that a chain that fits is not
+   masked at all — masking every conversation in the app to paint nothing is not
+   free. */
+column-viewport.overflow-start,
+column-viewport.overflow-end {
     mask-image: linear-gradient(
         to right,
         transparent 0,
@@ -357,11 +376,11 @@ column-container.overflow-end {
     );
 }
 
-column-container.overflow-start {
+column-viewport.overflow-start {
     --column-fade-start: var(--column-fade);
 }
 
-column-container.overflow-end {
+column-viewport.overflow-end {
     --column-fade-end: var(--column-fade);
 }
 
@@ -639,8 +658,8 @@ conversation-message-list-wrapper {
        edges of the container are the edges of a column and there is never a
        clipped one to point at — the fade would only ever dim the two sides of
        whatever you are reading. Paging is its own affordance. */
-    column-container.overflow-start,
-    column-container.overflow-end {
+    column-viewport.overflow-start,
+    column-viewport.overflow-end {
         mask-image: none;
     }
 

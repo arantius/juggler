@@ -66,6 +66,9 @@ class ConversationTab extends JugglerElement {
     /** @type {Conversation|null} @private */
     this._conversation = null;
 
+    /** @type {HTMLElement|null} @private - The non-scrolling box around _columnContainer that draws its edge fades */
+    this._columnViewport = null;
+
     /** @type {HTMLElement|null} @private */
     this._columnContainer = null;
 
@@ -939,10 +942,13 @@ class ConversationTab extends JugglerElement {
    */
   render() {
     this.innerHTML = `
-      <column-container>
-      </column-container>
+      <column-viewport>
+        <column-container>
+        </column-container>
+      </column-viewport>
     `;
 
+    this._columnViewport = this.querySelector('column-viewport');
     this._columnContainer = this.querySelector('column-container');
     this._columns = [];
 
@@ -1005,8 +1011,9 @@ class ConversationTab extends JugglerElement {
 
   /**
    * Mark which edges of the column container have columns hidden behind them,
-   * so the CSS can fade exactly those (see column-container in
-   * layout/app-shell.css). Neither class is set when the chain fits, which is
+   * so the CSS can fade exactly those. The classes go on the viewport around
+   * the container, never on the container: a masked scroller is mis-composited
+   * by WebKitGTK (see column-viewport in layout/app-shell.css). Neither class is set when the chain fits, which is
    * the point: a fade that is always there says nothing.
    *
    * The 1px slack absorbs the fractional scrollLeft a fractional column width or
@@ -1016,10 +1023,11 @@ class ConversationTab extends JugglerElement {
    */
   _updateColumnOverflow() {
     const el = this._columnContainer;
-    if (!el) return;
+    const viewport = this._columnViewport;
+    if (!el || !viewport) return;
     const maxScroll = el.scrollWidth - el.clientWidth;
-    el.classList.toggle('overflow-start', el.scrollLeft > 1);
-    el.classList.toggle('overflow-end', el.scrollLeft < maxScroll - 1);
+    viewport.classList.toggle('overflow-start', el.scrollLeft > 1);
+    viewport.classList.toggle('overflow-end', el.scrollLeft < maxScroll - 1);
   }
 
   /**
