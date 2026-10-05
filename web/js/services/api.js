@@ -677,7 +677,7 @@ class APIService {
     }
     const url = windowControlURL('new', `?${params.toString()}`);
     if (!url) return; // no native host (browser tab) — nothing to open
-    await fetchJson(url, { method: 'POST', errorPrefix: 'Could not open the board' });
+    await fetchJson(url, { method: 'POST', errorPrefix: "Couldn't open that board" });
   }
 
   /**

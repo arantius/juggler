@@ -204,7 +204,59 @@ export const footerNoUndoOfferForSingleItemTest = {
   }
 };
 
+// ============================================================================
+// TEST 3: Rewinding over a running turn still offers the undo.
+// ============================================================================
+
+/**
+ * A rewind while the agent is mid-turn stops that turn as part of the delete.
+ * The turn winding down afterwards is the delete's own doing, not the user
+ * moving on, so it must not take the offer with it.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const footerUndoOfferSurvivesRewindOverRunningTurnTest = {
+  name: 'footer-undo-offer-survives-rewind-over-running-turn',
+  description: 'Rewinding while a turn is running stops it and still leaves the Undo offer on screen once the turn has settled.',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse('first.'),
+    // Streams, then holds: the rewind lands while this turn is still running.
+    textResponse('second, still going', { pauseBeforeReturn: true })
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'one' },
+    { type: 'send-message-no-wait', message: 'two' },
+    { type: 'wait-for-mock-paused' }
+  ],
+
+  async customAssertions(conversation) {
+    const footer = findFooter(conversation);
+    if (!footer) return; // headless
+
+    const root = conversation.rootMessageThread;
+    const status = () => /** @type {any} */ (conversation).processingState?.status;
+    if (!status() || status() === 'idle') {
+      throw new Error(`Expected a running turn before the rewind, got status ${JSON.stringify(status())}`);
+    }
+
+    // Rewind to the first user message (index 1, after the system prompt): the
+    // app's rollback is this call.
+    const removed = conversation.deleteRangeWithCleanup(root, 1);
+    if (removed < 2) throw new Error(`Expected a span removed, got ${removed}`);
+
+    await waitFor(() => status() === 'idle', 5000, 'the stopped turn settles');
+    // Let the settle's own frames — status, undoState — reach the footer.
+    await new Promise(r => setTimeout(r, 300));
+    if (!offerVisible(footer)) {
+      throw new Error('Undo offer was retired by the turn the rewind itself stopped');
+    }
+  }
+};
+
 export const tests = [
   footerOffersUndoAfterSpanDeleteTest,
-  footerNoUndoOfferForSingleItemTest
+  footerNoUndoOfferForSingleItemTest,
+  footerUndoOfferSurvivesRewindOverRunningTurnTest
 ];

@@ -7,6 +7,7 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { attachSwipeDismiss } from '../utils/swipe-dismiss.js';
 import { holdLifted } from '../utils/reorder-drag.js';
 import { openSettings } from './settings-launcher.js';
+import { showNotice } from '../components/modal-dialog.js';
 
 /**
  * @typedef {object} EventListener
@@ -681,7 +682,10 @@ class UIEventManager {
           // If the item class requires upfront user input, collect it now
           let params = {};
           if (typeof /** @type {any} */ (ItemClass).showAddDialog === 'function') {
-            params = await /** @type {any} */ (ItemClass).showAddDialog();
+            params = await /** @type {any} */ (ItemClass).showAddDialog({
+              startDir: conversation.workspaceRoot,
+              localTree: conversation.workspaceHostsLocalProviders,
+            });
             if (params === null) {
               close();
               return;
@@ -743,9 +747,12 @@ class UIEventManager {
       : conversation.rootMessageThread;
     const addedCount = await session.addAIAssistantFiles(conversation, messageThread);
     await session.seedAutoContextItems(conversation, messageThread);
-    if (addedCount === 0) {
-      console.log('[UIEventManager] No AI assistant files found in project');
-    }
+    // A bound conversation is seeded with these files already, so a click that
+    // adds nothing is the common case — and without a word it reads as a dead
+    // menu item.
+    showNotice(addedCount === 0
+      ? 'No assistant files to add — they are already in context, or this project has none.'
+      : `Added ${addedCount} assistant file${addedCount === 1 ? '' : 's'} to context.`);
   }
 
   /**

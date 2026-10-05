@@ -179,6 +179,55 @@ func TestClientHub_DescriptorsCarryTheViewerID(t *testing.T) {
 	}
 }
 
+// TestViewerSocket_PopOutNamesItsOwner: a detached pinboard window connects as
+// an ordinary viewer, so the descriptor is the only place the other viewers can
+// learn it belongs to a window already counted — and not count it again. A
+// malformed owner is dropped, as a malformed viewer id is.
+func TestViewerSocket_PopOutNamesItsOwner(t *testing.T) {
+	_, ts := newViewerSocketServer(t)
+	for _, tc := range []struct{ name, owner, want string }{
+		{"a valid owner", "v_owner", "v_owner"},
+		{"a malformed owner", "not valid", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			self := "v_popout_" + strings.ReplaceAll(tc.name, " ", "_")
+			dialURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?role=viewer&viewerId=" +
+				url.QueryEscape(self) + "&owner=" + url.QueryEscape(tc.owner)
+			conn, resp, err := websocket.DefaultDialer.Dial(dialURL, nil)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			if err != nil {
+				t.Fatalf("viewer WS dial failed: %v", err)
+			}
+			defer func() { _ = conn.Close() }()
+
+			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			for {
+				_, msgBytes, err := conn.ReadMessage()
+				if err != nil {
+					t.Fatalf("no clients-changed naming this viewer arrived: %v", err)
+				}
+				var frame struct {
+					Type    string             `json:"type"`
+					Clients []clientDescriptor `json:"clients"`
+				}
+				if json.Unmarshal(msgBytes, &frame) != nil || frame.Type != "clients-changed" {
+					continue
+				}
+				for _, d := range frame.Clients {
+					if d.ViewerID == self {
+						if d.OwnerViewerID != tc.want {
+							t.Fatalf("descriptor carried owner %q, want %q", d.OwnerViewerID, tc.want)
+						}
+						return
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestClientHub_DescriptorOmitsAnAbsentViewerID: a client with no id of its own
 // (the WebRTC data channel has nowhere to carry one) leaves the field off the
 // wire rather than publishing an empty name others might try to address.

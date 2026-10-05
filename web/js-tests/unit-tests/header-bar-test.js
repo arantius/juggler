@@ -212,8 +212,14 @@ export async function runTests() {
       },
       off: (/** @type {string} */ type, /** @type {(data: any) => void} */ fn) => { listeners.get(type)?.delete(fn); },
     };
-    const clientsChanged = (/** @type {number} */ count) => {
-      for (const fn of listeners.get('clients-changed') || []) fn({ count, clients: [] });
+    // `count` windows of their own, plus `popOuts` pinboards detached from one
+    // of them — which the server counts like any viewer and names the owner of.
+    const clientsChanged = (/** @type {number} */ count, popOuts = 0) => {
+      const clients = [
+        ...Array.from({ length: count }, (_, i) => ({ id: `c${i}`, viewerId: `v${i}` })),
+        ...Array.from({ length: popOuts }, (_, i) => ({ id: `p${i}`, viewerId: `pv${i}`, ownerViewerId: 'v0' })),
+      ];
+      for (const fn of listeners.get('clients-changed') || []) fn({ count: clients.length, clients });
     };
     const binding = bindNetworkClients(get('network-button'), { events, seed: async () => 2 });
     try {
@@ -249,6 +255,13 @@ export async function runTests() {
       clientsChanged(1);
       assert(!shown() && button.title === 'Network settings' && !button.classList.contains('has-clients'),
         'the count goes away when the others leave');
+
+      // A detached pinboard is this window's own, not somebody else sharing it.
+      clientsChanged(1, 2);
+      assert(!shown(), `popped-out pinboards are not other clients, got shown=${shown()} count=${count()}`);
+      clientsChanged(2, 3);
+      assert(shown() && count() === '1', `pop-outs leave the real others counted, got count=${count()}`);
+      clientsChanged(1);
 
       binding.dispose();
       clientsChanged(5);

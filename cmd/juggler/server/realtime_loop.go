@@ -21,6 +21,7 @@ type ClientInfo struct {
 	Detail      string // LAN IP, or the remote transport label; empty for local
 	UserAgent   string // raw User-Agent, when the transport carried one
 	ConnectedAt int64  // connection time, unix milliseconds
+	Owner       string // viewer id of the window a detached pinboard belongs to; empty for a window of its own
 }
 
 // RealtimeClient is the transport-independent server-side client surface used

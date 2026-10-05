@@ -1382,6 +1382,13 @@ export async function executeUIOperation(harness, op) {
         if (!aiFilesItem) throw new Error(`add-ai-files-to-sub-thread: "AI assistant files" menu item not found (found: ${menuItemsAI.map(el => el.textContent.trim()).join(', ')})`);
         aiFilesItem.click();
         await waitForElementGone('.context-item-add-dropdown');
+        // The click must say what it did: whether it added files or found
+        // nothing new, a silent menu item reads as broken.
+        const noticeAI = /** @type {any} */ (await waitForElement('modal-dialog.is-notice.show'));
+        if (!/Added 1 assistant file\b/.test(noticeAI.textContent || '')) {
+          throw new Error(`add-ai-files-to-sub-thread: expected an "Added 1 assistant file" notice, got: ${JSON.stringify((noticeAI.textContent || '').trim())}`);
+        }
+        noticeAI.close?.(null);
         await driver.waitForDOMStable(0, 3000);
       } finally {
         fakeBtnAI.remove();

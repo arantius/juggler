@@ -98,6 +98,10 @@ export { openImageLightbox, createImageThumb } from '../js/utils/image-lightbox.
 // Project-picker panel (used by file/path-selecting items)
 export { buildPickerPanel } from '../js/components/project-picker.js';
 
+// The desktop app's native chooser, for an item that can skip the typed-path
+// panel when there is an OS dialog to ask instead
+export { hasNativeHost, pickFile } from './lib/window-control.js';
+
 // Clipboard, for a control that copies something without being a copy button
 export { copyToClipboard } from './lib/clipboard.js';
 

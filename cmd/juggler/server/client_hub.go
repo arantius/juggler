@@ -46,14 +46,17 @@ type hubOp struct {
 // viewers (via clients-changed and GET /api/connectivity) so the UI can list who
 // shares the session. The id lets each recipient exclude itself; the viewer id,
 // when the client supplied one, is how a viewer that holds another's identity
-// can tell whether it is still connected.
+// can tell whether it is still connected. The owner, set on a detached pinboard
+// window, names the viewer it was popped out of — so the UI can count it as part
+// of that window rather than as another client.
 type clientDescriptor struct {
-	ID          string `json:"id"`
-	ViewerID    string `json:"viewerId,omitempty"`
-	Origin      string `json:"origin"`
-	Detail      string `json:"detail"`
-	UserAgent   string `json:"userAgent"`
-	ConnectedAt int64  `json:"connectedAt"`
+	ID            string `json:"id"`
+	ViewerID      string `json:"viewerId,omitempty"`
+	OwnerViewerID string `json:"ownerViewerId,omitempty"`
+	Origin        string `json:"origin"`
+	Detail        string `json:"detail"`
+	UserAgent     string `json:"userAgent"`
+	ConnectedAt   int64  `json:"connectedAt"`
 }
 
 type clientHub struct {
@@ -99,12 +102,13 @@ func (h *clientHub) run() {
 			}
 			info := hc.c.ClientInfo()
 			list = append(list, clientDescriptor{
-				ID:          hc.c.ClientID(),
-				ViewerID:    hc.c.ViewerID(),
-				Origin:      info.Origin,
-				Detail:      info.Detail,
-				UserAgent:   info.UserAgent,
-				ConnectedAt: info.ConnectedAt,
+				ID:            hc.c.ClientID(),
+				ViewerID:      hc.c.ViewerID(),
+				OwnerViewerID: info.Owner,
+				Origin:        info.Origin,
+				Detail:        info.Detail,
+				UserAgent:     info.UserAgent,
+				ConnectedAt:   info.ConnectedAt,
 			})
 		}
 		return list

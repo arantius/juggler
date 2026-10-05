@@ -80,6 +80,8 @@ export const renderMarkdownWrapped = () => domUnavailable('renderMarkdownWrapped
 export const decorateCodeBlocks = () => domUnavailable('decorateCodeBlocks');
 export const escapeXmlTagsForMarkdown = () => domUnavailable('escapeXmlTagsForMarkdown');
 export const buildPickerPanel = () => domUnavailable('buildPickerPanel');
+export const hasNativeHost = () => domUnavailable('hasNativeHost');
+export const pickFile = () => domUnavailable('pickFile');
 export const copyToClipboard = () => domUnavailable('copyToClipboard');
 export const revealLabel = () => domUnavailable('revealLabel');
 export const createHighlightedCode = () => domUnavailable('createHighlightedCode');

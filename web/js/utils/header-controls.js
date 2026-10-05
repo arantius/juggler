@@ -29,13 +29,25 @@ import { apiUrl } from './api-url.js';
  */
 
 /**
- * The server's count of connected clients, including this one; null when it
+ * How many of the connected viewers are windows of their own. A detached
+ * pinboard connects as a viewer like any other, but it is part of the window it
+ * was popped out of (it names that window as its owner), not somebody else
+ * sharing the session.
+ * @param {Array<{ownerViewerId?: string}>|undefined} clients - The server's viewer list.
+ * @returns {number} The count, including this window.
+ */
+function windowsOfTheirOwn(clients) {
+  return (clients || []).filter((c) => !c.ownerViewerId).length;
+}
+
+/**
+ * The server's count of connected windows, including this one; null when it
  * cannot be read.
  * @returns {Promise<number|null>} The count.
  */
 async function fetchClientCount() {
   const c = await fetchJson(apiUrl('/connectivity'), { fallback: null });
-  return c ? c.clientCount : null;
+  return c ? windowsOfTheirOwn(c.clients) : null;
 }
 
 /**
@@ -69,7 +81,7 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
   };
 
   let disposed = false;
-  const onChange = (/** @type {any} */ data) => show(data?.count);
+  const onChange = (/** @type {any} */ data) => show(windowsOfTheirOwn(data?.clients));
   events.on('clients-changed', onChange);
   // The join broadcast may have fired before this listener was attached, so
   // read the authoritative count once. A later clients-changed corrects an

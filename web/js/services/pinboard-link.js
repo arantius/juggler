@@ -316,22 +316,27 @@ export const ownerLink = {
    * into a window of its own, move it to the other screen. A popup is a window
    * they cannot make into a tab, chosen for them.
    *
-   * A tab the browser declined to open is the one thing worth reporting —
-   * everything else either worked or is the desktop app's to say.
+   * A tab the browser declined to open, or a window the desktop app refused, is
+   * reported: the caller puts the overlay away on success, so a failure kept to
+   * the console reads as a button that does nothing. The app answers before it
+   * builds the window, so this waits on the request and not on the window.
    * @param {string} boardId - The board the window is.
    * @param {string} pinId - The pin it opens on, or '' for none.
    * @param {string} conversationId - The conversation it is a view of.
    * @param {FrameHint|null} [frame] - Where the board is on screen now, for the
    *   window to open near.
-   * @returns {string} A complaint for the status line, or '' when it opened.
+   * @returns {Promise<string>} A complaint for the status line, or '' when it opened.
    */
-  openBoardWindow(boardId, pinId, conversationId, frame = null) {
+  async openBoardWindow(boardId, pinId, conversationId, frame = null) {
     if (hasNativeHost()) {
       // The app opens it on this window's own server, which is what puts the
       // two on one project.
-      void api.openPinboardWindow(wsService.viewerId, boardId, pinId, conversationId, frame).catch((err) => {
-        console.error('[Pinboard] Could not open a detached board:', err);
-      });
+      try {
+        await api.openPinboardWindow(wsService.viewerId, boardId, pinId, conversationId, frame);
+      } catch (err) {
+        // Already worded for the status line by the request's error prefix.
+        return extractErrorMessage(err) || "Couldn't open that board.";
+      }
       return '';
     }
     // A tab is opened where the browser opens tabs. The measurement is the
@@ -366,7 +371,7 @@ export const ownerLink = {
     for (const board of boards) {
       // No pin: this window doesn't know which tab the board was showing. The
       // board window stores that as its own preference and reopens on it.
-      this.openBoardWindow(board.id, '', board.conversation);
+      void this.openBoardWindow(board.id, '', board.conversation);
     }
     return boards.length;
   },

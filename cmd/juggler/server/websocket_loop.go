@@ -91,7 +91,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Create WSClient with dedicated writer goroutine
 	viewerID := sanitiseViewerID(r.URL.Query().Get("viewerId"))
-	client := NewWSClient(conn, role, viewerID, clientInfoFromRequest(r), s.stats)
+	info := clientInfoFromRequest(r)
+	// A detached pinboard names the window it was popped out of. The same
+	// alphabet as a viewer id, because it is one and is relayed the same way.
+	info.Owner = sanitiseViewerID(r.URL.Query().Get("owner"))
+	client := NewWSClient(conn, role, viewerID, info, s.stats)
 	defer client.Close()
 
 	msgCh := make(chan []byte, 100)

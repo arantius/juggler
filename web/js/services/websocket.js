@@ -8,6 +8,7 @@ import { fetchJson } from './http.js';
 import { apiUrl, wsUrl } from '../utils/api-url.js';
 import { WSChunkReassembler, WS_CHUNK_KIND_TEXT } from '../utils/ws-chunk.js';
 import { viewerId } from '../utils/viewer-id.js';
+import { ownerViewerId } from '../utils/view-mode.js';
 import { reportFault } from '../utils/fault-report.js';
 
 const WEBRTC_CHUNK_TYPE = '__juggler_dc_chunk';
@@ -377,9 +378,13 @@ class WebSocketService {
     // The engine needs no identity and sends none.
     const id = role === 'viewer' ? viewerId() : '';
     const viewerParam = id ? `&viewerId=${encodeURIComponent(id)}` : '';
+    // A detached pinboard says whose window it is, so the others count it as
+    // part of that window rather than as one more client sharing the session.
+    const owner = role === 'viewer' ? ownerViewerId() : '';
+    const ownerParam = owner ? `&owner=${encodeURIComponent(owner)}` : '';
     // wsUrl reads globalThis.location, which works in both the window and a
     // module worker, so the engine builds its URL off-thread the same way.
-    this._transport = new WebSocket(wsUrl(`role=${role}${tokenParam}${viewerParam}`));
+    this._transport = new WebSocket(wsUrl(`role=${role}${tokenParam}${viewerParam}${ownerParam}`));
     this._configureTransport(this._transport, 'WebSocket');
   }
 
