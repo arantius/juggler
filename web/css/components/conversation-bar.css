@@ -68,6 +68,39 @@ conversation-bar .conversation-bar {
     padding: 0;
 }
 
+/* The box around the tab list. It never scrolls; the list inside it does. It
+   takes the whole column but for what the info rail below needs, so the list
+   always runs down to the topmost card and no space is left unaccounted for, and
+   the list scrolls only once it has genuinely filled that room (see the info-rail
+   flex below, which sizes to its cards rather than to the leftovers). */
+conversation-bar .conversation-tabs-viewport {
+    --tab-list-fade: 2.5rem;
+
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* A list longer than its room fades out at the bottom, so rows carrying on below
+   read as more list rather than as rows cut off by the info rail. Set by
+   _updateTabListOverflow in conversation-bar.js only while there is more list
+   below, so a list that fits, or one scrolled to its end, keeps full contrast.
+
+   The mask goes on the viewport, never on .conversation-tabs. WebKitGTK
+   composites a masked scroll container wrongly: mid-scroll it applies the mask
+   and clip at a stale scroll offset, so faded copies of rows flash up out of
+   place. A mask on a box that does not scroll stays where it was put. The drag
+   ghost is parked on the conversation-bar host, outside this box, so the mask
+   never cuts it off. */
+conversation-bar .conversation-tabs-viewport.overflow-end {
+    mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--tab-list-fade)),
+        transparent 100%
+    );
+}
+
 conversation-bar .conversation-tabs {
     display: flex;
     flex-direction: column;
@@ -83,10 +116,7 @@ conversation-bar .conversation-tabs {
     list-style: none;
     overflow: auto;
 
-    /* Takes the whole column but for what the info rail below needs, so the list
-       always runs down to the topmost card and no space is left unaccounted for.
-       It scrolls only once it has genuinely filled that room (see the info-rail
-       flex below, which sizes to its cards rather than to the leftovers). */
+    /* Fills its viewport, which is what is sized against the info rail. */
     flex: 1 1 auto;
     min-height: 0;
 

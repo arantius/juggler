@@ -174,6 +174,7 @@ import { runTests as runPrefsTests } from '../unit-tests/prefs-test.js';
 import { runTests as runColumnWidthTests } from '../unit-tests/column-width-test.js';
 import { runTests as runColumnFitTests } from '../unit-tests/column-fit-test.js';
 import { runTests as runColumnEdgeTests } from '../unit-tests/column-edge-test.js';
+import { runTests as runTabListEdgeTests } from '../unit-tests/tab-list-edge-test.js';
 import { runTests as runThemeToggleTests } from '../unit-tests/theme-toggle-test.js';
 import { runTests as runToolNameResolutionTests } from '../unit-tests/tool-name-resolution-test.js';
 import { runTests as runNewTabUxTests } from '../unit-tests/new-tab-ux-test.js';
@@ -607,6 +608,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:column-width', run: runColumnWidthTests, needsExclusiveRun: true },
   { name: 'unit:column-fit', run: runColumnFitTests },
   { name: 'unit:column-edge', run: runColumnEdgeTests },
+  { name: 'unit:tab-list-edge', run: runTabListEdgeTests },
   // Exclusive: it repaints data-theme and stubs matchMedia for the length of a
   // case, both of which are document-wide.
   { name: 'unit:theme-toggle', run: runThemeToggleTests, needsExclusiveRun: true },

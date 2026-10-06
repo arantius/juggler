@@ -100,7 +100,7 @@ const UNDO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 9
 // Keys in `_cachedElements` that name the bar's own furniture rather than a
 // conversation tab, so render()'s cleanup pass leaves them alone.
 const CHROME_ELEMENT_KEYS = new Set([
-  'nav', 'tabs-menu', 'add-button', 'new-workspace', 'bin-button', 'bin-undo', 'info-rail'
+  'nav', 'tabs-viewport', 'tabs-menu', 'add-button', 'new-workspace', 'bin-button', 'bin-undo', 'info-rail'
 ]);
 
 // The rows of the strip that make something rather than hold something: the "+"
@@ -207,6 +207,9 @@ class ConversationBar extends JugglerElement {
     /** @type {number|null} @private Pending frame for a coalesced render (see _scheduleRender) */
     this._renderFrame = null;
 
+    /** @type {ResizeObserver|null} @private Re-marks the tab list's bottom fade when its box changes (see _updateTabListOverflow) */
+    this._tabListObserver = null;
+
     /** @type {boolean} @private A render arrived while dragging and is owed on release */
     this._renderDeferred = false;
 
@@ -258,6 +261,26 @@ class ConversationBar extends JugglerElement {
     }
     this._cancelCycle();
     this._hideBinUndo();
+    this._tabListObserver?.disconnect();
+    this._tabListObserver = null;
+  }
+
+  /**
+   * Mark the tab list's viewport while there is more list below its bottom
+   * edge, so the CSS fades that edge (see .conversation-tabs-viewport in
+   * conversation-bar.css). The class goes on the viewport, never on the list:
+   * a masked scroller is mis-composited by WebKitGTK.
+   *
+   * The 1px slack absorbs the fractional scrollTop a non-integer device pixel
+   * ratio produces, which would otherwise leave the fade lit at the end.
+   * @private
+   */
+  _updateTabListOverflow() {
+    const list = this._cachedElements.get('tabs-menu');
+    const viewport = this._cachedElements.get('tabs-viewport');
+    if (!list || !viewport) return;
+    const maxScroll = list.scrollHeight - list.clientHeight;
+    viewport.classList.toggle('overflow-end', list.scrollTop < maxScroll - 1);
   }
 
   /**
@@ -910,13 +933,32 @@ class ConversationBar extends JugglerElement {
       setupColumnResize(this, 'juggler-tab-sidebar-width', 8);
     }
 
+    // Get or create the box the tabs menu scrolls inside. It draws the menu's
+    // bottom fade, which cannot go on the menu itself (see
+    // .conversation-tabs-viewport in conversation-bar.css).
+    let tabsViewport = /** @type {HTMLElement|null} */ (this._cachedElements.get('tabs-viewport'));
+    if (!tabsViewport) {
+      tabsViewport = document.createElement('div');
+      tabsViewport.className = 'conversation-tabs-viewport';
+      this._cachedElements.set('tabs-viewport', tabsViewport);
+      nav.appendChild(tabsViewport);
+    }
+
     // Get or create tabs menu container (only created once, preserves scroll position)
     let tabsMenu = /** @type {HTMLElement|null} */ (this._cachedElements.get('tabs-menu'));
     if (!tabsMenu) {
       tabsMenu = document.createElement('menu');
       tabsMenu.className = 'conversation-tabs';
       this._cachedElements.set('tabs-menu', tabsMenu);
-      nav.appendChild(tabsMenu);
+      tabsViewport.appendChild(tabsMenu);
+      tabsMenu.addEventListener('scroll', () => this._updateTabListOverflow(), { passive: true });
+    }
+    // The observer catches the menu's own box changing — the window resizing,
+    // the info rail below taking more or less of the column. It is dropped on
+    // disconnect, so it is re-made here rather than alongside the menu.
+    if (!this._tabListObserver && typeof ResizeObserver !== 'undefined') {
+      this._tabListObserver = new ResizeObserver(() => this._updateTabListOverflow());
+      this._tabListObserver.observe(tabsMenu);
     }
 
     // Ambient info cards (Usage, Git status, …), parked in the empty space above
@@ -1147,6 +1189,10 @@ class ConversationBar extends JugglerElement {
     // tabs and boxes it knows about, and this belongs to none of those runs — it
     // simply comes after all of them, however they end up ordered.
     if (tabsMenu.lastChild !== newWorkspace) tabsMenu.appendChild(newWorkspace);
+
+    // Rows arriving or leaving change how much list there is below the fold
+    // without changing the menu's own box, so the observer would not notice.
+    this._updateTabListOverflow();
 
     // The info rail is NOT reconciled from here. It measures itself off its own
     // ResizeObserver, and its height is this column's leftover space (flex: 1 1 0),

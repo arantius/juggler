@@ -107,10 +107,12 @@ function mountColumn({ height, tabs }) {
     </li>`).join('');
 
   // Stands in for conversation-bar.render()'s output: the column, the scrolling
-  // tab list, the rail, and the Bin that pins the bottom.
+  // tab list in its viewport, the rail, and the Bin that pins the bottom.
   bar.innerHTML = `
     <nav class="conversation-bar">
-      <menu class="conversation-tabs">${tabMarkup}</menu>
+      <div class="conversation-tabs-viewport">
+        <menu class="conversation-tabs">${tabMarkup}</menu>
+      </div>
       <info-rail></info-rail>
       <button class="conversation-bin" style="height:28px;flex:0 0 auto;">Bin</button>
     </nav>`;
