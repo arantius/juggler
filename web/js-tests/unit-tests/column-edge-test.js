@@ -153,6 +153,26 @@ export async function runTests() {
     }
   });
 
+  check('scrolled to the end, the start edge stays faded on its own', () => {
+    // The end stop is closed by its var() fallback, which sits inside a calc()
+    // against 100%. A unitless fallback there is invalid at computed-value time,
+    // and the whole mask-image falls back to none: the start fade vanished at
+    // exactly the scroll position where it is the only one wanted.
+    const { viewport, teardown } = mountViewport(['overflow-start']);
+    try {
+      const style = window.getComputedStyle(viewport);
+      const mask = style.maskImage;
+      assert(mask !== 'none' && mask.includes('gradient'),
+        `a viewport marked only at the start still masks, got ${mask}`);
+      assert(style.getPropertyValue('--column-fade-start').trim() !== '',
+        'the start stop is opened up');
+      assert(style.getPropertyValue('--column-fade-end').trim() === '',
+        'while the end stop is left closed');
+    } finally {
+      teardown();
+    }
+  });
+
   check('the scroller itself is never masked', () => {
     const { container, teardown } = mountViewport(['overflow-start', 'overflow-end']);
     try {

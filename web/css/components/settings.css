@@ -532,7 +532,9 @@ settings-panel .settings-tabs-scroll {
         to right,
         transparent 0,
         #000 var(--tab-fade-start, 0),
-        #000 calc(100% - var(--tab-fade-end, 0)),
+        /* A length, not a bare 0: calc() cannot subtract a unitless number
+           from a percentage, and the invalid result drops the whole mask. */
+        #000 calc(100% - var(--tab-fade-end, 0rem)),
         transparent 100%
     );
 }

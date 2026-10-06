@@ -371,7 +371,9 @@ column-viewport.overflow-end {
         to right,
         transparent 0,
         #000 var(--column-fade-start, 0),
-        #000 calc(100% - var(--column-fade-end, 0)),
+        /* A length, not a bare 0: calc() cannot subtract a unitless number
+           from a percentage, and the invalid result drops the whole mask. */
+        #000 calc(100% - var(--column-fade-end, 0rem)),
         transparent 100%
     );
 }
