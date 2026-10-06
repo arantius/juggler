@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Image viewer zooms with trackpad pinch, Ctrl-scroll, keys or toolbar, and drags to pan
 - Claude Code without its CLI installed greys out instead of failing every turn
 - A missing-CLI error offers another model and Provider settings, not just Retry
 - The claude CLI is found in nvm, fnm, bun, pnpm, volta, mise and asdf installs

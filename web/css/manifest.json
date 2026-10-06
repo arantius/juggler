@@ -158,6 +158,9 @@
 			"owns": [
 				"code-block",
 				"image-lightbox",
+				"image-lightbox-btn",
+				"image-lightbox-level",
+				"image-lightbox-toolbar",
 				"modal-backdrop",
 				"modal-panel",
 				"token-display"

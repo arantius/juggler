@@ -59,11 +59,14 @@ modal-panel {
     overflow: hidden;
 }
 
-/* Full-size image lightbox: click an attached image to open it centered over a
-   dimmed backdrop; click anywhere or press Escape to dismiss (image-lightbox.js).
+/* Full-size image lightbox: click an attached image to open it fitted over a
+   dimmed backdrop; pinch, Ctrl-wheel, the toolbar or a click on the image zooms,
+   dragging pans; a backdrop click or Escape dismisses (image-lightbox.js).
    The one surface that deliberately does not take --modal-scrim: it is not
    dimming a panel behind a dialog, it is giving the image a dark surround to be
-   seen against, and it never stacks over another modal. */
+   seen against, and it never stacks over another modal.
+   touch-action: none hands touch pinch and pan to the script rather than the
+   page. */
 .image-lightbox {
     position: fixed;
     inset: 0;
@@ -71,9 +74,12 @@ modal-panel {
     align-items: center;
     justify-content: center;
     padding: 2rem;
+    overflow: hidden;
     background: var(--overlay-dark-70);
     z-index: var(--z-modal);
     cursor: zoom-out;
+    touch-action: none;
+    user-select: none;
 }
 
 .image-lightbox .image-lightbox-img {
@@ -82,6 +88,68 @@ modal-panel {
     object-fit: contain;
     border-radius: var(--radius-xl);
     box-shadow: var(--popup-shadow);
+    transform-origin: center;
+    cursor: zoom-in;
+}
+
+/* Discrete zooms (buttons, keys, a click) ease; pinch, wheel and drag track
+   the input exactly, so they get no transition. */
+.image-lightbox:where(.is-stepping) .image-lightbox-img {
+    transition: transform var(--transition-fast);
+}
+
+.image-lightbox:where(.is-zoomed) .image-lightbox-img {
+    border-radius: 0;
+    cursor: grab;
+}
+
+.image-lightbox:where(.is-zoomed) {
+    cursor: grab;
+}
+
+.image-lightbox:where(.is-panning),
+.image-lightbox:where(.is-panning) .image-lightbox-img {
+    cursor: grabbing;
+}
+
+/* The zoom toolbar. Selectors are held to one class (state in :where) so this
+   pattern sheet never outranks a component rule. */
+.image-lightbox-toolbar {
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.25rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-floating);
+    border-radius: var(--radius-popup);
+    box-shadow: var(--popup-shadow);
+    cursor: default;
+}
+
+.image-lightbox-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.375rem;
+    border-radius: var(--radius-popup-item);
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.image-lightbox-btn:where(:hover:not(:disabled)) {
+    background: var(--overlay-light-10);
+    color: var(--text-primary);
+}
+
+.image-lightbox-level {
+    min-width: 3.5rem;
 }
 
 /* Token Display Component */

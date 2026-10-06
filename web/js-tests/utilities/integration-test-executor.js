@@ -250,6 +250,7 @@ import { runTests as runColumnNavigationTests } from '../unit-tests/column-navig
 import { runTests as runDeleteSelectionNeighbourTests } from '../unit-tests/delete-selection-neighbour-test.js';
 import { runTests as runControlClickRevealTests } from '../unit-tests/control-click-reveal-test.js';
 import { runTests as runTabHideFocusTests } from '../unit-tests/tab-hide-focus-test.js';
+import { runTests as runImageLightboxTests } from '../unit-tests/image-lightbox-test.js';
 import { runTests as runNewThreadFocusTests } from '../unit-tests/new-thread-focus-test.js';
 import { runTests as runApprovalFocusReturnTests } from '../unit-tests/approval-focus-return-test.js';
 import { runTests as runApprovalDraftFocusTests } from '../unit-tests/approval-draft-focus-test.js';
@@ -679,6 +680,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:delete-selection-neighbour', run: runDeleteSelectionNeighbourTests, needsExclusiveRun: true },
   { name: 'unit:control-click-reveal', run: runControlClickRevealTests },
   { name: 'unit:tab-hide-focus', run: runTabHideFocusTests },
+  { name: 'unit:image-lightbox', run: runImageLightboxTests },
   { name: 'unit:new-thread-focus', run: runNewThreadFocusTests, needsExclusiveRun: true },
   { name: 'unit:arrow-key-thread-focus', run: runArrowKeyThreadFocusTests, needsExclusiveRun: true },
   { name: 'unit:approval-focus-return', run: runApprovalFocusReturnTests, needsExclusiveRun: true },
