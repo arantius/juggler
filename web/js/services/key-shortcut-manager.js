@@ -28,6 +28,7 @@
  */
 
 import { isAnyPopupOpen } from '../utils/popup-manager.js';
+import { hasNativeHost } from '../../sdk/lib/window-control.js';
 
 /**
  * A platform-agnostic key binding.
@@ -46,6 +47,10 @@ import { isAnyPopupOpen } from '../utils/popup-manager.js';
  *   not dispatched, not listed and not advertised, so a key we deliberately
  *   left unbound there is never shown. A command whose every binding is
  *   restricted this way disappears from that platform's listings entirely.
+ * @property {'mac'} [browserClaims] - A browser keeps this key for itself on
+ *   that platform family and never delivers it to the page. In a browser tab
+ *   there the binding is treated like one restricted by `platform` — not
+ *   dispatched, listed or advertised; the desktop app still has it.
  */
 
 /**
@@ -170,14 +175,16 @@ const NAMED_KEY_LABELS = {
 };
 
 /**
- * Does a binding ship on the given platform? A binding without a `platform` is
- * every platform's.
+ * Does a binding ship on the given platform, on this surface? A binding without
+ * a `platform` is every platform's; one with `browserClaims` for that platform
+ * is the desktop app's only.
  * @param {KeyBinding} binding
  * @param {boolean} mac - True to ask about macOS, false about Windows/Linux.
  * @returns {boolean} True when the binding is bound there.
  */
 function bindingShipsOn(binding, mac) {
-  return !binding.platform || (binding.platform === 'mac') === mac;
+  if (binding.platform && (binding.platform === 'mac') !== mac) return false;
+  return !(binding.browserClaims === 'mac' && mac && !hasNativeHost());
 }
 
 /**
@@ -503,10 +510,10 @@ const SHORTCUT_DEFS = [
     category: 'View',
     // ⌘, / Ctrl+, is the platform Settings key: macOS's standard, and the one
     // cross-platform apps use on Windows and Linux, where no OS key exists. Every
-    // macOS browser claims ⌘, for its own settings, so the handler stands down in
-    // a browser tab there; no browser claims Ctrl+, elsewhere. Fires from the
+    // macOS browser claims ⌘, for its own settings, so in a browser tab there the
+    // key is not ours; no browser claims Ctrl+, elsewhere. Fires from the
     // composer: the command modifier means it never lands as typed text.
-    defaultBinding: { mod: true, key: ',' },
+    defaultBinding: { mod: true, key: ',', browserClaims: 'mac' },
     allowInInput: true,
   },
   {

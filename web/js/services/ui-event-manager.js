@@ -44,17 +44,7 @@ import { isToolGroupingEnabled, toggleToolGrouping, TOOL_GROUPING_EVENT } from '
 import { zoomIn, zoomOut } from '../utils/zoom-manager.js';
 import { setupHeaderOverflowMenu } from '../utils/header-overflow-menu.js';
 import { isAutoNameEnabled } from './auto-name-setting.js';
-import keyShortcutManager, { isMac } from './key-shortcut-manager.js';
-import { hasNativeHost } from '../../sdk/lib/window-control.js';
-
-/**
- * Whether the open-settings key opens Juggler's Settings here. In a macOS
- * browser tab ⌘, belongs to the browser's own settings, so it does not.
- * @returns {boolean} True in the desktop app, and everywhere off macOS.
- */
-function openSettingsShortcutLive() {
-  return !(isMac() && !hasNativeHost());
-}
+import keyShortcutManager from './key-shortcut-manager.js';
 
 /**
  * UIEventManager
@@ -230,10 +220,7 @@ class UIEventManager {
       openSettings('shortcuts');
       return true;
     });
-    // ⌘, in a macOS browser tab belongs to the browser's own settings, so return
-    // false and let it through; the desktop app and Ctrl+, elsewhere open ours.
     this._unregisterOpenSettings = keyShortcutManager.register('open-settings', () => {
-      if (!openSettingsShortcutLive()) return false;
       openSettings();
       return true;
     });
@@ -427,11 +414,6 @@ class UIEventManager {
     if (!settingsButton) {
       console.error('[UIEventManager] Settings button not found');
       return;
-    }
-
-    // Advertise the Settings key in the tooltip only where it opens ours.
-    if (openSettingsShortcutLive()) {
-      settingsButton.setAttribute('data-shortcut-id', 'open-settings');
     }
 
     // Open settings panel when clicked
