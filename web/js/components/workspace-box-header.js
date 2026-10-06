@@ -125,8 +125,8 @@ class WorkspaceBoxHeader extends HTMLElement {
     const name = this.querySelector('.conversation-box-label-text');
     if (name && name.textContent !== label) name.textContent = label;
     this.classList.toggle('is-dirty', dirty);
-    // A tooltip repeating the name says nothing the lozenge doesn't, so there
-    // is one only to put the dirty dot into words.
+    // A tooltip repeating a name the lozenge shows in full says nothing, so the
+    // header's own is only to put the dirty dot into words.
     if (dirty) this.title = 'Holding uncommitted work';
     else this.removeAttribute('title');
   }
@@ -147,6 +147,9 @@ class WorkspaceBoxHeader extends HTMLElement {
     name.className = 'item-lozenge conversation-box-label';
     const text = document.createElement('span');
     text.className = 'conversation-box-label-text';
+    // Cut short, the name is offered in full by the tooltip manager; when it
+    // fits, the header's own title (the uncommitted-work note) stands.
+    text.setAttribute('data-tooltip-overflow', '');
     name.appendChild(text);
     title.appendChild(name);
 

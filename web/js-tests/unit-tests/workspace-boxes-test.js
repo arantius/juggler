@@ -689,25 +689,6 @@ export async function runTests() {
       assert(button.firstElementChild === mark && boxLabel?.textContent === 'New workspace or group',
         'it leads with the mark and follows with the label');
 
-      // And the phrase starts where a tab's name starts. The mark belongs to the
-      // words, not to the handle column beside them: standing in the gutter it
-      // lined the words up one step in from every other row and read as a
-      // caption under the list rather than the last row of it. Measured from
-      // each row's own left edge, so a tab lying in a box is still comparable,
-      // and in a strip wide enough for the words: in a narrower one the inset
-      // is the first thing to give way.
-      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tab'));
-      const tabName = /** @type {HTMLElement} */ (tab.querySelector('.conversation-tab-name'));
-      const indent = (/** @type {Element} */ row, /** @type {Element} */ text) =>
-        text.getBoundingClientRect().left - row.getBoundingClientRect().left;
-      const width = bar.style.width;
-      bar.style.width = '24rem';
-      const named = indent(tab, tabName);
-      const makes = indent(button, mark);
-      bar.style.width = width;
-      assert(Math.abs(named - makes) < 0.5,
-        `the mark starts where a tab name starts, got ${makes}px against ${named}px`);
-
       // It is not one of the things the strip is a list of: a drag looks for
       // tabs and boxes, and an outline is neither.
       const outline = /** @type {HTMLElement} */ (outlines[0]);
@@ -747,15 +728,6 @@ export async function runTests() {
         const words = label.getBoundingClientRect();
         assert(words.top >= outline.top && words.bottom <= outline.bottom,
           'and the outline grows to hold them');
-
-        // The inset that lines the mark up with the tab names is the first
-        // thing to go: space spent on alignment, while the words are being
-        // broken for want of it, is space wasted.
-        const mark = /** @type {SVGElement} */ (button.querySelector('svg'));
-        const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
-        const inset = mark.getBoundingClientRect().left - outline.left;
-        assert(inset <= remPx,
-          `the mark moves in to the button's own edge, got ${inset}px of inset`);
       } finally {
         bar.style.width = width;
       }

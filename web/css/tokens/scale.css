@@ -175,9 +175,9 @@
        row's plus the card's inset — so a row's curve runs parallel to the card's
        and the inset can stay square. Rows take the same inline padding, so a
        label sits one inset plus one row pad from the card's edge in every menu. */
-    --radius-menu: 0.5rem;               /* the card's corner */
+    --radius-menu: 0.6rem;               /* the card's corner */
     --radius-menu-item: 0.25rem;         /* a row's corner: --radius-menu less --menu-padding */
-    --menu-padding: 0.25rem;             /* the card's inset, both axes */
+    --menu-padding: 0.5rem;             /* the card's inset, both axes */
     --menu-item-padding-block: 0.45rem;
     --menu-item-padding-inline: 0.5rem;
 

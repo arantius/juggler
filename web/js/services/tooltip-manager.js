@@ -15,6 +15,15 @@
  * One delegated listener at the document root handles every current and future
  * titled element (dynamically-rendered nodes included). A single reused surface
  * is appended to <body>.
+ *
+ * Text that ellipsises can opt in with `data-tooltip-overflow` instead of a
+ * `title`: the element offers its own text, and only while it is actually cut
+ * short (`scrollWidth > clientWidth`). That is measured when the element is
+ * pointed at rather than when it is written, so a rename or a resize needs no
+ * bookkeeping from the owner — and nothing is offered from under an open
+ * inline-rename editor (`.is-renaming`, utils/inline-rename.js), which lies over
+ * the name it would describe. An overflow element that fits gives way to any
+ * titled ancestor.
  * @module services/tooltip-manager
  */
 
@@ -115,12 +124,48 @@ class TooltipManager {
    * @private
    */
   _resolveAnchor(target) {
-    const node = /** @type {any} */ (target);
-    if (!node || typeof node.closest !== 'function') return null;
-    const el = /** @type {HTMLElement|null} */ (node.closest('[title], [data-has-tooltip]'));
-    if (!el) return null;
-    const text = el.getAttribute('title') ?? this._stash.get(el);
-    return text && text.trim() ? el : null;
+    let node = /** @type {any} */ (target);
+    while (node && typeof node.closest === 'function') {
+      const el = /** @type {HTMLElement|null} */ (
+        node.closest('[title], [data-has-tooltip], [data-tooltip-overflow]'));
+      if (!el) return null;
+      const text = this._textOf(el);
+      if (text !== null) return el;
+      // An overflow element that fits says nothing; a title around it may.
+      if (!el.hasAttribute('data-tooltip-overflow')) return null;
+      node = el.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * The text an element's own tooltip would show, or null if it has none: its
+   * title (live or stashed), else — for `data-tooltip-overflow` — its text,
+   * only while that text is cut short and no rename editor lies over it.
+   * @param {HTMLElement} el - A candidate anchor.
+   * @returns {string|null} The tooltip text, or null.
+   * @private
+   */
+  _textOf(el) {
+    const title = el.getAttribute('title') ?? this._stash.get(el);
+    if (title !== undefined && title !== null) return title.trim() ? title : null;
+    if (!el.hasAttribute('data-tooltip-overflow')) return null;
+    if (el.closest('.is-renaming')) return null;
+    if (el.scrollWidth <= el.clientWidth) return null;
+    const text = el.textContent?.trim() ?? '';
+    return text || null;
+  }
+
+  /**
+   * The text the tooltip would show for a pointer resting on `target`, or null
+   * when nothing there carries one. The same resolution hover uses, exposed so
+   * callers and tests can ask without waiting out the show delay.
+   * @param {EventTarget|null} target - The element pointed at.
+   * @returns {string|null} The tooltip text, or null.
+   */
+  textFor(target) {
+    const anchor = this._resolveAnchor(target);
+    return anchor ? this._textOf(anchor) : null;
   }
 
   /**
@@ -270,7 +315,9 @@ class TooltipManager {
   _show(anchor) {
     // Guard against a hide that landed during the delay.
     if (this._anchor !== anchor || !anchor.isConnected) return;
-    const text = this._stash.get(anchor) ?? anchor.getAttribute('title');
+    // Read now, not at hover: an overflow name may have been renamed, or come
+    // to fit, during the delay.
+    const text = this._textOf(anchor);
     if (!text) return;
 
     const el = this._surface();

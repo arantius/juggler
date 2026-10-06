@@ -1661,9 +1661,12 @@ class ConversationBar extends JugglerElement {
           <span class="conversation-tab-glyph conversation-tab-glyph-alert">${ALERT_SVG}</span>
         </span>
         <button class="conversation-tab-button">
-          <span class="conversation-tab-name"></span>
+          <span class="conversation-tab-name" data-tooltip-overflow></span>
         </button>
       `;
+      // The name ellipsises in the strip's width; `data-tooltip-overflow` has
+      // the tooltip manager offer it in full when it is cut, measured at hover
+      // so renames and resizes need nothing from here.
       const newName = tab.querySelector('.conversation-tab-name');
       if (newName) newName.textContent = name;
 

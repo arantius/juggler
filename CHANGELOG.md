@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Hovering a cut-off conversation or workspace name in the sidebar shows it in full
 - Every menu, right-click ones included, shares one tighter, less rounded style
 - Right-clicking a tab group offers Ungroup and Delete group
 - Image viewer zooms with trackpad pinch, Ctrl-scroll, keys or toolbar, and drags to pan
