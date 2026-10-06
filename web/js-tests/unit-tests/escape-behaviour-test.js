@@ -24,6 +24,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import { cachedUserPref, setUserPref } from '../../js/services/prefs.js';
+import { markPopupOpen, isAnyPopupOpen } from '../../js/utils/popup-manager.js';
 import {
   ESCAPE_PRESETS,
   ESCAPE_BEHAVIOUR_EVENT,
@@ -422,6 +423,32 @@ export async function runTests(_ctx) {
       host.t += ESCAPE_QUIET_MS + 1;
       press(app);
       assert(host.left === 1, 'a press after a pause is a fresh one again');
+    });
+
+    await run('fullscreen: a press that closes a menu or dialog stays in fullscreen, and so does the next', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      app.draft = false;
+      let closed = 0;
+      /** @type {() => void} */
+      const release = markPopupOpen(() => { closed++; release(); });
+      try {
+        // The real dismissal path: popup-manager's document listener takes the
+        // press and stops it, so handleEscapeKey never sees it.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert(closed === 1 && !isAnyPopupOpen(), 'Escape should close the popup');
+        assert(host.left === 0, 'closing a popup is the whole press — it must not leave fullscreen');
+        // A second press straight after, now with nothing open, is the user
+        // still backing out of the popup.
+        host.t += ESCAPE_QUIET_MS - 1;
+        press(app);
+        assert(host.left === 0, 'the press hard on the heels of a dismissal must not leave fullscreen');
+        host.t += ESCAPE_QUIET_MS + 1;
+        press(app);
+        assert(host.left === 1, 'a deliberate press once things are quiet leaves fullscreen');
+      } finally {
+        release();
+      }
     });
 
     await run('settle: the presses after a stop neither clear the draft nor leave fullscreen', () => {
