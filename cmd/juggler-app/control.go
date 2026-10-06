@@ -216,6 +216,11 @@ func (a *appState) handleWindowControl(w http.ResponseWriter, r *http.Request) {
 				e.win.Minimise()
 			case "maximise":
 				e.win.ToggleMaximise()
+			case "unfullscreen":
+				// Escape's last rung: the window hands the key to the page
+				// (DisableEscapeExitsFullscreen), which asks for this only when
+				// nothing in the page wanted the press.
+				e.win.UnFullscreen()
 			case "close":
 				e.win.Close()
 			case "raise":

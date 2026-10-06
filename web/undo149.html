@@ -1,0 +1,32 @@
+<!doctype html><html><body>
+<div id="host"><div class="wrap"><textarea id="ta" style="width:400px;height:100px"></textarea></div></div><textarea id="src"></textarea>
+<script type="module">
+import * as P from './js/components/composer-paste-tokens.js';
+const host = document.getElementById('host');
+const ta = document.getElementById('ta');
+const c = {
+  querySelector: (s) => host.querySelector(s),
+  _pasteBlobs: new Map(), _pasteMirror: null, _pasteLastValue: '', _pasteLastCaret: 0,
+  _pasteComposing: false, _snappingSelection: false,
+  autoResize(t){ t.style.height='auto'; t.style.height=t.scrollHeight+'px'; },
+  _updateSendButtonState(){}, _persistDraft(){}, _completions: null,
+};
+window.MODE = 'full';
+ta.addEventListener('paste', (e) => {
+  const t = e.clipboardData.getData('text/plain');
+  const M = new URLSearchParams(location.search).get('m') || 'full';
+  if (M === 'native' || !P.shouldCapturePaste(t)) return;
+  e.preventDefault();
+  if (M === 'plain') { document.execCommand('insertText', false, 'PLAIN'); return; }
+  if (M === 'plainbig') { document.execCommand('insertText', false, t); return; }
+  if (M === 'token') { document.execCommand('insertText', false, '\u2062[Pasted #1 · 100 B]\u2063'); return; }
+  if (M === 'tokmirror') { document.execCommand('insertText', false, '\u2062[Pasted #1 · 100 B]\u2063'); P.syncPasteMirror(c); return; }
+  if (M === 'plainmirror') { document.execCommand('insertText', false, 'PLAIN'); const m=document.createElement('div'); ta.parentElement.insertBefore(m, ta); return; }
+  if (M === 'plainclass') { document.execCommand('insertText', false, 'PLAIN'); ta.classList.add('paste-mirrored'); ta.style.position='relative'; return; }
+  if (M === 'plainspell') { document.execCommand('insertText', false, 'PLAIN'); ta.spellcheck=false; return; }
+  P.capturePaste(c, t);
+});
+ta.addEventListener('input', () => { if (window.NOH) return; P.reconcileTokens(c, ta); if (!c._noMirror) P.syncPasteMirror(c); });
+ta.addEventListener('keydown', (e) => { P.handleTokenKeydown(c, e, ta); });
+window.EC=[]; const ec=document.execCommand.bind(document); document.execCommand=(...a)=>{const r=ec(...a); window.EC.push(a[0]+"="+r); return r;}; window.ready = true;
+</script></body></html>

@@ -1188,6 +1188,12 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *ex
 				HideToolbarSeparator: true,
 				FullSizeContent:      true,
 			},
+			// Escape belongs to the page. Left to AppKit, a fullscreen window
+			// routes it to cancelOperation: and drops out of fullscreen on the
+			// same press that stops a turn; the page leaves fullscreen itself,
+			// through the control endpoint's "unfullscreen", only when nothing
+			// else wanted the key (escape-behaviour.js).
+			DisableEscapeExitsFullscreen: true,
 		},
 		// WebviewGpuPolicy: hardware-accelerated compositing when a working GL
 		// stack is detected, else software (Never) — resolved once and stored on

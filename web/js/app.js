@@ -35,6 +35,7 @@ import { registerConversationShortcuts } from './services/shortcut-bindings.js';
 import { markSeen } from './services/tips-manager.js';
 import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
+import { watchTurnsForEscape } from './services/escape-behaviour.js';
 import scheduledSendService from './services/scheduled-send-service.js';
 import { initViewportFit } from './utils/viewport-fit.js';
 import { reportDraftsFlushed } from '../sdk/lib/window-control.js';
@@ -480,6 +481,10 @@ class JugglerApp {
     if (this._uiEventManager) {
       this._uiEventManager.setSession(session);
     }
+
+    // A turn coming to rest settles the Escape key, so a press meant to stop it
+    // that lands a beat late neither clears the draft nor leaves fullscreen.
+    watchTurnsForEscape(session);
 
     // A detached board is a second view of a window that is already doing all
     // of this: alerting for the same conversations, holding the same claim on

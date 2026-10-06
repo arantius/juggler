@@ -1192,10 +1192,15 @@ class ConversationTab extends JugglerElement {
             // ISN'T in the textarea (the early TEXTAREA/INPUT return above), so
             // it covers Escape from an empty conversation where the box never
             // took focus.
+            //
+            // Moving focus into the box is itself a rung (below), so a press
+            // that takes it must not also leave fullscreen — the next one, from
+            // the box, can.
             const focusedThreadId = activeArea?.getMessageThread()?.threadItemId ?? null;
             handleEscapeKey(e, {
               focusedThreadId,
               getComposer: () => this.getComposer(),
+              canLeaveFullscreen: !activeArea,
             });
             // Rule 17: escape while navigating the conversation-area → typing mode.
             if (activeArea) this._focusInput();

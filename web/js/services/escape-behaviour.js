@@ -14,10 +14,24 @@
  *      hold-to-cycle gesture) → that edit is cancelled, and the key stops there.
  *   3. The visible conversation is running → the STOP rung, configurable here.
  *   4. Nothing is running → the PROMPT rung, configurable here.
+ *   5. None of the above did anything → leave fullscreen (macOS desktop window).
  *
  * Rungs 1 and 2 are not negotiable: Escape must always back out of a transient
  * thing, so a preference can only ever change rungs 3 and 4. That keeps the
  * option set small and unable to break dismissal.
+ *
+ * Rung 5 is AppKit's own meaning of Escape, which the native window has handed
+ * to the page (`DisableEscapeExitsFullscreen`) precisely so that it sits BELOW
+ * the rest: left to AppKit, the press that stopped a turn also threw the window
+ * out of fullscreen. It is guarded twice, because Escape is a key people hit
+ * several times in a row:
+ *   - It never follows another Escape within {@link ESCAPE_QUIET_MS}: the
+ *     second press of a burst is the user still backing out of the first thing,
+ *     not asking for the window back.
+ *   - The press after a stop — whether Escape stopped the turn or it ended on
+ *     its own a moment before — is swallowed outright for the same period. It
+ *     clears nothing and leaves nothing: the user was reaching for the turn,
+ *     and the draft in the box is the correction they were writing.
  *
  * The rule the presets are built around:
  *
@@ -41,6 +55,7 @@
 
 import { cachedUserPref, setUserPref, notifyPrefChanged, reconcilePref } from './prefs.js';
 import { isMac, formatBindingForPlatform } from './key-shortcut-manager.js';
+import { postWindowControl, hasNativeHost } from '../../sdk/lib/window-control.js';
 
 /** The user preference holding the chosen preset id. */
 const PREF_KEY = 'juggler-escape-behaviour';
@@ -56,6 +71,14 @@ export const ESCAPE_BEHAVIOUR_EVENT = 'juggler:escape-behaviour-changed';
  * this expires.
  */
 const DOUBLE_PRESS_WINDOW_MS = 1500;
+
+/**
+ * How long a burst of Escapes, or the settling after a stop, keeps the key off
+ * the prompt rung's clear and off the fullscreen rung. Long enough to cover a
+ * hurried double or triple tap; short enough that a deliberate press after
+ * looking at the result is never swallowed.
+ */
+export const ESCAPE_QUIET_MS = 1000;
 
 /**
  * What Escape does while the visible conversation is running.
@@ -276,12 +299,148 @@ export function isDoublePressArmed() {
 }
 
 /**
- * Drop any armed gesture. Exported for tests and for teardown paths that want a
- * clean slate; ordinary use disarms itself.
+ * Drop any armed gesture and every timing the quiet periods read. Exported for
+ * tests and for teardown paths that want a clean slate; ordinary use disarms
+ * itself.
  * @returns {void}
  */
 export function resetEscapeGesture() {
   disarm();
+  lastPress = null;
+  lastPressAt = -Infinity;
+  previousPressAt = -Infinity;
+  settleUntil = -Infinity;
+  wasRunning = false;
+}
+
+// ---------------------------------------------------------------------------
+// The fullscreen rung and its quiet periods
+// ---------------------------------------------------------------------------
+
+/**
+ * The native window this page sits in, as far as the fullscreen rung needs it:
+ * a clock, whether the window is fullscreen, and how to leave it.
+ * @typedef {object} EscapeHost
+ * @property {() => number} now - Milliseconds on a monotonic clock.
+ * @property {() => boolean} isFullscreen - True while the window is fullscreen.
+ * @property {() => void} leaveFullscreen - Take the window out of fullscreen.
+ */
+
+/**
+ * The real host. Only a macOS desktop window has the rung: that is the platform
+ * whose Escape left fullscreen before the window handed the key to the page,
+ * and the only one with a native host to ask. `data-window-fullscreen` is kept
+ * by window-fullscreen.js.
+ * @type {EscapeHost}
+ */
+const NATIVE_HOST = {
+  now: () => performance.now(),
+  isFullscreen: () => isMac() && hasNativeHost()
+    && document.documentElement.dataset.windowFullscreen === '1',
+  leaveFullscreen: () => postWindowControl('control', '?action=unfullscreen'),
+};
+
+/** @type {EscapeHost} */
+let host = NATIVE_HOST;
+
+/**
+ * Replace the native host — a hand-moved clock and a pretend window — or restore
+ * it with null.
+ * @param {EscapeHost|null} stand - The stand-in, or null for the real one.
+ * @returns {void}
+ */
+export function __setEscapeHostForTests(stand) {
+  host = stand ?? NATIVE_HOST;
+}
+
+/** @type {Event|null} The press last counted, so one press is never counted twice. */
+let lastPress = null;
+/** Clock reading of the latest Escape press. */
+let lastPressAt = -Infinity;
+/** Clock reading of the press before it — what the press guard compares against. */
+let previousPressAt = -Infinity;
+/** Until this clock reading, Escape is settling after a stop and does nothing. */
+let settleUntil = -Infinity;
+/** Whether the visible conversation was running when last looked at. */
+let wasRunning = false;
+
+/**
+ * Count an Escape press. Called from a window capture listener, which sees every
+ * press — including the ones a popup takes and stops at document, which never
+ * reach {@link handleEscapeKey} but are still the first of a burst — and again
+ * from the handler, for a press that arrived without being dispatched.
+ * @param {Event} event - The keydown.
+ * @returns {void}
+ */
+function countPress(event) {
+  if (event === lastPress) return;
+  lastPress = event;
+  previousPressAt = lastPressAt;
+  lastPressAt = host.now();
+}
+
+/**
+ * Start the settle period: the presses that follow a stop are the user still
+ * reaching for the turn.
+ * @returns {void}
+ */
+function settle() {
+  settleUntil = host.now() + ESCAPE_QUIET_MS;
+}
+
+/**
+ * Note whether the visible conversation is running, settling the key when a
+ * turn has just come to rest — but only under a preset whose Escape stops
+ * turns. Under one that never does, no press was ever reaching for the turn,
+ * so there is nothing to protect.
+ * @returns {boolean} Whether it is running now.
+ */
+function observeRunning() {
+  const running = !!app()?.shouldHandleEscape?.();
+  const mode = getEscapePreset().running;
+  if (wasRunning && !running && mode !== 'clear' && mode !== 'none') settle();
+  wasRunning = running;
+  return running;
+}
+
+/** Stops the current turn watch. */
+let unwatchTurns = () => {};
+
+/**
+ * Watch a session for turns coming to rest, so a press racing a turn's natural
+ * end settles exactly as one that stopped it would. Each call replaces the
+ * previous watch.
+ * @param {{onLLMStatusChange: (fn: (id: string) => void) => () => void}} session
+ * @returns {() => void} Stops watching.
+ */
+export function watchTurnsForEscape(session) {
+  unwatchTurns();
+  const unsubscribe = session.onLLMStatusChange(() => { observeRunning(); });
+  unwatchTurns = () => {
+    unsubscribe();
+    unwatchTurns = () => {};
+  };
+  return unwatchTurns;
+}
+
+/**
+ * The fullscreen rung: leave fullscreen if this press is a deliberate, lone one
+ * that nothing above it wanted.
+ * @param {KeyboardEvent} event - The keydown.
+ * @returns {boolean} True when the window was asked to leave fullscreen.
+ */
+function leaveFullscreen(event) {
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+  if (host.now() - previousPressAt < ESCAPE_QUIET_MS) return false;
+  if (!host.isFullscreen()) return false;
+  host.leaveFullscreen();
+  return true;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') countPress(e);
+  }, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +465,7 @@ function app() {
  * @returns {void}
  */
 function hardStop(focusedThreadId) {
+  settle();
   app()?.cancelLLMOperation?.(focusedThreadId, { source: 'escape' });
 }
 
@@ -320,6 +480,7 @@ function hardStop(focusedThreadId) {
  * @returns {void}
  */
 function politeStop(focusedThreadId) {
+  settle();
   app()?.cancelLLMOperation?.(focusedThreadId, { polite: true });
 }
 
@@ -347,7 +508,7 @@ function clearPrompt(getComposer) {
 }
 
 /**
- * Handle an Escape keypress on rungs 3 and 4 of the ladder.
+ * Handle an Escape keypress on rungs 3 to 5 of the ladder.
  *
  * Callers must already have let the higher rungs win — an open popup or an
  * inline editor owns the key and this is never reached (composer.js checks
@@ -357,29 +518,44 @@ function clearPrompt(getComposer) {
  * @param {string|null} [ctx.focusedThreadId] - Thread id of the column/composer
  *   the press came from; null for the root vantage.
  * @param {() => any} [ctx.getComposer] - Accessor for the composer to clear.
+ * @param {boolean} [ctx.canLeaveFullscreen] - False when the caller has a rung
+ *   of its own to take if this one declines, so the press must not also leave
+ *   fullscreen.
  * @returns {boolean} True when the press was acted on (or deliberately swallowed).
  */
-export function handleEscapeKey(event, { focusedThreadId = null, getComposer = () => null } = {}) {
+export function handleEscapeKey(event, {
+  focusedThreadId = null,
+  getComposer = () => null,
+  canLeaveFullscreen = true,
+} = {}) {
+  countPress(event);
   // Auto-repeat: holding the key down must not fire the gesture over and over.
   // A held Escape is never an intent to stop twice, and under `double-press` it
   // would arm and immediately consume its own repeat.
   if (event.repeat) return false;
 
   const preset = getEscapePreset();
-  const running = !!app()?.shouldHandleEscape?.();
+  const running = observeRunning();
 
-  if (!running) {
+  let acted;
+  if (running) {
+    acted = handleWhileRunning(event, preset.running, focusedThreadId, getComposer);
+  } else if (armed) {
     // A gesture armed against a turn that has since ended must NOT fall through
     // to the idle rung: a double-tap racing the turn's natural end would wipe
     // the draft, which is the very failure the gesture exists to prevent.
-    if (armed) {
-      disarm();
-      return true;
-    }
-    return preset.idle === 'clear' ? clearPrompt(getComposer) : false;
+    disarm();
+    return true;
+  } else if (host.now() < settleUntil) {
+    // The same failure without the gesture: the press after a stop, or after
+    // the turn ended a beat before it, is the user still reaching for the turn.
+    return true;
+  } else {
+    acted = preset.idle === 'clear' ? clearPrompt(getComposer) : false;
   }
 
-  return handleWhileRunning(event, preset.running, focusedThreadId, getComposer);
+  if (acted || !canLeaveFullscreen) return acted;
+  return leaveFullscreen(event);
 }
 
 /**

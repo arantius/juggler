@@ -34,6 +34,9 @@ import {
   isDoublePressArmed,
   resetEscapeGesture,
   buildEscapeBehaviourRow,
+  watchTurnsForEscape,
+  ESCAPE_QUIET_MS,
+  __setEscapeHostForTests,
 } from '../../js/services/escape-behaviour.js';
 
 /**
@@ -60,6 +63,7 @@ function stubApp() {
   const stub = {
     running: false,
     pausePending: false,
+    draft: true,
     calls,
     shouldHandleEscape() { return stub.running; },
     getVisibleConversation() {
@@ -74,23 +78,48 @@ function stubApp() {
       else calls.stop.push(threadId);
     },
     composer: {
-      clearTextUndoable() { calls.cleared++; return true; },
+      clearTextUndoable() {
+        if (!stub.draft) return false;
+        calls.cleared++;
+        stub.draft = false;
+        return true;
+      },
     },
   };
   return stub;
 }
 
 /**
+ * A stand-in for the native window: a clock the test moves by hand, whether the
+ * window is fullscreen, and a count of the times the page asked to leave it.
+ * @returns {{t: number, fullscreen: boolean, left: number, now: () => number,
+ *   isFullscreen: () => boolean, leaveFullscreen: () => void}} The host.
+ */
+function stubHost() {
+  const host = {
+    t: 10_000,
+    fullscreen: false,
+    left: 0,
+    now: () => host.t,
+    isFullscreen: () => host.fullscreen,
+    leaveFullscreen: () => { host.left++; host.fullscreen = false; },
+  };
+  return host;
+}
+
+/**
  * Press Escape through the real handler.
  * @param {any} stub - The app stub whose composer/vantage to use.
- * @param {{shift?: boolean, repeat?: boolean, threadId?: string|null}} [opts] - Press options.
+ * @param {{shift?: boolean, repeat?: boolean, threadId?: string|null,
+ *   canLeaveFullscreen?: boolean}} [opts] - Press options.
  * @returns {boolean} Whether the handler acted.
  */
-function press(stub, { shift = false, repeat = false, threadId = null } = {}) {
+function press(stub, { shift = false, repeat = false, threadId = null, canLeaveFullscreen = true } = {}) {
   const event = new KeyboardEvent('keydown', { key: 'Escape', shiftKey: shift, repeat });
   return handleEscapeKey(event, {
     focusedThreadId: threadId,
     getComposer: () => stub.composer,
+    canLeaveFullscreen,
   });
 }
 
@@ -115,6 +144,8 @@ export async function runTests(_ctx) {
 
   /** @type {any} */
   let app;
+  /** @type {ReturnType<typeof stubHost>} */
+  let host = stubHost();
 
   /**
    * @param {string} label - Test label.
@@ -123,6 +154,8 @@ export async function runTests(_ctx) {
   const run = async (label, fn) => {
     app = stubApp();
     /** @type {any} */ (window).jugglerApp = app;
+    host = stubHost();
+    __setEscapeHostForTests(host);
     resetEscapeGesture();
     try {
       await fn();
@@ -300,6 +333,7 @@ export async function runTests(_ctx) {
       // unambiguous rather than destructive.
       assert(app.calls.cleared === 1, 'a running press should clear the prompt');
       app.running = false;
+      app.draft = true;
       press(app);
       assert(app.calls.cleared === 2, 'an idle press should clear the prompt');
       press(app, { shift: true });
@@ -336,6 +370,100 @@ export async function runTests(_ctx) {
       }
     });
 
+    // ── leaving fullscreen: the rung below the ladder ──────────────────
+    await run('fullscreen: a press with nothing to do leaves fullscreen', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      app.draft = false;
+      const acted = press(app);
+      assert(host.left === 1, 'an idle press on an empty prompt should leave fullscreen');
+      assert(acted, 'leaving fullscreen is the press being acted on');
+    });
+
+    await run('fullscreen: a press that does anything else stays in fullscreen', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      press(app);
+      assert(app.calls.cleared === 1 && host.left === 0,
+        'clearing the draft is the whole press — it must not also leave fullscreen');
+      host.t += ESCAPE_QUIET_MS + 1;
+      app.running = true;
+      press(app);
+      assert(app.calls.stop.length === 1 && host.left === 0,
+        'stopping the turn is the whole press — it must not also leave fullscreen');
+    });
+
+    await run('fullscreen: only a plain, fresh press, and only where the caller allows', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      app.draft = false;
+      press(app, { shift: true });
+      host.t += ESCAPE_QUIET_MS + 1;
+      press(app, { repeat: true });
+      host.t += ESCAPE_QUIET_MS + 1;
+      press(app, { canLeaveFullscreen: false });
+      assert(host.left === 0, 'Shift+Escape, a held key and a declining caller must all stay put');
+    });
+
+    await run('fullscreen: mashing Escape never falls out of fullscreen', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      app.draft = false;
+      // The first press went to something above the ladder (a menu it closed);
+      // that press never reaches handleEscapeKey, but it is still a press.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      host.t += ESCAPE_QUIET_MS - 1;
+      press(app);
+      assert(host.left === 0, 'a press hard on the heels of another must not leave fullscreen');
+      // Each press restarts the window, so a run of them stays put throughout.
+      host.t += ESCAPE_QUIET_MS - 1;
+      press(app);
+      assert(host.left === 0, 'the run of presses keeps extending the window');
+      host.t += ESCAPE_QUIET_MS + 1;
+      press(app);
+      assert(host.left === 1, 'a press after a pause is a fresh one again');
+    });
+
+    await run('settle: the presses after a stop neither clear the draft nor leave fullscreen', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      app.running = true;
+      press(app);
+      assert(app.calls.stop.length === 1, 'the first press stops the turn');
+      // The stop lands; the user is still hammering the key.
+      app.running = false;
+      host.t += ESCAPE_QUIET_MS - 1;
+      press(app);
+      assert(app.calls.cleared === 0, 'a press settling after a stop must not eat the draft');
+      assert(host.left === 0, 'a press settling after a stop must not leave fullscreen');
+      host.t += ESCAPE_QUIET_MS + 1;
+      press(app);
+      assert(app.calls.cleared === 1, 'once settled, Escape clears the draft as usual');
+    });
+
+    await run('settle: a turn ending on its own starts the same quiet period', () => {
+      setEscapePreset('stop');
+      host.fullscreen = true;
+      /** @type {(id: string) => void} */
+      let tick = () => {};
+      const unwatch = watchTurnsForEscape({
+        onLLMStatusChange: (/** @type {(id: string) => void} */ fn) => { tick = fn; return () => {}; },
+      });
+      try {
+        app.running = true;
+        tick('conv_1');
+        // The turn finishes a moment before the press meant to stop it.
+        app.running = false;
+        tick('conv_1');
+        host.t += ESCAPE_QUIET_MS - 1;
+        press(app);
+        assert(app.calls.cleared === 0, 'a press racing the turn\u2019s end must not eat the draft');
+        assert(host.left === 0, 'a press racing the turn\u2019s end must not leave fullscreen');
+      } finally {
+        unwatch();
+      }
+    });
+
     // ── the settings control ───────────────────────────────────────────
     await run('the settings row reflects and writes the preference', () => {
       setEscapePreset('stop');
@@ -353,6 +481,7 @@ export async function runTests(_ctx) {
     });
   } finally {
     resetEscapeGesture();
+    __setEscapeHostForTests(null);
     void setUserPref(PREF_KEY, priorPref);
     if (priorApp === undefined) delete (/** @type {any} */ (window).jugglerApp);
     else /** @type {any} */ (window).jugglerApp = priorApp;
