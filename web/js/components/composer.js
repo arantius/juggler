@@ -217,6 +217,14 @@ class Composer extends HTMLElement {
     // hands off an in-flight IME composition.
     /** @type {boolean} @private */
     this._pasteComposing = false;
+    // True while the reconciler's own repair edit runs, so the input that edit
+    // fires is not reconciled a second time.
+    /** @type {boolean} @private */
+    this._pasteRepairing = false;
+    // Depth of the undo/redo steps the reconciler is taking past a broken
+    // token (see reconcileTokens), bounding that recursion.
+    /** @type {number} @private */
+    this._pasteHistoryHops = 0;
 
     // Scheduled-send ("send after a delay") state. The armed target is an
     // epoch-ms wall-clock time persisted on the bound thread's draft (so it
@@ -635,13 +643,14 @@ class Composer extends HTMLElement {
       }
     });
 
-    textarea.addEventListener('input', () => {
+    textarea.addEventListener('input', (e) => {
       // Token reconciler: reject any edit that damaged a placeholder's interior
       // (revert to the last good value) and strip orphaned delimiters, BEFORE
       // anything else reads the value. Reachable only by paths that dodge the
       // caret/selection interceptors (autocorrect/spell replace, dictation,
       // drag-drop, exotic IME) — the caret can otherwise never rest in a token.
-      this._reconcileTokens(textarea);
+      // The inputType tells it an undo/redo apart from a fresh edit.
+      this._reconcileTokens(textarea, /** @type {InputEvent} */ (e).inputType);
       this._scheduleAutoResize(textarea);
       this._updateSendButtonState();
       // Debounced draft save for page reload restoration
@@ -2052,10 +2061,11 @@ class Composer extends HTMLElement {
   /**
    * Revert an edit that damaged a token, and drop stray delimiters.
    * @param {HTMLTextAreaElement} textarea
-   * @returns {boolean} True if the value was changed (reverted or cleaned).
+   * @param {string} [inputType] - The `inputType` of the input being reconciled.
+   * @returns {boolean} True if the value was changed (reverted, cleaned or stepped).
    */
-  _reconcileTokens(textarea) {
-    return reconcileTokens(this, textarea);
+  _reconcileTokens(textarea, inputType) {
+    return reconcileTokens(this, textarea, inputType);
   }
 
   /** Bring the backdrop mirror into line with the textarea's current value. */

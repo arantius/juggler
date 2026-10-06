@@ -515,6 +515,83 @@ export async function runTests() {
     }
   });
 
+  await test('Shift/Ctrl+Backspace and Shift/Ctrl+Delete abutting a token remove it whole', () => {
+    const tok = makeToken(1, 10);
+    for (const [key, mod] of [['Backspace', 'shiftKey'], ['Backspace', 'ctrlKey'], ['Delete', 'shiftKey'], ['Delete', 'ctrlKey']]) {
+      const { box, container } = mountComposer();
+      try {
+        box._pasteBlobs.set(1, { content: 'body', bytes: 10 });
+        const caret = key === 'Backspace' ? 2 + tok.length : 2;
+        const textarea = setValue(box, `ab${tok}cd`, caret, caret);
+        textarea.focus();
+        const e = fakeKey(key);
+        e[mod] = true;
+        const handled = box._handleTokenKeydown(e, textarea);
+        assert(handled === true && e.defaultPrevented, `${mod} ${key} abutting a token is intercepted`);
+        assert(textarea.value === 'abcd', `${mod} ${key}: the whole token must be gone: ${JSON.stringify(textarea.value)}`);
+      } finally {
+        container.remove();
+      }
+    }
+  });
+
+  /**
+   * Undo until the box reads `target` or the history runs dry, recording every
+   * value the undo passes through.
+   * @param {HTMLTextAreaElement} textarea
+   * @param {string} target
+   * @returns {string[]} The values seen after each undo.
+   */
+  function undoUntil(textarea, target) {
+    /** @type {string[]} */
+    const seen = [];
+    for (let i = 0; i < 6 && textarea.value !== target; i++) {
+      document.execCommand('undo');
+      seen.push(textarea.value);
+    }
+    return seen;
+  }
+
+  await test('undo still works after an edit into a token interior is reverted', () => {
+    const { box, container } = mountComposer();
+    try {
+      const textarea = setValue(box, '');
+      textarea.focus();
+      document.execCommand('insertText', false, 'hi ');
+      assert(textarea.value === 'hi ', `this window must support execCommand editing: ${JSON.stringify(textarea.value)}`);
+      box._capturePaste('U'.repeat(3000));
+      const good = textarea.value;
+      const tok = parseTokens(good)[0];
+      // A path that dodged the interceptors (autocorrect, dictation) writes
+      // into the label through the editing pipeline, firing a real input.
+      textarea.setSelectionRange(tok.start + 4, tok.start + 5);
+      document.execCommand('insertText', false, 'X');
+      assert(textarea.value === good, `the damaging edit must be reverted: ${JSON.stringify(textarea.value)}`);
+      const seen = undoUntil(textarea, '');
+      assert(textarea.value === '', `undo must still walk back to the empty box, saw ${JSON.stringify(seen)}`);
+      for (const v of seen) {
+        assert(stripStrayDelimiters(v, box._pasteBlobs) === v, `no undo step may surface a broken token: ${JSON.stringify(v)}`);
+      }
+    } finally {
+      container.remove();
+    }
+  });
+
+  await test('undo still works after stray delimiters are stripped', () => {
+    const { box, container } = mountComposer();
+    try {
+      const textarea = setValue(box, '');
+      textarea.focus();
+      document.execCommand('insertText', false, 'hi');
+      document.execCommand('insertText', false, PASTE_TOKEN_OPEN);
+      assert(textarea.value === 'hi', `the stray delimiter must be stripped: ${JSON.stringify(textarea.value)}`);
+      const seen = undoUntil(textarea, '');
+      assert(textarea.value === '', `undo must still walk back to the empty box, saw ${JSON.stringify(seen)}`);
+    } finally {
+      container.remove();
+    }
+  });
+
   await test('the mirror tears down when the last token is removed', () => {
     const { box, container } = mountComposer();
     try {

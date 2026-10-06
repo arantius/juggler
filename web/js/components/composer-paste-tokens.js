@@ -205,11 +205,9 @@ export function handleTokenKeydown(composer, e, textarea) {
   const tokens = parseTokens(value);
 
   if (key === 'Backspace' || key === 'Delete') {
-    // Shift/Ctrl deletes keep native behaviour (the reconciler backstops any
-    // partial cut). A plain, word (Alt) or line (Meta) delete that ABUTS a
-    // token in the delete direction would otherwise chew into the label, so
-    // remove the whole token as one unit instead.
-    if (e.shiftKey || e.ctrlKey) return false;
+    // Any delete that ABUTS a token in the delete direction — plain, Shift,
+    // word (Alt, or Ctrl off macOS) or line (Meta) — would otherwise chew into
+    // the label, so remove the whole token as one unit instead.
     const tok = key === 'Backspace'
       ? tokens.find((t) => t.end === p)
       : tokens.find((t) => t.start === p);
@@ -298,54 +296,164 @@ function damagedTokenSpan(prev, cur) {
 }
 
 /**
+ * Turn the textarea's value into `target` as one native edit, so it lands on
+ * the browser's undo stack. Assigning `textarea.value` would wipe that stack
+ * outright — every earlier edit, not just this one — so the direct write is
+ * only the fallback for a host that rejects the command or a textarea that
+ * isn't focused (execCommand edits whatever IS focused). The edit replaces the
+ * single span between the two values' common prefix and suffix. The `input`
+ * it fires is ignored by the reconciler (`_pasteRepairing`).
+ * @param {any} composer - Composer instance
+ * @param {HTMLTextAreaElement} textarea
+ * @param {string} target
+ */
+function replaceValueUndoably(composer, textarea, target) {
+  const cur = textarea.value;
+  if (cur === target) return;
+  if (document.activeElement === textarea) {
+    const pre = commonPrefixLen(cur, target);
+    let sfx = 0;
+    const maxSfx = Math.min(cur.length - pre, target.length - pre);
+    while (sfx < maxSfx && cur[cur.length - 1 - sfx] === target[target.length - 1 - sfx]) sfx++;
+    const insert = target.slice(pre, target.length - sfx);
+    composer._pasteRepairing = true;
+    composer._snappingSelection = true;
+    try {
+      textarea.setSelectionRange(pre, cur.length - sfx);
+      // An empty insertText is a no-op on WebKit, so a pure removal deletes.
+      if (insert) document.execCommand('insertText', false, insert);
+      else document.execCommand('delete', false);
+    } catch { /* fall back below */ } finally {
+      composer._pasteRepairing = false;
+      composer._snappingSelection = false;
+    }
+  }
+  if (textarea.value !== target) textarea.value = target;
+}
+
+/** Native history commands, keyed by the `inputType` of the input they fire. */
+const HISTORY_COMMANDS = /** @type {Record<string, string>} */ ({ historyUndo: 'undo', historyRedo: 'redo' });
+
+/**
+ * How many further undo/redo steps the reconciler may take, in the user's
+ * direction, to get past a state that holds a broken token. One is enough for
+ * the pair this module itself creates (a damaging edit and its repair); the
+ * rest is headroom.
+ */
+const MAX_HISTORY_HOPS = 4;
+
+/**
  * Reconcile the textarea after an `input` so a placeholder's contents can never
- * be edited — only deleted whole. Two layers:
+ * be edited — only deleted whole. Three layers:
  *  1. If the edit cut into a token's interior (a path that dodged the
  *     caret/selection interceptors — autocorrect, dictation, drag-drop, exotic
  *     IME), REVERT to the last known-good value: the edit simply doesn't take,
  *     and the captured content is never silently lost.
  *  2. Otherwise strip any orphaned delimiter characters as a final safety net,
  *     then adopt the current value as the new known-good base.
+ *  3. Both repairs are native edits, so they sit on the undo stack after the
+ *     edit they repair. Undo therefore walks back INTO the broken state first;
+ *     an undo/redo that lands on one keeps going in the same direction instead
+ *     of repairing it, since a repair would push a new step and trap Cmd+Z in a
+ *     loop between the broken state and its fix.
  * @param {any} composer - Composer instance
  * @param {HTMLTextAreaElement} textarea
- * @returns {boolean} True if the value was changed (reverted or cleaned).
+ * @param {string} [inputType] - The `inputType` of the input being reconciled.
+ * @returns {boolean} True if the value was changed (reverted, cleaned or stepped).
  */
-export function reconcileTokens(composer, textarea) {
+export function reconcileTokens(composer, textarea, inputType) {
+  // The input fired by this function's own repair edit: the caller settles it.
+  if (composer._pasteRepairing) return false;
   const cur = textarea.value;
   const prev = composer._pasteLastValue;
   const curHasDelims = cur.indexOf(PASTE_TOKEN_OPEN) !== -1 || cur.indexOf(PASTE_TOKEN_CLOSE) !== -1;
   // Fast path: no tokens are or were in play — nothing to guard.
   if (!curHasDelims && !hasTokens(prev)) { composer._pasteLastValue = cur; return false; }
 
-  if (!composer._pasteComposing && hasTokens(prev)) {
-    const damaged = damagedTokenSpan(prev, cur);
-    if (damaged) {
-      // Reject the edit: restore the last good value, park the caret at the
-      // start of the token that was hit (a boundary, never its interior).
-      composer._snappingSelection = true;
-      textarea.value = prev;
-      try { textarea.setSelectionRange(damaged.start, damaged.start); } catch { /* non-fatal */ }
-      composer._snappingSelection = false;
-      composer._pasteLastValue = prev;
-      composer._pasteLastCaret = damaged.start;
-      return true;
-    }
+  const damaged = (!composer._pasteComposing && hasTokens(prev)) ? damagedTokenSpan(prev, cur) : null;
+  const cleaned = damaged ? cur : stripStrayDelimiters(cur, composer._pasteBlobs);
+  if (!damaged && cleaned === cur) {
+    composer._pasteLastValue = cur;
+    composer._pasteLastCaret = textarea.selectionStart;
+    return false;
   }
 
-  // Edit is legitimate. Strip any stray delimiters (half a token left by a
-  // path this couldn't revert) and adopt the result as the new base.
-  const cleaned = stripStrayDelimiters(cur, composer._pasteBlobs);
-  if (cleaned !== cur) {
-    const at = Math.min(textarea.selectionStart, cleaned.length);
-    textarea.value = cleaned;
-    try { textarea.setSelectionRange(at, at); } catch { /* non-fatal */ }
-    composer._pasteLastValue = cleaned;
-    composer._pasteLastCaret = at;
+  if (stepPastBrokenHistory(composer, textarea, inputType)) return true;
+
+  if (damaged) {
+    // Reject the edit: restore the last good value, park the caret at the
+    // start of the token that was hit (a boundary, never its interior).
+    replaceValueUndoably(composer, textarea, prev);
+    composer._snappingSelection = true;
+    try { textarea.setSelectionRange(damaged.start, damaged.start); } catch { /* non-fatal */ }
+    composer._snappingSelection = false;
+    composer._pasteLastValue = prev;
+    composer._pasteLastCaret = damaged.start;
     return true;
   }
-  composer._pasteLastValue = cur;
-  composer._pasteLastCaret = textarea.selectionStart;
-  return false;
+
+  // Edit is legitimate, but left stray delimiters (half a token from a path
+  // this couldn't revert): strip them and adopt the result as the new base.
+  const at = Math.min(textarea.selectionStart, cleaned.length);
+  replaceValueUndoably(composer, textarea, cleaned);
+  composer._snappingSelection = true;
+  try { textarea.setSelectionRange(at, at); } catch { /* non-fatal */ }
+  composer._snappingSelection = false;
+  composer._pasteLastValue = cleaned;
+  composer._pasteLastCaret = at;
+  return true;
+}
+
+/**
+ * Take one history step with the hop depth raised, so the `input` it fires
+ * re-enters {@link reconcileTokens} bounded by {@link MAX_HISTORY_HOPS}.
+ * @param {any} composer - Composer instance
+ * @param {HTMLTextAreaElement} textarea
+ * @param {string} command - 'undo' or 'redo'.
+ * @param {number} hops - The depth this step is taken at.
+ * @returns {boolean} Whether the step moved the value.
+ */
+function historyStep(composer, textarea, command, hops) {
+  const before = textarea.value;
+  composer._pasteHistoryHops = hops + 1;
+  try {
+    document.execCommand(command, false);
+  } catch { /* nothing further in that direction */ } finally {
+    composer._pasteHistoryHops = hops;
+  }
+  return textarea.value !== before;
+}
+
+/**
+ * When an undo/redo has surfaced a broken token, take one more history step in
+ * the same direction. The step fires its own `input`, which re-enters
+ * {@link reconcileTokens} and either adopts the result or steps again.
+ *
+ * WebKit refuses a history command issued while a NATIVE one (the Edit menu's
+ * Undo, i.e. Cmd+Z in the desktop app) is still dispatching its `input`, so a
+ * refused step is retried on the next task, once that command has finished.
+ * The broken state is on screen for that one task; if the retry finds nothing
+ * further in that direction, the state is repaired instead.
+ * @param {any} composer - Composer instance
+ * @param {HTMLTextAreaElement} textarea
+ * @param {string} [inputType]
+ * @returns {boolean} True if the history step owns this state (taken or queued).
+ */
+function stepPastBrokenHistory(composer, textarea, inputType) {
+  const command = inputType ? HISTORY_COMMANDS[inputType] : undefined;
+  if (!command || document.activeElement !== textarea) return false;
+  const hops = composer._pasteHistoryHops || 0;
+  if (hops >= MAX_HISTORY_HOPS) return false;
+  if (historyStep(composer, textarea, command, hops)) return true;
+  const broken = textarea.value;
+  setTimeout(() => {
+    // The user has moved on: their own edit is reconciled in its own right.
+    if (textarea.value !== broken || document.activeElement !== textarea) return;
+    if (historyStep(composer, textarea, command, hops)) return;
+    reconcileTokens(composer, textarea); // no further history: repair in place
+    syncPasteMirror(composer);
+  }, 0);
+  return true;
 }
 
 /**
