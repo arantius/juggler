@@ -28,6 +28,10 @@ func TestWriteFilePreservesMode(t *testing.T) {
 		if err := os.WriteFile(abs, []byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
+		// WriteFile's mode is filtered by the umask; set it outright.
+		if err := os.Chmod(abs, 0o755); err != nil {
+			t.Fatalf("seed chmod: %v", err)
+		}
 		if _, err := ops.Execute(context.Background(), "writeFile", map[string]any{
 			"path":    name,
 			"content": "#!/bin/sh\necho new\n",

@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 // TestEveryReplySlotRoutesConcurrentRequestsByID walks every request/reply kind
@@ -66,6 +67,56 @@ func TestEveryReplySlotRoutesConcurrentRequestsByID(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInjectQueuesAtMostOneUnclaimedReply proves the test-only inject applies
+// backpressure. Feeder harnesses call it in an unbounded loop; if a slot accepted
+// every injection while nothing registered, each feeder would spin and grow the
+// queue until the worker closed, which most tests never do.
+func TestInjectQueuesAtMostOneUnclaimedReply(t *testing.T) {
+	w := NewConversationWorker("conv-inject-bound", "user:test")
+	t.Cleanup(func() { w.doc.Destroy() })
+	abort := make(chan struct{})
+	t.Cleanup(func() { close(abort) })
+
+	slot := w.contextReply
+	accepted := make(chan struct{}, 100)
+	go func() {
+		for i := 0; i < cap(accepted); i++ {
+			if !slot.inject(abort, json.RawMessage(`{"requestId":"injected"}`)) {
+				return
+			}
+			accepted <- struct{}{}
+		}
+	}()
+
+	waitAccepted := func(want int) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for len(accepted) < want {
+			select {
+			case <-deadline:
+				t.Fatalf("inject accepted %d replies, want %d", len(accepted), want)
+			case <-time.After(time.Millisecond):
+			}
+		}
+		// Give an unbounded slot ample opportunity to accept more than it should.
+		time.Sleep(100 * time.Millisecond)
+		if got := len(accepted); got != want {
+			t.Fatalf("inject accepted %d replies, want %d", got, want)
+		}
+	}
+
+	waitAccepted(1)
+
+	response, unregister := slot.register("req-1")
+	defer unregister()
+	select {
+	case <-response:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the registration never received the queued injection")
+	}
+	waitAccepted(2)
 }
 
 func requestIDFromReply(t *testing.T, payload json.RawMessage) string {

@@ -44,10 +44,14 @@ type deliverReply struct {
 	payload json.RawMessage
 }
 
+// injectReply is the test-only uncorrelated answer (see inject). accepted is
+// closed once the registry has taken it: handed to a registration, or made the
+// one injection held for the next registration. Later injections wait unaccepted
+// behind that one, so a feeder looping on inject runs one reply ahead and no more.
 type injectReply struct {
-	payload json.RawMessage
-	abort   <-chan struct{}
-	result  chan bool
+	payload  json.RawMessage
+	abort    <-chan struct{}
+	accepted chan struct{}
 }
 
 type countReplies struct {
@@ -72,6 +76,17 @@ func (s *replySlot) run() {
 	var registrationOrder []string
 	var injections []injectReply
 
+	// settleInjections drops queued injections whose feeder has given up and
+	// accepts whichever is now at the head. Only the head is ever accepted.
+	settleInjections := func() {
+		for len(injections) > 0 && closed(injections[0].abort) {
+			injections = injections[1:]
+		}
+		if len(injections) > 0 && !closed(injections[0].accepted) {
+			close(injections[0].accepted)
+		}
+	}
+
 	for {
 		var command any
 		select {
@@ -84,17 +99,12 @@ func (s *replySlot) run() {
 			response := make(chan json.RawMessage, 1)
 			cancel := make(chan struct{})
 			entry := pendingReply{response: response, cancel: cancel}
+			settleInjections()
 			if len(injections) > 0 {
-				injected := injections[0]
+				entry.answered = true
+				response <- injections[0].payload
 				injections = injections[1:]
-				select {
-				case <-injected.abort:
-					injected.result <- false
-				default:
-					entry.answered = true
-					response <- injected.payload
-					injected.result <- true
-				}
+				settleInjections()
 			}
 			pending[command.requestID] = entry
 			registrationOrder = append(registrationOrder, command.requestID)
@@ -134,26 +144,27 @@ func (s *replySlot) run() {
 			pending[head.RequestID] = current
 			current.response <- command.payload
 		case injectReply:
+			if closed(command.abort) {
+				continue
+			}
 			injected := false
-			for _, requestID := range registrationOrder {
-				current, ok := pending[requestID]
-				if !ok || current.answered {
-					continue
-				}
-				select {
-				case <-command.abort:
-					command.result <- false
-				default:
+			if len(injections) == 0 {
+				for _, requestID := range registrationOrder {
+					current, ok := pending[requestID]
+					if !ok || current.answered {
+						continue
+					}
 					current.answered = true
 					pending[requestID] = current
 					current.response <- command.payload
-					command.result <- true
+					close(command.accepted)
+					injected = true
+					break
 				}
-				injected = true
-				break
 			}
 			if !injected {
 				injections = append(injections, command)
+				settleInjections()
 			}
 		case countReplies:
 			count := 0
@@ -186,6 +197,16 @@ func (s *replySlot) register(requestID string) (<-chan json.RawMessage, func()) 
 		case s.commands <- unregisterReply{requestID: registration.requestID, cancel: registration.cancel}:
 		case <-s.done:
 		}
+	}
+}
+
+// closed reports whether ch has been closed. A nil channel never is.
+func closed[T any](ch <-chan T) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
 	}
 }
 

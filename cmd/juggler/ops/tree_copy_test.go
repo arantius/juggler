@@ -28,6 +28,10 @@ func seedTree(t *testing.T, root string) {
 		if err := os.WriteFile(abs, []byte(content), mode); err != nil {
 			t.Fatalf("seed %s: %v", rel, err)
 		}
+		// WriteFile's mode is filtered by the umask; set it outright.
+		if err := os.Chmod(abs, mode); err != nil {
+			t.Fatalf("seed %s: %v", rel, err)
+		}
 	}
 	write(".gitignore", "build/\n*.log\n", 0o644)
 	write("main.go", "package main\n", 0o644)
