@@ -18,12 +18,13 @@
  */
 
 /* Shared popup-surface chrome — the single definition of the outer "card" look
-   (background, border, large rounded corner, shadow) for every transient
-   surface: anchored dropdowns/menus, the pickers, and centred modal dialogs.
-   Tune the whole family via the --radius-popup / --popup-shadow tokens (:root
-   above). Each surface below adds only its own layout (size, position, internal
-   padding); none redefines this chrome. The phone bottom-sheet rules override
-   the radius to a top-only curve — see the popup-sheet block. */
+   (background, border, rounded corner, shadow) for every transient surface:
+   anchored dropdowns and menus (the right-click menu is one), the pickers, and
+   centred modal dialogs. Tune the family via the --radius-popup / --popup-shadow
+   tokens (tokens/scale.css). Each surface adds only its own layout (size,
+   position, internal padding); none redefines this chrome. The phone
+   bottom-sheet rules override the radius to a top-only curve — see
+   components/popup-sheet.css. */
 .dropdown-menu,
 .pp-panel,
 modal-panel {
@@ -33,10 +34,15 @@ modal-panel {
     box-shadow: var(--popup-shadow);
 }
 
-/* The entrance, the same for the whole family (plus the right-click menu, which
-   wears its own smaller card): fade in while growing the last few percent into
-   place. It replays whenever a surface goes from unrendered to rendered —
-   appended, or its `display: none` lifted — and the exit is instant.
+/* A menu is a list of commands, not a dialog: it takes the tighter menu corner
+   (--radius-menu), which its rows' --radius-menu-item runs concentric with. */
+.dropdown-menu {
+    border-radius: var(--radius-menu);
+}
+
+/* The entrance, the same for the whole family: fade in while growing the last
+   few percent into place. It replays whenever a surface goes from unrendered to
+   rendered — appended, or its `display: none` lifted — and the exit is instant.
 
    Anchored surfaces grow out of their trigger: placement (positionDropdown,
    the context menu) sets --popup-origin to the edge facing it. A centred modal
@@ -47,8 +53,7 @@ modal-panel {
    the onboarding wizard, the skill preview). The phone bottom sheets replace
    it with their slide-up. */
 .dropdown-menu,
-.pp-panel,
-.juggler-context-menu {
+.pp-panel {
     transform-origin: var(--popup-origin, center top);
     animation: popup-surface-enter var(--popup-enter-duration) var(--popup-enter-ease);
 }
@@ -68,7 +73,6 @@ modal-panel {
 @media (prefers-reduced-motion: reduce) {
     .dropdown-menu,
     .pp-panel,
-    .juggler-context-menu,
     modal-panel {
         animation-name: popup-surface-fade;
     }

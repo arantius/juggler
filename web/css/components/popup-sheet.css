@@ -63,6 +63,14 @@
     }
 
     .popup-sheet.dropdown-menu {
+        --sheet-bleed: var(--menu-padding);
+    }
+
+    /* The dropdowns that are panels rather than menus pad themselves with the
+       dialog gutter (approvals.css, composer.css), so their bar pulls out by
+       that instead. */
+    .popup-sheet.permissions-popup,
+    .popup-sheet.schedule-send-menu {
         --sheet-bleed: var(--popup-padding-inline);
     }
 

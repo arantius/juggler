@@ -478,6 +478,11 @@ function _onOutside(e) {
 
 /**
  * Render and position the juggler popup menu at viewport coords (x, y).
+ *
+ * It is built from the app's shared menu classes — a shown `.dropdown-menu` of
+ * `.menu-item` rows, `.menu-divider` separators, `.danger` and `.unavailable`
+ * variants — so it looks like every other menu. `.juggler-context-menu` adds
+ * only the stacking layer (overlays-and-updates.css).
  * @param {ContextMenuItem[]} items
  * @param {number} x
  * @param {number} y
@@ -488,26 +493,30 @@ function showMenu(items, x, y, anchor) {
   closeMenu();
 
   const menu = document.createElement('div');
-  menu.className = 'juggler-context-menu';
+  menu.className = 'dropdown-menu juggler-context-menu show';
   menu.setAttribute('role', 'menu');
+  const list = document.createElement('menu');
+  menu.appendChild(list);
 
   for (const item of items) {
     if (item.separator) {
-      const sep = document.createElement('div');
-      sep.className = 'juggler-context-menu-separator';
+      const sep = document.createElement('li');
+      sep.className = 'menu-divider';
       sep.setAttribute('role', 'separator');
-      menu.appendChild(sep);
+      list.appendChild(sep);
       continue;
     }
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'juggler-context-menu-item';
+    const row = document.createElement('li');
+    row.className = 'menu-item';
     if (item.danger) row.classList.add('danger');
     row.setAttribute('role', 'menuitem');
     row.textContent = item.label || '';
     if (item.disabled) {
-      row.disabled = true;
+      row.classList.add('unavailable');
+      row.setAttribute('aria-disabled', 'true');
     } else {
+      // Focusable and activated by Enter or Space, as a button row would be.
+      row.tabIndex = 0;
       row.addEventListener('click', () => {
         closeMenu();
         try {
@@ -516,8 +525,13 @@ function showMenu(items, x, y, anchor) {
           console.error('[ContextMenu] action failed:', e);
         }
       });
+      row.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        row.click();
+      });
     }
-    menu.appendChild(row);
+    list.appendChild(row);
   }
 
   // Position off-screen first to measure, then clamp into the viewport.

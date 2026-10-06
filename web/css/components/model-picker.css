@@ -337,26 +337,22 @@ model-tuning:empty {
    list can scroll the full height of the surface while its rows stay inside a
    gutter. It is the same inset, not a private one — three measures do all of it:
      --picker-gutter — the TEXT LINE. Every label, name and row's text in the
-       left column starts this far in from the popup's edge. It IS the family's
-       --popup-padding-inline: a surface that lays itself out still owes the
-       corner curve the same clearance as one that just takes the base padding.
+       left column starts this far in from the popup's edge: a menu's inset plus
+       a menu row's padding, the same line a label sits on in any other menu.
      --picker-row-pad — the inset INSIDE any filled row, and equally how far a
        left-column row's fill extends PAST the text line (the two are the same
-       measure, which is what keeps the text on the line). It must be at least
-       --radius-popup-item: the row's own corner curve sweeps inward across the
-       first line of text, so any padding under the radius has the text riding
-       the curve. Worst on the Recent rows, which are two lines tall and so start
-       their text nearer the corner than a single-line row does.
+       measure, which is what keeps the text on the line). It is a menu row's
+       inline padding, which clears the row's own --radius-menu-item corner.
      --picker-list-inset — the list column's own horizontal padding: what holds
        the rows' fill off the column divider on one side and off the scrollbar on
-       the other. Distinct from the row padding above because it is outside the
-       rows, not inside them, and answers to no corner.
+       the other. Wider than a menu's inset, because a row's fill flush against a
+       scrollbar reads as running under it.
      --picker-row-text — where text starts inside a list row, past the column the
        ✓ tick occupies. Measured from the row's own edge, not the popup's. */
 .model-picker {
-    --picker-gutter: var(--popup-padding-inline);
-    --picker-row-pad: 1rem;
-    --picker-list-inset: 0.75rem;
+    --picker-gutter: calc(var(--menu-padding) + var(--menu-item-padding-inline));
+    --picker-row-pad: var(--menu-item-padding-inline);
+    --picker-list-inset: 0.5rem;
     --picker-row-text: 1.875rem;
 
     width: 36rem;

@@ -145,10 +145,10 @@
     --radius-lg: 0.375rem;   /* 6px */
     --radius-xl: 0.5rem;     /* 8px */
 
-    /* Popup / menu / modal surface — the single set of knobs every transient
-       surface (anchored dropdowns, pickers, centred dialogs) shares. Tune the
-       whole family here; see the shared `.dropdown-menu, .pp-panel, modal-panel`
-       chrome rule in the MENU UTILITY SYSTEM section. */
+    /* Popup / modal surface — the knobs every transient surface (pickers,
+       centred dialogs) shares; menus take the tighter --*-menu set below for
+       their corner and inset. See the shared chrome rule in
+       patterns/popup-surface.css. */
     --radius-popup: 1.5rem;          /* large rounded outer corner */
     --radius-popup-item: 0.875rem; /* inset interactive rows within a popup */
 
@@ -160,12 +160,26 @@
        the block inset stays tight: a popup can afford width, but height is what
        the list inside it wants.
 
-       Every surface in the `.dropdown-menu, .pp-panel, modal-panel` family takes
-       both, and any surface that overrides its padding must keep the inline half
-       — that is the whole point of the token. */
+       `.pp-panel` and `modal-panel` take both, as does any panel-like dropdown
+       that pads itself (permissions, schedule-send), and any surface that
+       overrides its padding must keep the inline half — that is the whole point
+       of the token. */
     --popup-padding: 1rem;             /* block: breathing room above and below */
     --popup-padding-inline: 1.5rem;    /* inline: one --radius-popup, to clear the curve */
     --popup-shadow: 0 1rem 3rem var(--overlay-dark-50);
+
+    /* Menus — every `.dropdown-menu`, the right-click menu among them, wears
+       these instead of the dialog-sized curve and gutter above: a menu is a
+       tight list of commands, and a 1.5rem corner pushes its rows a full radius
+       in from the sides. The corners are concentric — the card's radius is the
+       row's plus the card's inset — so a row's curve runs parallel to the card's
+       and the inset can stay square. Rows take the same inline padding, so a
+       label sits one inset plus one row pad from the card's edge in every menu. */
+    --radius-menu: 0.5rem;               /* the card's corner */
+    --radius-menu-item: 0.25rem;         /* a row's corner: --radius-menu less --menu-padding */
+    --menu-padding: 0.25rem;             /* the card's inset, both axes */
+    --menu-item-padding-block: 0.45rem;
+    --menu-item-padding-inline: 0.5rem;
 
     /* The entrance every transient surface makes (popup-surface.css): a quick
        fade while it grows the last few percent into place. Exits are instant,

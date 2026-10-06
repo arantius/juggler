@@ -17,6 +17,8 @@
 import { assert } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
 import { resolveMenu } from '../../js/services/context-menu-service.js';
+import workspaceProviderRegistry from '../../js/registries/workspace-provider-registry.js';
+import GroupWorkspaceProvider from '../../extensions/juggler-core/workspaces/group-workspace-provider.js';
 import '../../js/components/conversation-bar.js';
 
 /**
@@ -282,6 +284,80 @@ export async function runTests() {
         'a tab inside a box is still a tab: its own menu claims it first, or renaming a conversation '
         + 'would rename the place it is working in');
     } finally {
+      teardown();
+    }
+  });
+
+  // A group is a box and nothing else, so its two endings belong on the box's own
+  // menu: there is no tree behind it for the workspace panel to explain first.
+  // Registered here if a sibling test reset the registry out from under it.
+  if (!workspaceProviderRegistry.get('group')) {
+    workspaceProviderRegistry.registerClass(GroupWorkspaceProvider, { extensionId: 'test', modulePath: '(test)' });
+  }
+
+  await check('a group\'s right-click menu offers to ungroup it or delete it', () => {
+    const session = makeSession([{ ...workspace('ws_g', 'Group 1'), providerId: 'group' }], [['c1', 'ws_g']]);
+    const { bar, teardown } = mountBar(session);
+    try {
+      const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_g').querySelector('.conversation-box-label')));
+      const labels = (menu?.items ?? []).map((item) => (item.separator ? '—' : item.label));
+      assert(JSON.stringify(labels) === JSON.stringify(['Rename', '—', 'Ungroup', 'Delete group']),
+        `a group offers Rename, then its endings, got ${JSON.stringify(labels)}`);
+      const del = menu?.items.find((item) => item.label === 'Delete group');
+      assert(del?.danger === true, 'and deleting, which bins its conversations, is marked as the dangerous one');
+      assert(!menu?.items.find((item) => item.label === 'Ungroup')?.danger, 'while ungrouping is not');
+    } finally {
+      teardown();
+    }
+  });
+
+  await check('a box that is not a group offers no endings from its menu', () => {
+    const session = makeSession([workspace('ws_a', 'Tunnels')], [['c1', 'ws_a']]);
+    const { bar, teardown } = mountBar(session);
+    try {
+      const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_a').querySelector('.conversation-box-label')));
+      const labels = (menu?.items ?? []).map((item) => item.label);
+      assert(JSON.stringify(labels) === JSON.stringify(['Rename']),
+        `a workspace with a tree is ended from its panel, where there is room to say what is in it, got ${JSON.stringify(labels)}`);
+    } finally {
+      teardown();
+    }
+  });
+
+  await check('a group with a turn in flight offers no endings', () => {
+    const session = makeSession([{ ...workspace('ws_g', 'Group 1'), providerId: 'group' }], [['c1', 'ws_g']]);
+    session.conversations.get('c1').isProcessing = true;
+    const { bar, teardown } = mountBar(session);
+    try {
+      const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_g').querySelector('.conversation-box-label')));
+      const labels = (menu?.items ?? []).map((item) => (item.separator ? '—' : item.label));
+      assert(JSON.stringify(labels) === JSON.stringify(['Rename']),
+        `the endings are dropped rather than offered and refused, as Move to Bin is on a busy tab, got ${JSON.stringify(labels)}`);
+    } finally {
+      teardown();
+    }
+  });
+
+  await check('deleting a group from its menu asks first, in the provider\'s words', async () => {
+    const session = makeSession([{ ...workspace('ws_g', 'Group 1'), providerId: 'group' }], [['c1', 'ws_g']]);
+    const { bar, teardown } = mountBar(session);
+    /** @type {any} */
+    let asked = null;
+    // @ts-ignore - the one presenter every dialog in the app goes through
+    const presenter = window.showModal;
+    // @ts-ignore - standing in for it intercepts the confirmation itself
+    window.showModal = async (/** @type {any} */ options) => { asked = options; return false; };
+    try {
+      const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_g').querySelector('.conversation-box-label')));
+      const del = menu?.items.find((item) => item.label === 'Delete group');
+      await /** @type {any} */ (del?.onClick?.());
+      assert(/go to the bin/.test(String(asked?.message ?? '')),
+        `the confirmation says what deleting does, got ${JSON.stringify(asked?.message)}`);
+      assert(session.getWorkspace('ws_g')?.state === 'ready',
+        'and a group the user declined to delete is still there');
+    } finally {
+      // @ts-ignore - Extending window object
+      window.showModal = presenter;
       teardown();
     }
   });

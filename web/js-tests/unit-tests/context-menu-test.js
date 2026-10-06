@@ -54,6 +54,14 @@ function ensureTestProvider() {
     build: (subject) => {
       const kind = subject.getAttribute(MARK);
       if (kind === 'empty') return []; // exercise the "skip empty" path
+      if (kind === 'variants') {
+        return [
+          { label: 'Plain', onClick: () => { /* no-op */ } },
+          { label: 'Greyed', disabled: true },
+          { separator: true },
+          { label: 'Destroy', danger: true, onClick: () => { /* no-op */ } },
+        ];
+      }
       return [
         { label: 'Test Action', onClick: () => { /* no-op */ } },
       ];
@@ -354,7 +362,7 @@ export async function runTests() {
       'e2e: native menu suppressed over a text field (preventDefault)', errors));
     const editMenu = document.querySelector('.juggler-context-menu');
     const editLabels = editMenu
-      ? Array.from(editMenu.querySelectorAll('.juggler-context-menu-item')).map(b => b.textContent)
+      ? Array.from(editMenu.querySelectorAll('.menu-item')).map(b => b.textContent)
       : [];
     tally(check(
       JSON.stringify(editLabels) === JSON.stringify(['Cut', 'Copy', 'Paste', 'Select All']),
@@ -382,7 +390,7 @@ export async function runTests() {
 
     const menu = document.querySelector('.juggler-context-menu');
     tally(check(menu !== null, 'e2e: contextmenu over a claimed element should open the juggler menu', errors));
-    const rows = menu ? menu.querySelectorAll('.juggler-context-menu-item') : [];
+    const rows = menu ? menu.querySelectorAll('.menu-item') : [];
     tally(check(rows.length === 1 && rows[0].textContent === 'Test Action',
       'e2e: menu should render the provider rows', errors));
 
@@ -395,6 +403,73 @@ export async function runTests() {
     host.remove();
     const leftover = document.querySelector('.juggler-context-menu');
     if (leftover) leftover.remove();
+  }
+
+  // === The right-click menu is the shared menu, not a look of its own ===
+  // Same classes as every `.dropdown-menu`, so it takes the one menu style; and
+  // the geometry a plain dropdown computes to, so no second copy of the CSS can
+  // creep back in under the old class names.
+  const variantsHost = document.createElement('div');
+  variantsHost.setAttribute(MARK, 'variants');
+  document.body.appendChild(variantsHost);
+  const probe = document.createElement('nav');
+  probe.className = 'dropdown-menu show';
+  const probeList = document.createElement('menu');
+  const probeRow = document.createElement('li');
+  probeRow.className = 'menu-item';
+  probeRow.textContent = 'Probe';
+  probeList.append(probeRow);
+  probe.append(probeList);
+  document.body.appendChild(probe);
+  try {
+    variantsHost.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 20, clientY: 20,
+    }));
+    const menu = /** @type {HTMLElement|null} */ (document.querySelector('.juggler-context-menu'));
+    tally(check(!!menu && menu.classList.contains('dropdown-menu') && menu.classList.contains('show'),
+      `style: the right-click menu is a shown .dropdown-menu (got "${menu?.className}")`, errors));
+    const rows = menu ? [...menu.querySelectorAll('[role="menuitem"]')] : [];
+    tally(check(rows.length === 3 && rows.every((r) => r.classList.contains('menu-item')),
+      `style: every row is a .menu-item (got ${JSON.stringify(rows.map((r) => r.className))})`, errors));
+    tally(check(rows.map((r) => r.textContent).join('|') === 'Plain|Greyed|Destroy',
+      `style: rows keep their labels (got ${JSON.stringify(rows.map((r) => r.textContent))})`, errors));
+    const greyed = rows[1];
+    tally(check(!!greyed && greyed.getAttribute('aria-disabled') === 'true'
+      && greyed.classList.contains('unavailable') && !greyed.hasAttribute('tabindex'),
+    'style: a disabled row is aria-disabled, wears .unavailable and takes no focus', errors));
+    tally(check(/** @type {HTMLElement} */ (rows[0]).tabIndex === 0,
+      'style: an enabled row is focusable from the keyboard', errors));
+    tally(check(!!rows[2]?.classList.contains('danger'),
+      'style: a danger row wears .danger', errors));
+    const sep = menu?.querySelector('[role="separator"]');
+    tally(check(!!sep && sep.classList.contains('menu-divider'),
+      `style: a separator is a .menu-divider (got "${sep?.className}")`, errors));
+    tally(check(!menu?.querySelector('[class*="juggler-context-menu-"]'),
+      'style: no row carries a private juggler-context-menu-* class', errors));
+
+    if (menu && rows[0]) {
+      const m = getComputedStyle(menu);
+      const p = getComputedStyle(probe);
+      const r = getComputedStyle(rows[0]);
+      const pr = getComputedStyle(probeRow);
+      for (const prop of ['borderTopLeftRadius', 'paddingTop', 'paddingLeft', 'boxShadow', 'backgroundColor']) {
+        tally(check(m[prop] === p[prop],
+          `style: menu ${prop} matches a dropdown (${m[prop]} vs ${p[prop]})`, errors));
+      }
+      for (const prop of ['borderTopLeftRadius', 'paddingTop', 'paddingLeft', 'fontSize', 'color']) {
+        tally(check(r[prop] === pr[prop],
+          `style: row ${prop} matches a dropdown row (${r[prop]} vs ${pr[prop]})`, errors));
+      }
+      // A right-click can start inside a modal or an open dropdown, so the menu
+      // stacks above both, on the toast layer.
+      const toast = getComputedStyle(document.documentElement).getPropertyValue('--z-toast').trim();
+      tally(check(m.zIndex === toast && Number(m.zIndex) > Number(p.zIndex),
+        `style: menu sits on the toast layer (z ${m.zIndex}, toast ${toast}, dropdown ${p.zIndex})`, errors));
+    }
+  } finally {
+    variantsHost.remove();
+    probe.remove();
+    document.querySelector('.juggler-context-menu')?.remove();
   }
 
   // === Scroll dismissal is scoped to scrollers that move the anchor ===

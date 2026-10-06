@@ -83,7 +83,6 @@
     min-width: 18rem;
     max-width: 50rem;
     max-height: max(60vh, 20rem);
-    padding: var(--popup-padding) var(--popup-padding-inline);
     list-style: none;
     margin: 0;
     border-color: var(--text-tertiary);
@@ -94,13 +93,6 @@
    path-input.js); only the first one makes the popup-surface entrance. */
 .completions-menu.completions-menu--refresh {
     animation: none;
-}
-
-/* This menu's rows are a dense file list, not pill-shaped actions: keep them
-   square so the only rounded corner is the container's. The container's
-   --popup-padding-inline gutter holds the rows clear of that corner curve. */
-.completions-menu .menu-item {
-    border-radius: 0;
 }
 
 .completions-menu .menu-item-path {
@@ -200,7 +192,7 @@
 .skill-menu .menu-item-hint {
     display: block;
     grid-column: 1 / -1;
-    padding: 0.45rem 0.75rem;
+    padding: var(--menu-item-padding-block) var(--menu-item-padding-inline);
 }
 
 .skill-menu .menu-hint-text {
@@ -461,66 +453,13 @@ path-input .path-input-field:focus {
 
 /* ============================================================================
    Juggler context menu (right-click popup)
-   Rendered by web/js/services/context-menu-service.js. Positioned at the
-   cursor in viewport coords; --z-toast keeps it above modals/dropdowns since a
-   right-click can originate from within either.
+   Rendered by web/js/services/context-menu-service.js as an ordinary
+   `.dropdown-menu` of `.menu-item` rows (patterns/menus.css), so it looks like
+   every other menu. Its one difference is the layer: a right-click can start
+   inside a modal or an open dropdown, so it stacks on --z-toast, above both.
    ========================================================================== */
 .juggler-context-menu {
-    position: fixed;
-    min-width: 11rem;
-    max-width: 22rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 0.0625rem solid var(--border-floating);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 0.5rem 1.5rem var(--overlay-dark-50);
     z-index: var(--z-toast);
-    font-size: 0.8125rem;
-}
-
-.juggler-context-menu-item {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.3125rem 0.625rem;
-    border: none;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-}
-
-.juggler-context-menu-item:hover:not(:disabled),
-.juggler-context-menu-item:focus-visible:not(:disabled) {
-    background: var(--accent-blue);
-    color: #fff;
-    outline: none;
-}
-
-.juggler-context-menu-item.danger {
-    color: var(--accent-red);
-}
-
-.juggler-context-menu-item.danger:hover:not(:disabled),
-.juggler-context-menu-item.danger:focus-visible:not(:disabled) {
-    background: var(--accent-red);
-    color: #fff;
-}
-
-.juggler-context-menu-item:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-.juggler-context-menu-separator {
-    height: 0.0625rem;
-    margin: 0.25rem 0.375rem;
-    background: var(--border-color);
 }
 
 /* ── Update notice ──────────────────────────────────────────────────────────

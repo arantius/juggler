@@ -20,9 +20,10 @@ strategy-selector {
     overflow: hidden;
 }
 
-/* Strategy item - richer than standard menu-item */
+/* Strategy item - richer than standard menu-item: two lines and a colour bar,
+   so taller, but its text keeps a menu row's inset from the bar. */
 .strategy-dropdown .strategy-item {
-    padding: 0.75rem 1rem;
+    padding: 0.75rem calc(var(--menu-item-padding-inline) + 0.25rem);
     cursor: pointer;
     transition: background var(--transition-base);
     border-bottom: 0.0625rem solid var(--border-divider);

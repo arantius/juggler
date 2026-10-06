@@ -1345,12 +1345,12 @@ export async function runTests(_ctx) {
         shell.querySelector('.pinboard-item-toolbar__more').click();
         const menu = document.querySelector('.juggler-context-menu');
         assert(!!menu, 'the overflow opens the shared menu');
-        const rows = [...menu.querySelectorAll('.juggler-context-menu-item')]
+        const rows = [...menu.querySelectorAll('.menu-item')]
           .map((r) => r.textContent);
         assert(rows.join(',') === 'Refresh,Copy path',
           `the overflow holds the non-primary actions in order, got "${rows.join(',')}"`);
 
-        /** @type {any} */ ([...menu.querySelectorAll('.juggler-context-menu-item')]
+        /** @type {any} */ ([...menu.querySelectorAll('.menu-item')]
           .find((r) => r.textContent === 'Copy path')).click();
         assert(actionCalls.thrown === 1, 'an overflow row runs its action');
         const status = shell.querySelector('.pinboard-panel__status');
@@ -1511,7 +1511,7 @@ export async function runTests(_ctx) {
         // A picture in a menu of words says nothing, so an icon action is never
         // put behind the overflow — whatever it says about `primary`.
         shell.querySelector('.pinboard-item-toolbar__more').click();
-        const rows = [...document.querySelectorAll('.juggler-context-menu-item')].map((r) => r.textContent);
+        const rows = [...document.querySelectorAll('.juggler-context-menu .menu-item')].map((r) => r.textContent);
         assert(rows.join(',') === 'Later',
           `the overflow holds only what has no picture, got "${rows.join(',')}"`);
       } finally {

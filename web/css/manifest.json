@@ -440,7 +440,6 @@
 			"owns": [
 				"completions-menu",
 				"juggler-context-menu",
-				"juggler-context-menu-*",
 				"loading-overlay",
 				"loading-overlay__content",
 				"loading-overlay__detail",

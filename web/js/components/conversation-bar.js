@@ -40,11 +40,19 @@ import { TYPE_ICONS } from '../utils/icon-message-renderer.js';
 import { isPinboardView } from '../utils/view-mode.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
 import { isAutoNameEnabled, refreshAutoNameSetting } from '../services/auto-name-setting.js';
-import { workspaceGroups, drawnConversationOrder, selectedWorkspace } from '../services/workspace-provisioning.js';
+import {
+  workspaceGroups,
+  drawnConversationOrder,
+  selectedWorkspace,
+  workspaceFinishOptions,
+  workspaceFinishWarning,
+  workspaceFinishActor,
+  finishWorkspace
+} from '../services/workspace-provisioning.js';
 import { openWorkspaceMove } from './workspace-move-dialog.js';
 import { openWorkspaceCreate } from './workspace-create-dialog.js';
 import JugglerElement from './juggler-element.js';
-import { showAlert, showNotice } from './modal-dialog.js';
+import { showAlert, showConfirm, showNotice } from './modal-dialog.js';
 import { whyNotRebind, moveNeedsConfirmation, rebindConversation } from '../services/workspace-rebinding.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import './bin-modal.js';
@@ -129,6 +137,9 @@ const TOUCH_HOLD_MS = 300;
 
 /** How far a held finger may stray before the press is taken for a scroll. */
 const TOUCH_HOLD_TOLERANCE_PX = 8;
+
+/** The workspace provider whose boxes are tab groups (juggler-core's `group`). */
+const GROUP_PROVIDER_ID = 'group';
 
 /**
  * The currently-connected ConversationBar instance. Tracked at module scope so
@@ -2418,6 +2429,66 @@ class ConversationBar extends JugglerElement {
     });
   }
 
+  /**
+   * The endings a group's box offers from its right-click menu: Ungroup and
+   * Delete group, as its provider names them. Only a group's, because a group is
+   * a box and nothing else — every other workspace has a tree whose state is
+   * worth reading before it is ended, and <workspace-panel> is where there is
+   * room to show it. None while a turn is running in it, the way a busy tab's
+   * menu drops Move to Bin rather than offering something it would refuse.
+   * @param {string} workspaceId - The box right-clicked.
+   * @returns {import('../services/context-menu-service.js').ContextMenuItem[]} The rows, or none.
+   * @private
+   */
+  _groupEndingItems(workspaceId) {
+    const session = this._session;
+    const workspace = session?.getWorkspace(workspaceId);
+    if (!session || workspace?.providerId !== GROUP_PROVIDER_ID) return [];
+    if (workspaceFinishWarning(session, workspace).refusal) return [];
+    return workspaceFinishOptions(session, workspace).options.map((option) => ({
+      label: option.label,
+      danger: option.danger === true,
+      onClick: () => this._finishGroup(workspaceId, option),
+    }));
+  }
+
+  /**
+   * Carry out one of a group's endings, asked first in the same words
+   * <workspace-panel> asks in. A group holds no work of its own, so there is no
+   * tree to read before asking and nothing to add to the provider's sentence.
+   * @param {string} workspaceId - The group.
+   * @param {import('../../sdk/workspace-provider.js').FinishOption} option - The ending chosen.
+   * @returns {Promise<void>} When it has run, or been called off.
+   * @private
+   */
+  async _finishGroup(workspaceId, option) {
+    const session = this._session;
+    const workspace = session?.getWorkspace(workspaceId);
+    if (!session || !workspace) return;
+    try {
+      // Asked again: the menu was built before the dialog, and a turn may have
+      // started in between.
+      const { refusal } = workspaceFinishWarning(session, workspace);
+      if (refusal) {
+        showNotice(refusal);
+        return;
+      }
+      const agreed = await showConfirm(option.description || '', option.label,
+        { confirmText: option.label, danger: option.danger === true });
+      if (!agreed) return;
+      const result = await finishWorkspace({
+        session,
+        workspace,
+        conversation: workspaceFinishActor(session, workspace),
+        actionId: option.id,
+      });
+      if (result?.message) showNotice(result.message);
+      this.render();
+    } catch (error) {
+      showNotice(extractErrorMessage(error));
+    }
+  }
+
 
   /**
    * Drag a tab to reorder it, on the shared gesture (utils/reorder-drag.js).
@@ -2769,9 +2840,10 @@ registerContextMenuProvider({
   },
 });
 
-// Right-click menu for the workspace boxes. Rename is all it offers: everything
-// else a workspace can be asked — where it is, how it is doing, the ways of
-// finishing with it — is <workspace-panel>'s, where there is room to read it.
+// Right-click menu for the workspace boxes. Rename, and for a group its two
+// endings (see _groupEndingItems). Everything else a workspace can be asked —
+// where it is, how it is doing, the ways of finishing with one that has a tree —
+// is <workspace-panel>'s, where there is room to read it.
 //
 // A tab inside a box is still a tab, and claimed here first so it cannot be:
 // the menus resolve in registration order, and a right-click that renamed the
@@ -2785,7 +2857,11 @@ registerContextMenuProvider({
     const bar = /** @type {any} */ (_activeBar);
     const workspaceId = /** @type {HTMLElement} */ (subject).dataset.workspaceId || '';
     if (!bar || !workspaceId) return null;
-    return [{ label: 'Rename', onClick: () => bar._enterWorkspaceRenameMode(workspaceId) }];
+    /** @type {import('../services/context-menu-service.js').ContextMenuItem[]} */
+    const items = [{ label: 'Rename', onClick: () => bar._enterWorkspaceRenameMode(workspaceId) }];
+    const endings = bar._groupEndingItems(workspaceId);
+    if (endings.length) items.push({ separator: true }, ...endings);
+    return items;
   },
 });
 

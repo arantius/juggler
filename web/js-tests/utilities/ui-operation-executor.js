@@ -1378,6 +1378,14 @@ export async function executeUIOperation(harness, op) {
         }));
         await waitForElement('.context-item-add-dropdown .menu-item');
         const menuItemsAI = Array.from(document.querySelectorAll('.context-item-add-dropdown .menu-item'));
+        // The button already says what the menu is for, so every row is a choice:
+        // no section header, and no divider under one.
+        const addDropdown = document.querySelector('.context-item-add-dropdown');
+        const headerRows = addDropdown?.querySelectorAll('.category-header, .menu-header, .menu-divider') ?? [];
+        if (headerRows.length) throw new Error(`add-ai-files-to-sub-thread: add-context-item menu has ${headerRows.length} header/divider row(s): ${Array.from(headerRows).map(el => el.textContent.trim() || el.className).join(', ')}`);
+        if (addDropdown?.getAttribute('role') !== 'menu' || menuItemsAI.some(el => el.getAttribute('role') !== 'menuitem')) {
+          throw new Error('add-ai-files-to-sub-thread: add-context-item menu rows should be role="menuitem" inside a role="menu"');
+        }
         const aiFilesItem = /** @type {HTMLElement|undefined} */ (menuItemsAI.find(el => el.textContent.trim() === 'AI assistant files'));
         if (!aiFilesItem) throw new Error(`add-ai-files-to-sub-thread: "AI assistant files" menu item not found (found: ${menuItemsAI.map(el => el.textContent.trim()).join(', ')})`);
         aiFilesItem.click();

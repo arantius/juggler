@@ -48,6 +48,15 @@ import keyShortcutManager, { isMac } from './key-shortcut-manager.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 
 /**
+ * Whether the open-settings key opens Juggler's Settings here. In a macOS
+ * browser tab ⌘, belongs to the browser's own settings, so it does not.
+ * @returns {boolean} True in the desktop app, and everywhere off macOS.
+ */
+function openSettingsShortcutLive() {
+  return !(isMac() && !hasNativeHost());
+}
+
+/**
  * UIEventManager
  *
  * Manages all DOM event listeners with proper cleanup tracking.
@@ -224,7 +233,7 @@ class UIEventManager {
     // ⌘, in a macOS browser tab belongs to the browser's own settings, so return
     // false and let it through; the desktop app and Ctrl+, elsewhere open ours.
     this._unregisterOpenSettings = keyShortcutManager.register('open-settings', () => {
-      if (isMac() && !hasNativeHost()) return false;
+      if (!openSettingsShortcutLive()) return false;
       openSettings();
       return true;
     });
@@ -420,6 +429,11 @@ class UIEventManager {
       return;
     }
 
+    // Advertise the Settings key in the tooltip only where it opens ours.
+    if (openSettingsShortcutLive()) {
+      settingsButton.setAttribute('data-shortcut-id', 'open-settings');
+    }
+
     // Open settings panel when clicked
     const handler = () => {
       openSettings();
@@ -611,6 +625,7 @@ class UIEventManager {
     // Create dropdown menu
     const dropdown = document.createElement('nav');
     dropdown.className = 'dropdown-menu context-item-add-dropdown show';
+    dropdown.setAttribute('role', 'menu');
 
     // presentPopup (wired at the end of this method) returns the single
     // teardown; `close` runs it from every dismissal path (selection, outside
@@ -619,19 +634,9 @@ class UIEventManager {
     let release = null;
     const close = () => { if (release) { release(); release = null; } };
 
+    // No heading: the button that opened it already says what the menu is for,
+    // so every row is a choice.
     const menu = document.createElement('menu');
-
-    // Add heading
-    const heading = document.createElement('li');
-    heading.className = 'menu-item category-header';
-    heading.textContent = 'Add context item:';
-    menu.appendChild(heading);
-
-    // Divider
-    const divider = document.createElement('li');
-    divider.className = 'menu-divider';
-    divider.setAttribute('role', 'separator');
-    menu.appendChild(divider);
 
     // "AI assistant files" special action, offered once the conversation is
     // bound. Before that it is both redundant and wrong: the assistant files are
@@ -642,6 +647,7 @@ class UIEventManager {
     if (visible?.awaitingSetup !== true) {
       const aiFilesItem = document.createElement('li');
       aiFilesItem.className = 'menu-item';
+      aiFilesItem.setAttribute('role', 'menuitem');
       aiFilesItem.textContent = 'AI assistant files';
       aiFilesItem.addEventListener('click', async () => {
         await this._addAIAssistantFiles(threadItemId);
@@ -661,6 +667,7 @@ class UIEventManager {
 
         const item = document.createElement('li');
         item.className = 'menu-item';
+        item.setAttribute('role', 'menuitem');
         item.textContent = manifest.name;
 
         item.addEventListener('click', async () => {

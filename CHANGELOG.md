@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Every menu, right-click ones included, shares one tighter, less rounded style
+- Right-clicking a tab group offers Ungroup and Delete group
 - Image viewer zooms with trackpad pinch, Ctrl-scroll, keys or toolbar, and drags to pan
 - Claude Code without its CLI installed greys out instead of failing every turn
 - A missing-CLI error offers another model and Provider settings, not just Retry
