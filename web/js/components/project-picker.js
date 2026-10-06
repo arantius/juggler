@@ -18,6 +18,7 @@ import { presentPopup } from '../utils/popup-surface.js';
 import { closePopupById } from '../utils/popup-manager.js';
 import { hasNativeHost, pickDirectory, pickFile } from '../../sdk/lib/window-control.js';
 import { focusWhenShown } from '../utils/focus.js';
+import { projectsOpenInNewWindow } from '../utils/project-open-mode.js';
 import { showAlert, showConfirm } from './modal-dialog.js';
 
 /**
@@ -391,16 +392,16 @@ export async function openProjectPicker(currentPath, session) {
       return [];
     });
 
-  const inWindowMode = document.documentElement.dataset.windowMode === '1';
+  const newWindows = projectsOpenInNewWindow();
   const switching = !!currentPath;
-  // On the native desktop app, switching to a *different* project no longer
-  // tears this window down: the chosen folder opens in its own new window, so
-  // the current project and its tabs stay exactly where they are and nothing
-  // the user is looking at vanishes. In-place load survives only where a new
-  // window isn't an option — (a) filling an empty no-project window, and
-  // (b) browser / PWA / phone clients, which can't spawn a window and so must
-  // reuse this one (the picker copy explains the tab-set change there).
-  const newWindowOnly = inWindowMode && switching;
+  // On the native desktop app, choosing a *different* project opens it in its
+  // own new window, so the current project and its tabs stay exactly where they
+  // are and nothing the user is looking at vanishes. In-place load is used where
+  // a new window isn't an option — (a) filling an empty no-project window,
+  // (b) browser / PWA / phone clients, which can't spawn a window, and (c) a
+  // desktop window on a server the app did not start, whose paths may be on
+  // another machine (the picker copy explains the tab-set change there).
+  const newWindowOnly = newWindows && switching;
   const { element, promise, cancel } = buildPickerPanel({
     recents,
     currentPath,
@@ -421,7 +422,7 @@ export async function openProjectPicker(currentPath, session) {
     showCancel: false,
     confirmOpensNewWindow: newWindowOnly,
     validate: (path) => apiService.checkProject(path),
-    onNewWindow: inWindowMode ? openInNewWindow : null,
+    onNewWindow: newWindows ? openInNewWindow : null,
   });
   // Marks this panel as a presented surface (fixed, var-positioned) without
   // touching the plain centred-card `.pp-panel` used by inline consumers.

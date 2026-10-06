@@ -100,7 +100,20 @@ func (a *appState) handleWindowControl(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		a.openWindowForProject(r.URL.Query().Get("project"), opts)
+		project := r.URL.Query().Get("project")
+		// A window on a server this app did not start (--url) offers that
+		// server's paths, which may be on another machine. Opening one here
+		// would spawn a local server for a folder that is not here, so the page
+		// is told to switch in place instead.
+		if spec, ok := a.windowSpecOf(id); ok && spec.isURL() && project != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "This window is connected to a server by URL, so its projects cannot open in a new window. Use Switch to open it here.",
+			})
+			return
+		}
+		a.openWindowForProject(project, opts)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

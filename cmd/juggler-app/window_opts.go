@@ -99,6 +99,12 @@ type windowOpts struct {
 	// which boards go with a window when it closes.
 	openedBy string
 
+	// external marks a window onto a server this app did not start (--url).
+	// Like openedBy it never comes off the wire: buildWindow sets it from the
+	// window's spec. The page reads it to keep project switches in place, since
+	// the paths that server offers belong to its machine, not this one.
+	external bool
+
 	// panel is where the board was on screen in the window that asked, so the
 	// new window can open over it: a pop-out is the panel leaving the window,
 	// and a window that appeared somewhere else entirely would be a new one.
@@ -305,6 +311,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.zoom > 0 {
 		u += "&zoom=" + strconv.Itoa(opts.zoom)
+	}
+	if opts.external {
+		u += "&external=1"
 	}
 	if opts.view != "" {
 		u += "&view=" + url.QueryEscape(opts.view)

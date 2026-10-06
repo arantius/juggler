@@ -153,6 +153,12 @@
             // Mark window-mode when loaded inside a native desktop window.
             if (isWindow) {
                 document.documentElement.dataset.windowMode = '1';
+                // A window on a server the app did not start (--url) switches
+                // projects in place: that server's paths may be on another
+                // machine, so the app cannot open one in a window of its own.
+                if (params.get('external') === '1') {
+                    document.documentElement.dataset.externalServer = '1';
+                }
                 // Record the host OS synchronously (pre-paint) so window-chrome
                 // CSS — the macOS traffic-light gutter, the Windows caption
                 // controls — applies on first paint with no flash. The WebView's

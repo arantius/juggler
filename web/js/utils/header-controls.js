@@ -16,6 +16,7 @@ import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { fetchJson } from '../services/http.js';
 import { showAlert } from '../components/modal-dialog.js';
 import { apiUrl } from './api-url.js';
+import { projectsOpenInNewWindow } from './project-open-mode.js';
 
 /**
  * @typedef {import('../model/session.js').default} Session
@@ -191,10 +192,10 @@ export function setupHeaderControls(session) {
       pathLabel.textContent = projectPath;
       if (pathChip) {
         // On the desktop app, opening another project spawns a new window and
-        // leaves this one untouched; in a browser/PWA it switches in place
-        // (each folder carries its own tabs).
-        const inWindowMode = document.documentElement.dataset.windowMode === '1';
-        pathChip.title = inWindowMode
+        // leaves this one untouched; in a browser/PWA, or a desktop window on a
+        // server the app did not start, it switches in place (each folder
+        // carries its own tabs).
+        pathChip.title = projectsOpenInNewWindow()
           ? `Current project folder: ${projectPath}\n`
             + 'Click to open another project in a new window — this one stays put.'
           : `Current project folder: ${projectPath}\n`

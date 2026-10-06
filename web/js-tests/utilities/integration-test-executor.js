@@ -245,6 +245,7 @@ import { runTests as runColumnBuilderTests } from '../unit-tests/column-builder-
 import { runTests as runEmptyConversationHintTests } from '../unit-tests/empty-conversation-hint-test.js';
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-project-onboarding-test.js';
+import { runTests as runProjectPickerExternalTests } from '../unit-tests/project-picker-external-test.js';
 import { runTests as runStarterPromptsTests } from '../unit-tests/starter-prompts-test.js';
 import { runTests as runColumnFileDropTests } from '../unit-tests/column-file-drop-test.js';
 import { runTests as runColumnNavigationTests } from '../unit-tests/column-navigation-test.js';
@@ -674,6 +675,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:empty-conversation-hint', run: runEmptyConversationHintTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:no-project-onboarding', run: runNoProjectOnboardingTests },
+  { name: 'unit:project-picker-external', run: runProjectPickerExternalTests },
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
   { name: 'unit:column-navigation', run: runColumnNavigationTests },

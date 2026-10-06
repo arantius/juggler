@@ -17,6 +17,7 @@ of changes; this project follows semantic versioning.
 - Re-mentioning a changed file updates its snapshot instead of adding a second copy
 - A re-invoked sub-agent's elapsed timer starts from zero, not its previous run
 - Strategy SDK's continueConversation into a sub-thread now resolves when that thread answers
+- A juggler-app window opened with --url switches projects in place instead of failing silently
 - A crash inside one turn now stops that turn with an error, not the whole app
 - Adding AI assistant files now says what it added, or that nothing was new
 - Tips moved from a sidebar card to new conversations, with ‹ › to browse them

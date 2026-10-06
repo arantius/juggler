@@ -1096,6 +1096,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *ex
 
 	resolved := opts
 	resolved.theme, resolved.mode, resolved.zoom = startupTheme, startupMode, startupZoom
+	resolved.external = spec.isURL()
 	fullURL := windowPageURL(serverURL, nativeCtl, resolved)
 
 	// Resolve the native background colour to paint before the page's first
