@@ -372,7 +372,7 @@ class NoProjectOverlay extends JugglerElement {
       return;
     }
 
-    const names = providersCache.get()
+    const names = providersCache.getChat()
       .filter((p) => p.available && (p.modelsWithContext?.length ?? 0) > 0)
       .map((p) => p.displayName);
 

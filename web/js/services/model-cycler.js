@@ -173,7 +173,7 @@ class ModelCycler {
     // Hold the model write until commit: hops update the selector's display and
     // its dropdown HUD, but a running turn never sees an intermediate model.
     this._selector?.beginCycle();
-    this._snapshot = recentModels.getAvailable(providersCache.get());
+    this._snapshot = recentModels.getAvailable(providersCache.getChat());
     const current = this._selector?.currentConfigPair();
     this._cursor = current
       ? this._snapshot.findIndex(r => r.provider === current.provider

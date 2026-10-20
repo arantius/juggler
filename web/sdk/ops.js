@@ -93,8 +93,9 @@ export {
   extensionConfigGet,
   extensionConfigSet,
   extensionConfigResolve,
-  // LLM (out-of-band text generation)
+  // LLM (out-of-band text generation, and decisions from a decision model)
   generateText,
+  decide,
   // OS integration
   openPath,
   revealPath,

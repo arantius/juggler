@@ -43,10 +43,11 @@ const MODEL_PICKER_POPUP_ID = 'settings-model-picker';
 /**
  * "Defaults" tab (id `defaults`): the default-model picker and new-conversation
  * defaults, the cheap-model section (the picker plus a row per background job
- * that spends it — naming conversations, suggesting replies), the global
- * stream-idle-timeout field, and how diffs are drawn. Seeded from the shared
- * loadConfig() fetch; the pickers persist immediately via PUT /api/default-model
- * and PUT /api/cheap-model, the rest via PUT /api/config.
+ * that spends it — naming conversations, suggesting replies), the decision-model
+ * row, the global stream-idle-timeout field, and how diffs are drawn. Seeded
+ * from the shared loadConfig() fetch; the pickers persist immediately via PUT
+ * /api/default-model, PUT /api/cheap-model and PUT /api/decision-model, the
+ * rest via PUT /api/config.
  *
  * The diff rows are the exception to that last clause: they are display
  * preferences nothing on the server reads, so they persist through
@@ -69,12 +70,14 @@ export class DefaultsTab {
     this.defaultModel = { provider: '', model: '', explicit: false };
     /** @type {{provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}} @private - Cheap model for out-of-band micro-tasks. explicit=false means Auto; disabled=true means the user wants none, which Auto cannot express. */
     this.cheapModel = { explicit: false };
+    /** @type {{provider?: string, model?: string, explicit?: boolean, available?: boolean}} @private - Decision model for tasks that want one, such as Auto-approve. explicit=false means none is chosen and the cheap model is used instead; available=false on an explicit choice means it cannot serve right now. */
+    this.decisionModel = { explicit: false };
   }
 
   /**
    * Receive the shared loadConfig() payload: store config/providers/defaultModel
    * and (on a full render) build the fields.
-   * @param {{config: object, providers: any[], defaultModel: {provider: string, model: string, thinking?: string, serviceTier?: string, explicit?: boolean}, cheapModel?: {provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}}} data
+   * @param {{config: object, providers: any[], defaultModel: {provider: string, model: string, thinking?: string, serviceTier?: string, explicit?: boolean}, cheapModel?: {provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}, decisionModel?: {provider?: string, model?: string, explicit?: boolean, available?: boolean}}} data
    * @param {boolean} renderFields
    */
   onConfigLoaded(data, renderFields) {
@@ -82,6 +85,7 @@ export class DefaultsTab {
     this.providers = data.providers;
     this.defaultModel = data.defaultModel;
     if (data.cheapModel) this.cheapModel = data.cheapModel;
+    if (data.decisionModel) this.decisionModel = data.decisionModel;
     // Keep the client-side auto-naming cache in step with the server on every
     // config load, so the conversation bar's new-tab decision stays current even
     // when the settings panel isn't rendering fields.
@@ -94,6 +98,7 @@ export class DefaultsTab {
       this.renderGlobalSettings();
       this.renderDefaultModelField();
       this.renderCheapModelField();
+      this.renderDecisionModelField();
       this.renderAutoNameSettings();
       this.renderReplySuggestionsSettings();
       this.renderNewConversationDefaults();
@@ -712,6 +717,7 @@ export class DefaultsTab {
       containerId: '#default-model-field-container',
       nameLabel: t('Default model for new conversations'),
       current: this.defaultModel || { provider: '', model: '', explicit: false },
+      pickerProviders: this._chatProviders(),
       statusText: (ref) => this._defaultModelStatusText(ref),
       onSave: (config) => this._saveDefaultModel(config),
     });
@@ -734,6 +740,7 @@ export class DefaultsTab {
       nameLabel: t('Cheap model'),
       description: t('"Automatic" derives one from the model in use.'),
       current: this.cheapModel || { explicit: false },
+      pickerProviders: this._chatProviders(),
       // The one row with a third state. Turning it off is a real answer — the
       // tasks it runs are optional — and recording it is what stops the server
       // deriving a model anyway, and stops it mentioning that it can't.
@@ -744,7 +751,50 @@ export class DefaultsTab {
   }
 
   /**
-   * Shared renderer for the Default/Cheap model rows: a `<model-chip>` that
+   * Render the "Decision model" row: the model that answers yes/no and choice
+   * questions where a chat model would only be asked for a verdict. "Automatic"
+   * means none is chosen, and the cheap model does the job as it did before
+   * decision models existed. Persists via PUT /api/decision-model.
+   *
+   * The picker offers only providers that make decisions, and nothing is ever
+   * derived: a decision model is a different kind of thing, billed to its own
+   * account, so it is used only once the user has picked one.
+   * @private
+   */
+  renderDecisionModelField() {
+    this._renderModelRow({
+      containerId: '#decision-model-field-container',
+      nameLabel: t('Decision model'),
+      description: t('"Automatic" uses the cheap model instead.'),
+      current: this.decisionModel || { explicit: false },
+      pickerProviders: this._decisionProviders(),
+      statusText: (ref) => this._decisionModelStatusText(ref),
+      onSave: (config) => this._saveDecisionModel(config),
+    });
+  }
+
+  /**
+   * The providers a chat model can be chosen from: every one that can hold a
+   * conversation. A decision-only provider is left out of the default and cheap
+   * pickers, whose models are used to write text.
+   * @returns {any[]} The chat providers.
+   * @private
+   */
+  _chatProviders() {
+    return this.providers.filter((/** @type {any} */ p) => !p.decisionOnly);
+  }
+
+  /**
+   * The providers a decision model can be chosen from.
+   * @returns {any[]} The providers that make decisions.
+   * @private
+   */
+  _decisionProviders() {
+    return this.providers.filter((/** @type {any} */ p) => p.decisions);
+  }
+
+  /**
+   * Shared renderer for the Default/Cheap/Decision model rows: a `<model-chip>` that
    * opens the same `<model-picker>` the composer uses, and a status line
    * describing the current (or auto-resolved) choice.
    *
@@ -757,11 +807,12 @@ export class DefaultsTab {
    * @param {string} [opts.description] - Optional description under the label.
    * @param {{provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}} opts.current
    * @param {string} [opts.offLabel] - Label for the picker's Off row; omitted leaves the row out.
+   * @param {any[]} [opts.pickerProviders] - The providers the picker offers; defaults to every provider. The chip is always given the full list, so it can name a model the picker would not offer.
    * @param {(ref: any) => string} opts.statusText - Builds the status line.
    * @param {(config: import('../../model/model-config.js').ModelConfigShape) => void} opts.onSave - Persists the chosen config, or null for Automatic.
    * @private
    */
-  _renderModelRow({ containerId, nameLabel, description, current, offLabel, statusText, onSave }) {
+  _renderModelRow({ containerId, nameLabel, description, current, offLabel, pickerProviders, statusText, onSave }) {
     const container = this.host.querySelector(containerId);
     if (!container) return;
     container.innerHTML = '';
@@ -804,7 +855,7 @@ export class DefaultsTab {
       buttonTitle: nameLabel,
       config,
     });
-    chip.addEventListener('chip-toggle', () => this._openModelPicker(chip, config, onSave, { offLabel, isOff }));
+    chip.addEventListener('chip-toggle', () => this._openModelPicker(chip, config, onSave, { offLabel, isOff, pickerProviders }));
     // The pill promises its mini popover, so an open picker gets out of the way
     // first. Closing leaves the chip's DOM alone, so the pill is still the
     // anchor the popover then attaches to.
@@ -837,15 +888,15 @@ export class DefaultsTab {
    * @param {any} chip - The `<model-chip>` the picker anchors to.
    * @param {import('../../model/model-config.js').ModelConfigShape} value - The config in effect.
    * @param {(config: import('../../model/model-config.js').ModelConfigShape) => void} onSave
-   * @param {{offLabel?: string, isOff?: boolean}} [opts] - The Off row, for a row that has one.
+   * @param {{offLabel?: string, isOff?: boolean, pickerProviders?: any[]}} [opts] - The Off row, for a row that has one, and the providers to offer.
    * @private
    */
-  _openModelPicker(chip, value, onSave, { offLabel, isOff } = {}) {
+  _openModelPicker(chip, value, onSave, { offLabel, isOff, pickerProviders } = {}) {
     // Second press on the same chip dismisses rather than re-opening.
     if (closePopupById(MODEL_PICKER_POPUP_ID)) return;
 
     const picker = /** @type {any} */ (document.createElement('model-picker'));
-    picker.providers = this.providers;
+    picker.providers = pickerProviders || this.providers;
     picker.value = value;
     picker.noneLabel = t('Automatic');
     if (offLabel) picker.offLabel = offLabel;
@@ -936,6 +987,56 @@ export class DefaultsTab {
       this.renderCheapModelField();
       await showAlert(t('Couldn\'t save the cheap model.\n\n{error}', { error: errorText(err) }), t('Error'));
     }
+  }
+
+  /**
+   * Persist the chosen decision model. A null config clears it (Automatic), so
+   * the cheap model is used again.
+   *
+   * Applied optimistically, and put back as it was if the save fails — same
+   * contract as the other model rows.
+   * @param {import('../../model/model-config.js').ModelConfigShape} config
+   * @private
+   */
+  async _saveDecisionModel(config) {
+    const previous = this.decisionModel;
+    const body = this._modelRowBody(config);
+    this.decisionModel = {
+      provider: body.provider,
+      model: body.model,
+      explicit: !!(body.provider && body.model),
+    };
+    this.renderDecisionModelField();
+    try {
+      // A decision model has no reasoning level or serving tier to send.
+      await fetchJson(apiUrl('/decision-model'), { method: 'PUT', body: { provider: body.provider, model: body.model } });
+      // Re-read so the row reflects whether the server can actually serve the
+      // pick, which only it knows.
+      this.decisionModel = await fetchJson(apiUrl('/decision-model'), { fallback: this.decisionModel }) || { explicit: false };
+      this.renderDecisionModelField();
+    } catch (err) {
+      console.error('[SettingsPanel] Failed to save decision model:', err);
+      this.decisionModel = previous;
+      this.renderDecisionModelField();
+      await showAlert(t('Couldn\'t save the decision model.\n\n{error}', { error: errorText(err) }), t('Error'));
+    }
+  }
+
+  /**
+   * The decision row's status line. With nothing chosen it says what runs
+   * instead, since "Automatic" here is not a model being derived but the cheap
+   * model standing in.
+   * @param {{provider?: string, model?: string, explicit?: boolean}} ref
+   * @returns {string} short status describing the current decision-model state
+   * @private
+   */
+  _decisionModelStatusText(ref) {
+    if (!ref || !ref.explicit) {
+      return this._decisionProviders().some((/** @type {any} */ p) => p.available)
+        ? t('Automatic — the cheap model is used.')
+        : t('Automatic — the cheap model is used. Add a decision model, such as Jev, in Providers.');
+    }
+    return this._explicitModelStatusText(ref);
   }
 
   /**

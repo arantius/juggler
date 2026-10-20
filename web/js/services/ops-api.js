@@ -1415,6 +1415,104 @@ export async function generateText(params, signal) {
   return response.json();
 }
 
+/**
+ * One option of a choice question, or one level of a score question.
+ * @typedef {object} DecisionOption
+ * @property {string} [name] - Identifies a choice option in the answer. A score level has no name: its position in the list is its score, counting from zero.
+ * @property {string} [description] - What the option means. Required for a score level; a choice option may leave it out and be understood from its name.
+ */
+
+/**
+ * One question asked of a decision model.
+ * @typedef {object} DecisionQuestion
+ * @property {string} id - Names the question in the answers; chosen by the caller and never shown to the model.
+ * @property {('yes-no'|'choice'|'score')} kind - The form of answer wanted: a probability, a pick from `options`, or a position on the ordered `options` scale.
+ * @property {string} instructions - The question itself: the statement a yes-no question evaluates, or what a choice or score question decides.
+ * @property {DecisionOption[]} [options] - The choices (1 to 255) or ordered score levels (2 to 10). A yes-no question has none.
+ */
+
+/**
+ * Parameters for an out-of-band decision.
+ * @typedef {object} DecideParams
+ * @property {string} state - The text every question is asked about.
+ * @property {DecisionQuestion[]} questions - At least one; all are answered about the same `state` in one call.
+ * @property {('decision'|{provider: string, model: string})} [model]
+ *   Which model to use. "decision" (default) uses the decision model chosen in
+ *   Settings; an explicit {provider, model} pair names a decision model directly.
+ * @property {number} [timeoutMs] - Wall-clock bound on the call, clamped into a
+ *   sane band like generateText's.
+ */
+
+/**
+ * A decision model's reply to one question. Which fields are set follows `kind`.
+ * @typedef {object} DecisionAnswer
+ * @property {('yes-no'|'choice'|'score')} kind - The form of this answer, matching its question's.
+ * @property {number} [probability] - Chance the statement holds, 0 to 1 (yes-no).
+ * @property {string} [choice] - The option picked (choice).
+ * @property {number} [score] - Probability-weighted position on the scale (score).
+ * @property {number} [confidence] - How settled the model is, 0 to 1 (choice, score).
+ * @property {Record<string, number>} [probabilities] - Probability of each option, keyed by option name (choice) or level position (score).
+ */
+
+/**
+ * Result of an out-of-band decision.
+ * @typedef {object} DecideResult
+ * @property {Record<string, DecisionAnswer>} answers - One answer per question, keyed by question id.
+ * @property {{inputTokens: number, outputTokens: number}} usage - Token accounting.
+ */
+
+/**
+ * Ask a decision model questions about some text — one bounded call that
+ * answers with probabilities and picks instead of writing text. Backed by
+ * /api/llm/decide (see server/quick_decide.go) and run in the same capped,
+ * bounded, concurrency-limited pool as {@link generateText}. Use it where a
+ * verdict would otherwise be parsed out of generated text.
+ *
+ * A failure throws an `OpsError` carrying the HTTP status, and the status is
+ * what to classify on, as for generateText: 429 the shared pool was saturated,
+ * 504 the bound elapsed (both worth another attempt), 400 the request or the
+ * model was wrong, 502 anything else. One status is specific to this call: 409
+ * means there is no decision model to ask — the user has chosen none, or the one
+ * they chose cannot serve right now. A caller that can do without one (a task
+ * that may run on the cheap model instead) treats it as "fall back", not as a
+ * failure.
+ * @param {DecideParams} params
+ * @param {AbortSignal} [signal] - Abort signal for cancellation
+ * @returns {Promise<DecideResult>} One answer per question, and token usage
+ */
+export async function decide(params, signal) {
+  if (!params || !params.state) {
+    throw new TypeError('state is required');
+  }
+  if (!Array.isArray(params.questions) || params.questions.length === 0) {
+    throw new TypeError('questions is required');
+  }
+
+  const headers = withApiToken({ 'Content-Type': 'application/json' });
+
+  const body = {
+    state: params.state,
+    questions: params.questions,
+    // Default to the chosen decision model when the caller doesn't specify one.
+    model: params.model ?? 'decision',
+    timeoutMs: params.timeoutMs
+  };
+
+  const response = await fetch(apiUrl('/llm/decide'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal
+  });
+
+  if (!response.ok) {
+    const { detail, serverMessage } = await extractHttpErrorParts(response);
+    throw new OpsError(detail, response.status, { serverMessage });
+  }
+
+  return response.json();
+}
+
 // ============================================================================
 // OS Integration Operations
 // ============================================================================

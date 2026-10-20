@@ -20,7 +20,8 @@ import { t } from '../../sdk/lib/i18n.js';
 /** `spawnsLocalProcess` marks a provider Juggler runs as a subprocess in the conversation's own directory (the CLI agents), so it can only serve a workspace this machine can spawn into. */
 /** `switchTo` names a provider better suited to the server this one is pointed at (LocalAI aimed at LM Studio), for the UI to offer the switch. */
 /** @typedef {{ provider: string, displayName: string, reason: string }} ProviderSwitch */
-/** @typedef {{ name: string, displayName: string, description: string, authType: string, authSource?: string, authHint?: string, configKeyName: string, envVarName: string, apiKeyURL: string, keySource: string, available: boolean, spawnsLocalProcess?: boolean, switchTo?: ProviderSwitch, modelsWithContext: ModelWithContext[] }} Provider */
+/** `decisions` marks a provider whose models answer decision requests (yes/no, choice and score questions) and `decisionOnly` one that cannot hold a conversation, so no chat picker may offer its models. Both are absent for a provider that only chats. */
+/** @typedef {{ name: string, displayName: string, description: string, authType: string, authSource?: string, authHint?: string, configKeyName: string, envVarName: string, apiKeyURL: string, keySource: string, available: boolean, spawnsLocalProcess?: boolean, decisions?: boolean, decisionOnly?: boolean, switchTo?: ProviderSwitch, modelsWithContext: ModelWithContext[] }} Provider */
 
 /** @type {Provider[]} */
 let _cache = [];
@@ -57,6 +58,25 @@ const providersCache = {
    */
   get() {
     return _cache;
+  },
+
+  /**
+   * The providers whose models can hold a conversation: everything but the
+   * decision-only ones. This is the list for any picker that chooses a model to
+   * chat with.
+   * @returns {Provider[]} Current cached providers that chat.
+   */
+  getChat() {
+    return providersCache.get().filter((p) => !p.decisionOnly);
+  },
+
+  /**
+   * The providers whose models answer decision requests, for the picker that
+   * chooses a decision model.
+   * @returns {Provider[]} Current cached providers that make decisions.
+   */
+  getDecision() {
+    return providersCache.get().filter((p) => p.decisions);
   },
 
   /**
@@ -101,11 +121,12 @@ const providersCache = {
    * credential and at least one listable model. This is the "can the user
    * actually send a message" signal, distinct from `hasReceived()` (did any
    * push arrive) and from the raw list length (which counts unavailable
-   * providers too).
+   * providers too). A decision-only provider does not count: it cannot answer a
+   * message, so a user with only a decision model still needs a chat provider.
    * @returns {boolean} True if some provider can serve a model right now.
    */
   hasAvailableProvider() {
-    return _cache.some((p) => p.available && (p.modelsWithContext?.length ?? 0) > 0);
+    return providersCache.getChat().some((p) => p.available && (p.modelsWithContext?.length ?? 0) > 0);
   },
 
   /**

@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Auto-approve can judge tool calls with a decision model such as Jev, chosen in Settings
+- New extension op `decide` asks a decision model yes/no, choice and score questions
 - Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch
 - Long-pressing text on Android no longer opens a Copy menu over the selection
 - Resizing a column no longer resizes every other column; widths are kept per depth

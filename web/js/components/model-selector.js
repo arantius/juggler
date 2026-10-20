@@ -148,7 +148,7 @@ class ModelSelector extends JugglerElement {
       // the raw model id from the pre-compute connect seed.
       this._pushToChip();
       this._picker?.refresh();
-      if (this._picker) this._picker.providers = this.providers;
+      if (this._picker) this._picker.providers = this._offerableProviders();
     }));
   }
 
@@ -363,9 +363,11 @@ class ModelSelector extends JugglerElement {
    * @private
    */
   _offerableProviders() {
+    // A decision model cannot hold a conversation, so it is never offered here.
+    const chat = this.providers.filter((provider) => !provider.decisionOnly);
     const conversation = this._messageThread?.conversation || this.conversation;
-    if (!conversation || conversation.workspaceHostsLocalProviders !== false) return this.providers;
-    return this.providers.map((provider) => (
+    if (!conversation || conversation.workspaceHostsLocalProviders !== false) return chat;
+    return chat.map((provider) => (
       /** @type {any} */ (provider).spawnsLocalProcess
         ? { ...provider, available: false, authHint: t(WORKSPACE_ELSEWHERE_HINT), authHintMessage: null }
         : provider

@@ -186,7 +186,7 @@ export function openCommandEditor(options = {}) {
 
     const syncChip = () => {
       modelChip.update({
-        providers: providersCache.get(),
+        providers: providersCache.getChat(),
         config: modelConfig,
         placeholder: t('Inherit from parent'),
         buttonTitle: t('Model for the thread'),
@@ -204,7 +204,7 @@ export function openCommandEditor(options = {}) {
       if (closePopupById(MODEL_PICKER_POPUP_ID)) return;
 
       const picker = /** @type {any} */ (document.createElement('model-picker'));
-      picker.providers = providersCache.get();
+      picker.providers = providersCache.getChat();
       picker.value = modelConfig;
       picker.noneLabel = t('Inherit from parent');
       picker.loading = !providersCache.hasReceived();

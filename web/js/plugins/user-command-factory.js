@@ -77,7 +77,7 @@ function humanize(name) {
  */
 function providerFor(providerName, modelId) {
   const advertises = (/** @type {any} */ p) => (p.modelsWithContext || []).some((/** @type {any} */ m) => m.id === modelId);
-  const providers = providersCache.get();
+  const providers = providersCache.getChat();
   const named = providerName ? providers.find((p) => p.name === providerName) : null;
   if (named && advertises(named)) return named.name;
   return providers.find(advertises)?.name || '';

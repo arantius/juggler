@@ -16,6 +16,12 @@
  *      keys, never empty strings, and "Automatic" is the empty pair.
  *   3. Clearing the cheap model to Automatic re-reads it, because the status
  *      line then has to name whatever the server derived.
+ *
+ * The decision-model row is a third host, with two rules of its own: it sends
+ * the provider and model and nothing else (a decision model has no reasoning
+ * level or serving tier to pin), and each picker offers only the providers that
+ * suit it — chat models in the default and cheap rows, decision models in the
+ * decision row — so a model that cannot do a row's job is never choosable there.
  * @module unit-tests/defaults-model-host-test
  */
 
@@ -63,6 +69,21 @@ function providers() {
 }
 
 /**
+ * A decision-only provider with one model, the shape the server publishes for Jev.
+ * @returns {any} The provider.
+ */
+function decisionProvider() {
+  return {
+    name: 'jev',
+    displayName: 'Jev',
+    available: true,
+    decisions: true,
+    decisionOnly: true,
+    modelsWithContext: [{ id: 'jev-latest', displayName: 'Jev latest', contextWindow: 64000 }],
+  };
+}
+
+/**
  * A recorded request.
  * @typedef {{url: string, method: string, body: any}} Call
  */
@@ -77,6 +98,7 @@ function makeTab({ connect } = {}) {
   const host = document.createElement('div');
   host.innerHTML = '<div id="default-model-field-container"></div>'
     + '<div id="cheap-model-field-container"></div>'
+    + '<div id="decision-model-field-container"></div>'
     + '<div id="reply-suggestions-field-container"></div>';
   if (connect) document.body.appendChild(host);
 
@@ -93,7 +115,7 @@ function makeTab({ connect } = {}) {
   });
 
   const tab = /** @type {any} */ (new DefaultsTab(host));
-  tab.providers = providers();
+  tab.providers = [...providers(), decisionProvider()];
   return {
     tab,
     host,
@@ -423,6 +445,172 @@ export async function runTests(_ctx) {
       + 'a user who turned it off gets one round of it on every startup');
   });
 
+  // =========================================================================
+  // the decision-model row
+  // =========================================================================
+  await run('the decision-model row PUTs the provider and model and nothing else', async () => {
+    const h = makeTab();
+    try {
+      // A config straight from the shared picker can carry dials; a decision
+      // model has neither, so none may reach the server.
+      await h.tab._saveDecisionModel({ provider: 'jev', model: 'jev-latest', thinking: 'high', serviceTier: 'priority' });
+      const call = h.calls.find(c => c.url === '/api/decision-model' && c.method === 'PUT');
+      assert(!!call, 'a choice is persisted immediately');
+      assert(JSON.stringify(call.body) === JSON.stringify({ provider: 'jev', model: 'jev-latest' }),
+        `only the pair is sent, got ${JSON.stringify(call.body)}`);
+      const reread = h.calls.filter(c => c.url === '/api/decision-model' && c.method === 'GET');
+      assert(reread.length === 1, 'the save is followed by a re-read, because only the server knows whether the pick can serve');
+    } finally {
+      h.restore();
+    }
+  });
+
+  await run('Automatic clears the decision model with the empty pair', async () => {
+    const h = makeTab();
+    try {
+      h.tab.decisionModel = { provider: 'jev', model: 'jev-latest', explicit: true };
+      await h.tab._saveDecisionModel(null);
+      const put = h.calls.find(c => c.url === '/api/decision-model' && c.method === 'PUT');
+      assert(!!put && put.body.provider === '' && put.body.model === '',
+        `Automatic is the empty pair, got ${JSON.stringify(put?.body)}`);
+      assert(h.tab.decisionModel.explicit === false, 'the row falls back to its automatic state');
+    } finally {
+      h.restore();
+    }
+  });
+
+  await run('a failed decision-model save puts the row back as it was', async () => {
+    const h = makeTab();
+    const win = /** @type {any} */ (window);
+    const originalShowModal = win.showModal;
+    /** @type {any[]} */
+    const modals = [];
+    win.showModal = async (/** @type {any} */ opts) => { modals.push(opts); };
+    window.fetch = /** @type {any} */ (async () => { throw new Error('503'); });
+    try {
+      const before = { provider: 'jev', model: 'jev-latest', explicit: true, available: true };
+      h.tab.decisionModel = before;
+      await h.tab._saveDecisionModel(null);
+      assert(h.tab.decisionModel === before, 'a choice the server rejected must not stay on screen');
+      assert(modals.length === 1, `the failure is explained once, got ${modals.length}`);
+    } finally {
+      win.showModal = originalShowModal;
+      h.restore();
+    }
+  });
+
+  await run('the row shows the chosen decision model, and "Automatic" when there is none', () => {
+    const h = makeTab();
+    try {
+      h.tab.decisionModel = { provider: 'jev', model: 'jev-latest', explicit: true, available: true };
+      h.tab.renderDecisionModelField();
+      const label = h.host.querySelector('#decision-model-field-container .model-name');
+      assert((label?.textContent || '') === 'Jev latest', `the chip names the chosen model, got "${label?.textContent}"`);
+
+      h.tab.decisionModel = { explicit: false };
+      h.tab.renderDecisionModelField();
+      const auto = h.host.querySelector('#decision-model-field-container .model-name');
+      assert((auto?.textContent || '') === 'Automatic', `no choice reads as Automatic, got "${auto?.textContent}"`);
+    } finally {
+      h.restore();
+    }
+  });
+
+  await run('the decision row says what runs instead when nothing is chosen', () => {
+    const h = makeTab();
+    try {
+      const withProvider = h.tab._decisionModelStatusText({ explicit: false });
+      assert(withProvider === 'Automatic — the cheap model is used.',
+        `with a decision provider available the row says the cheap model stands in, got "${withProvider}"`);
+
+      h.tab.providers = providers();
+      const without = h.tab._decisionModelStatusText({ explicit: false });
+      assert(/cheap model is used/.test(without) && /Jev/.test(without) && /Providers/.test(without),
+        `with none available the row points at where to add one, got "${without}"`);
+
+      h.tab.providers = [...providers(), { ...decisionProvider(), available: false }];
+      assert(/Providers/.test(h.tab._decisionModelStatusText({ explicit: false })),
+        'a decision provider that is not usable does not count as one');
+
+      h.tab.providers = [...providers(), decisionProvider()];
+      assert(h.tab._decisionModelStatusText({ provider: 'jev', model: 'jev-latest', explicit: true }) === 'Active.',
+        'a chosen model that can serve is Active');
+      assert(h.tab._decisionModelStatusText({ provider: 'jev', model: 'gone', explicit: true }) === 'Model is not in the provider’s current model list.',
+        'a chosen model the provider no longer lists says so');
+    } finally {
+      h.restore();
+    }
+  });
+
+  await run('the decision picker offers decision models and nothing a chat row could use', async () => {
+    document.querySelectorAll('.model-picker').forEach(node => node.remove());
+    const h = makeTab({ connect: true });
+    try {
+      h.tab.decisionModel = { explicit: false };
+      h.tab.renderDecisionModelField();
+      /** @type {any} */ (h.host.querySelector('#decision-model-field-container model-chip')).button.click();
+
+      const picker = /** @type {any} */ (document.querySelector('.model-picker'));
+      assert(!!picker, 'pressing the chip opens the shared picker');
+      assert(picker.noneLabel === 'Automatic', 'the none row is labelled Automatic');
+      assert(!!picker.querySelector('.menu-item[data-model="jev-latest"]'), 'the decision model is offered');
+      assert(!picker.querySelector('.menu-item[data-model="m"]') && !picker.querySelector('.menu-item[data-model="other"]'),
+        'a chat model cannot answer a decision, so it is not offered');
+      assert(!picker.querySelector('[data-off]'), 'there is no Off: leaving it Automatic is already "off"');
+
+      picker.querySelector('.menu-item[data-model="jev-latest"]').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const call = h.calls.find(c => c.url === '/api/decision-model' && c.method === 'PUT');
+      assert(!!call && call.body.provider === 'jev' && call.body.model === 'jev-latest',
+        `the picker's choice reaches the server, got ${JSON.stringify(call)}`);
+    } finally {
+      h.restore();
+      document.querySelectorAll('.model-picker').forEach(node => node.remove());
+    }
+  });
+
+  await run('the default and cheap pickers never offer a decision-only model', async () => {
+    for (const [field, render] of /** @type {[string, string][]} */ ([
+      ['#default-model-field-container', 'renderDefaultModelField'],
+      ['#cheap-model-field-container', 'renderCheapModelField'],
+    ])) {
+      document.querySelectorAll('.model-picker').forEach(node => node.remove());
+      const h = makeTab({ connect: true });
+      try {
+        h.tab[render]();
+        /** @type {any} */ (h.host.querySelector(`${field} model-chip`)).button.click();
+        const picker = /** @type {any} */ (document.querySelector('.model-picker'));
+        assert(!!picker, `${field}: pressing the chip opens the picker`);
+        assert(!!picker.querySelector('.menu-item[data-model="m"]'), `${field}: chat models are offered`);
+        assert(!picker.querySelector('.menu-item[data-model="jev-latest"]'),
+          `${field}: a decision model cannot chat or write a title, so it must not be choosable here`);
+        picker.querySelector('[data-none]').click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+      } finally {
+        h.restore();
+        document.querySelectorAll('.model-picker').forEach(node => node.remove());
+      }
+    }
+  });
+
+  await run('the tab loads and renders the decision model it was handed', () => {
+    const h = makeTab();
+    try {
+      h.tab.onConfigLoaded({
+        config: {},
+        providers: [...providers(), decisionProvider()],
+        defaultModel: { provider: 'p', model: 'm', explicit: false },
+        cheapModel: { explicit: false },
+        decisionModel: { provider: 'jev', model: 'jev-latest', explicit: true, available: true },
+      }, true);
+      assert(h.tab.decisionModel.model === 'jev-latest', 'the loaded choice is held');
+      const label = h.host.querySelector('#decision-model-field-container .model-name');
+      assert((label?.textContent || '') === 'Jev latest', `and drawn, got "${label?.textContent}"`);
+    } finally {
+      h.restore();
+    }
+  });
+
   // Every state the tab draws, under en-XA. The fixture's model names, the
   // server's built-in naming prompt and the pinned strategy id are digits, so
   // they need no exclusion; the registered strategies are stand-ins whose names
@@ -433,6 +621,7 @@ export async function runTests(_ctx) {
     host.innerHTML = '<div id="global-settings"></div>'
       + '<div id="default-model-field-container"></div>'
       + '<div id="cheap-model-field-container"></div>'
+      + '<div id="decision-model-field-container"></div>'
       + '<div id="auto-name-form"></div>'
       + '<div id="reply-suggestions-field-container"></div>'
       + '<div id="new-conversation-defaults-fields"></div>';
@@ -462,6 +651,7 @@ export async function runTests(_ctx) {
       { name: 'p', displayName: '1', available: true, modelsWithContext: [{ id: 'm', displayName: '7', contextWindow: 1000 }] },
       { name: 'k', displayName: '2', available: false, authType: 'api_key' },
       { name: 'o', displayName: '3', available: false, authType: 'oauth_bearer' },
+      { name: 'j', displayName: '8', available: true, decisions: true, decisionOnly: true, modelsWithContext: [{ id: 'd', displayName: '9', contextWindow: 64000 }] },
     ];
     const tick = () => new Promise(resolve => setTimeout(resolve, 0));
     const registry = /** @type {any} */ (strategyRegistry);
@@ -480,6 +670,7 @@ export async function runTests(_ctx) {
           providers: digitProviders(),
           defaultModel: { provider: 'p', model: 'm', explicit: false },
           cheapModel: { explicit: false },
+          decisionModel: { explicit: false },
         }, true);
 
         const strategySelect = /** @type {HTMLSelectElement} */ (host.querySelector('#default-strategy-select'));
@@ -499,8 +690,10 @@ export async function runTests(_ctx) {
         tab.renderCheapModelField();
         tab.defaultModel = { provider: 'p', model: 'm', explicit: true };
         tab.renderDefaultModelField();
+        tab.decisionModel = { provider: 'j', model: 'd', explicit: true, available: true };
+        tab.renderDecisionModelField();
         // A pinned chip names its model, which is data.
-        const pinnedSkip = `${skip}, #default-model-field-container .model-name`;
+        const pinnedSkip = `${skip}, #default-model-field-container .model-name, #decision-model-field-container .model-name`;
         assertPseudoLocalized(host, { skip: pinnedSkip, where: 'off and pinned' });
 
         // Every status line either row can show.
@@ -515,6 +708,9 @@ export async function runTests(_ctx) {
           tab._cheapModelStatusText({ explicit: false, disabled: true }),
           tab._cheapModelStatusText({ explicit: false, autoResolved: { provider: 'p', model: 'm' } }),
           tab._cheapModelStatusText({ explicit: false }),
+          tab._decisionModelStatusText({ explicit: false }),
+          tab._decisionModelStatusText({ provider: 'j', model: 'd', explicit: true }),
+          tab._decisionModelStatusText({ provider: 'j', model: 'gone', explicit: true }),
         ];
         const rawStatus = statuses.filter(s => !isPseudoLocalized(s));
         assert(rawStatus.length === 0, `plain English status lines: ${JSON.stringify(rawStatus)}`);
@@ -581,8 +777,9 @@ export async function runTests(_ctx) {
         fail = true;
         await tab._saveDefaultModel({ provider: 'p', model: 'm' });
         await tab._saveCheapModel({ provider: 'p', model: 'm' });
+        await tab._saveDecisionModel({ provider: 'j', model: 'd' });
         fail = false;
-        assert(modals.length === 2, `each failed save shows one alert, got ${modals.length}`);
+        assert(modals.length === 3, `each failed save shows one alert, got ${modals.length}`);
         const rawModal = modals.flatMap(m => [m.title, m.message]).filter(s => !isPseudoLocalized(s));
         assert(rawModal.length === 0, `plain English in the failure alerts: ${JSON.stringify(rawModal)}`);
 

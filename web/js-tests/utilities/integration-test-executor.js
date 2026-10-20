@@ -348,6 +348,8 @@ import { runTests as runModelSelectorHudTests } from '../unit-tests/model-select
 import { runTests as runModelPickerTests } from '../unit-tests/model-picker-test.js';
 import { runTests as runCustomProvidersTests } from '../unit-tests/custom-providers-test.js';
 import { runTests as runDefaultsModelHostTests } from '../unit-tests/defaults-model-host-test.js';
+import { runTests as runDecisionProvidersTests } from '../unit-tests/decision-providers-test.js';
+import { runTests as runDecideOpTests } from '../unit-tests/decide-op-test.js';
 import { runTests as runReplySuggestionsTests } from '../unit-tests/reply-suggestions-test.js';
 import { runTests as runCommandEditorTests } from '../unit-tests/command-editor-test.js';
 import { runTests as runFindTests } from '../unit-tests/find-test.js';
@@ -574,6 +576,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:model-picker', run: runModelPickerTests },
   { name: 'unit:custom-providers', run: runCustomProvidersTests },
   { name: 'unit:defaults-model-host', run: runDefaultsModelHostTests },
+  { name: 'unit:decision-providers', run: runDecisionProvidersTests },
+  { name: 'unit:decide-op', run: runDecideOpTests },
   { name: 'unit:reply-suggestions', run: runReplySuggestionsTests },
   { name: 'unit:command-editor', run: runCommandEditorTests },
   { name: 'unit:find', run: runFindTests },

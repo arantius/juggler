@@ -85,6 +85,8 @@ const RECENT_LIMIT = 6;
  * @property {string} [authHint] - Provider auth/status hint.
  * @property {object|null} [authHintMessage] - The message `authHint` was rendered from.
  * @property {PickerModel[]} [modelsWithContext] - Models with context window info.
+ * @property {boolean} [decisions] - True when the provider's models answer decision requests.
+ * @property {boolean} [decisionOnly] - True when the provider cannot hold a conversation, so a chat picker is never handed it.
  * @typedef {{id: string, label: string, iconClass?: string}} PickerAction
  * @typedef {import('../../model/model-config.js').ModelConfigShape} ModelConfigShape
  */

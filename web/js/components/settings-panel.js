@@ -47,6 +47,7 @@ const PROVIDERS_READY_TIMEOUT_MS = 5000;
  * @property {any[]} providers - The sorted /api/providers list.
  * @property {{provider: string, model: string, explicit?: boolean}} defaultModel - The /api/default-model result.
  * @property {{provider?: string, model?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}} [cheapModel] - The /api/cheap-model result.
+ * @property {{provider?: string, model?: string, explicit?: boolean, available?: boolean}} [decisionModel] - The /api/decision-model result.
  * @property {object} connectivity - The /api/connectivity result.
  */
 
@@ -238,6 +239,16 @@ class SettingsPanel extends JugglerElement {
                                 <div id="cheap-model-field-container"></div>
                                 <div id="auto-name-form"></div>
                                 <div id="reply-suggestions-field-container"></div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section-heading">${escapeHtml(t('Decision model'))}</div>
+                        <p class="settings-description">
+                            ${escapeHtml(t('A model that answers yes/no and multiple-choice questions with probabilities instead of writing text, such as Jev. Auto-approve uses it to judge tool calls. Add one in Providers; without one, the cheap model does the job.'))}
+                        </p>
+                        <div class="settings-form" id="decision-model-form">
+                            <div class="settings-card">
+                                <div id="decision-model-field-container"></div>
                             </div>
                         </div>
 
@@ -632,12 +643,13 @@ class SettingsPanel extends JugglerElement {
       // Config and providers are required — a failure aborts the whole load;
       // the other three fall back to the tab's current value, so a blip leaves
       // the already-rendered picker alone rather than blanking it.
-      const [config, providersData, defaultModel, cheapModel, connectivity] = await Promise.all([
+      const [config, providersData, defaultModel, cheapModel, decisionModel, connectivity] = await Promise.all([
         // Both prefixes reach only the console: the catch below shows its own message.
         fetchJson(apiUrl('/config'), { errorPrefix: markUntranslated("Couldn't load config") }),
         fetchJson(apiUrl('/providers'), { errorPrefix: markUntranslated('Failed to load providers') }),
         fetchJson(apiUrl('/default-model'), { fallback: /** @type {any} */ (this._tabs.defaults).defaultModel }),
         fetchJson(apiUrl('/cheap-model'), { fallback: /** @type {any} */ (this._tabs.defaults).cheapModel }),
+        fetchJson(apiUrl('/decision-model'), { fallback: /** @type {any} */ (this._tabs.defaults).decisionModel }),
         fetchJson(apiUrl('/connectivity'), { fallback: /** @type {any} */ (this._tabs.connectivity).connectivity }),
       ]);
 
@@ -656,7 +668,7 @@ class SettingsPanel extends JugglerElement {
       );
 
       /** @type {LoadedSettings} */
-      const data = { config, providers, defaultModel, cheapModel, connectivity };
+      const data = { config, providers, defaultModel, cheapModel, decisionModel, connectivity };
       for (const tab of Object.values(this._tabs)) {
         if (tab.onConfigLoaded) tab.onConfigLoaded(data, renderFields);
       }
