@@ -99,6 +99,7 @@ type serverAPIs struct {
 	skillsRegistryAPI *handlers.SkillsRegistryAPI
 	configAPI         *handlers.ConfigAPI
 	modelPrefsAPI     *handlers.ModelPreferencesAPI
+	decisionModelAPI  *handlers.DecisionModelAPI
 	// systemPromptPresetsAPI serves user-saved system-prompt presets and the
 	// chosen session-default preset id (~/.juggler/system-prompt-presets.json).
 	systemPromptPresetsAPI *handlers.SystemPromptPresetsAPI
@@ -111,10 +112,11 @@ type serverAPIs struct {
 // New than these four, and keeping it out is what lets this group be assigned as
 // one literal without a later write being at risk of being wiped.
 type serverStores struct {
-	defaultModelStore *core.DefaultModelStore
-	cheapModelStore   *core.CheapModelStore
-	recentsStore      *core.RecentsStore
-	recentModelsStore *core.RecentModelsStore
+	defaultModelStore  *core.DefaultModelStore
+	cheapModelStore    *core.CheapModelStore
+	decisionModelStore *core.DecisionModelStore
+	recentsStore       *core.RecentsStore
+	recentModelsStore  *core.RecentModelsStore
 }
 
 // providerRefresh is the provider/model snapshot and the actor that recomputes
@@ -405,6 +407,11 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create cheap model store: %w", err)
 	}
 
+	decisionModelStore, err := core.NewDecisionModelStore()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create decision model store: %w", err)
+	}
+
 	systemPromptPresetStore, err := core.NewSystemPromptPresetStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create system prompt preset store: %w", err)
@@ -442,14 +449,16 @@ func New(cfg Config) (*Server, error) {
 		skillsRegistryAPI: handlers.NewSkillsRegistryAPI(s.ProjectPath, skillsAPI),
 		configAPI:         configAPI,
 		modelPrefsAPI:     handlers.NewModelPreferencesAPI(defaultModelStore, cheapModelStore, recentModels, s.resolveDefaultModel),
+		decisionModelAPI:  handlers.NewDecisionModelAPI(decisionModelStore),
 
 		systemPromptPresetsAPI: handlers.NewSystemPromptPresetsAPI(systemPromptPresetStore),
 	}
 	s.serverStores = serverStores{
-		defaultModelStore: defaultModelStore,
-		cheapModelStore:   cheapModelStore,
-		recentsStore:      recents,
-		recentModelsStore: recentModels,
+		defaultModelStore:  defaultModelStore,
+		cheapModelStore:    cheapModelStore,
+		decisionModelStore: decisionModelStore,
+		recentsStore:       recents,
+		recentModelsStore:  recentModels,
 	}
 
 	s.router = router

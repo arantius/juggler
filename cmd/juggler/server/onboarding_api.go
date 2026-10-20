@@ -96,10 +96,11 @@ func (s *Server) detectOnboarding(probes onboardingProbes) onboardingDetection {
 
 // anyProviderAvailable mirrors the client's own completion test: a provider that
 // is available but lists no model cannot start a conversation, so it does not
-// count as set up.
+// count as set up. Neither does one that cannot hold a conversation at all, such
+// as a decision model.
 func (s *Server) anyProviderAvailable() bool {
 	for _, p := range s.cachedProviders() {
-		if p.Available && len(p.ModelsWithContext) > 0 {
+		if p.Available && !p.DecisionOnly && len(p.ModelsWithContext) > 0 {
 			return true
 		}
 	}

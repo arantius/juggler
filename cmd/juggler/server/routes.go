@@ -338,11 +338,22 @@ func (s *Server) setupConfigRoutes(configAPI *handlers.ConfigAPI) {
 	api.HandleFunc("/cheap-model", s.handleCheapModel).Methods("GET")
 	api.HandleFunc("/cheap-model", s.modelPrefsAPI.HandleSetCheapModel).Methods("PUT")
 
+	// Decision model used where a decision model is wanted in place of the cheap
+	// LLM (Auto-approve's review of a parked tool call). GET reports the chosen
+	// model and whether it can serve now; PUT persists the choice (empty clears
+	// it, and the cheap model is used again).
+	api.HandleFunc("/decision-model", s.handleDecisionModel).Methods("GET")
+	api.HandleFunc("/decision-model", s.decisionModelAPI.HandleSet).Methods("PUT")
+
 	// Out-of-band single-turn completion (no tools, no persistence, bounded
 	// output + timeout + concurrency). Backs the plugin generateText op and the
 	// auto-namer. See server/quick_complete.go.
 	api.HandleFunc("/llm/complete", s.handleLLMComplete).Methods("POST")
 
+	// Out-of-band decision: questions asked of a decision model about some text,
+	// answered with probabilities. Same pool and guardrails as /llm/complete.
+	// Backs the plugin decide op. See server/quick_decide.go.
+	api.HandleFunc("/llm/decide", s.handleLLMDecide).Methods("POST")
 	// User-saved system-prompt presets + the chosen session-default preset id.
 	// GET lists the user's presets (built-ins live in the frontend); POST saves
 	// the current prompt as a new preset; DELETE removes one; PUT .../default

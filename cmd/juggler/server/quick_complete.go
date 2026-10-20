@@ -104,58 +104,11 @@ func (s *Server) QuickComplete(ctx context.Context, req QuickCompleteRequest) (Q
 		return QuickCompleteResult{}, fmt.Errorf("quick complete: empty prompt")
 	}
 
-	// Concurrency limiter: acquire a slot or bail fast. The buffered channel is
-	// the semaphore; a full buffer means the cap is saturated.
-	if s.quickCompleteSem != nil {
-		select {
-		case s.quickCompleteSem <- struct{}{}:
-			defer func() { <-s.quickCompleteSem }()
-		default:
-			return QuickCompleteResult{}, ErrQuickCompleteBusy
-		}
-	}
-
-	// Wait out startup provider discovery so capability resolution sees the real
-	// live list (no-op in steady state).
-	s.awaitProvidersReady(ctx)
-	if err := ctx.Err(); err != nil {
+	prov, release, err := s.outOfBandProvider(ctx, "quick complete", req.Model)
+	if err != nil {
 		return QuickCompleteResult{}, err
 	}
-
-	creds, err := core.NewCredentialsStore()
-	if err != nil {
-		return QuickCompleteResult{}, fmt.Errorf("quick complete: credentials: %w", err)
-	}
-	credential, err := creds.GetProviderCredential(req.Model.Provider)
-	if err != nil {
-		return QuickCompleteResult{}, fmt.Errorf("quick complete: provider %q unavailable: %w", req.Model.Provider, err)
-	}
-
-	capabilities := s.resolveModelCapabilities(req.Model.Provider, req.Model.Model)
-	info, _ := provider.GetProviderInfo(req.Model.Provider)
-
-	// Build the provider directly (bypassing conversationCache) so this ephemeral
-	// turn never pollutes the per-conversation handle cache or reuses a user
-	// conversation's provider-side session.
-	//
-	// No WorkspaceRoot, deliberately: a quick completion (naming a conversation,
-	// a one-shot summary) reads no files and runs no tools, so it has nothing to
-	// gain from a workspace and no conversation whose binding to honour. It also
-	// passes no ProjectPath, so a CLI provider reached this way falls back to its
-	// own detection — as it did before workspaces existed.
-	prov, err := provider.InitializeProvider(req.Model.Provider, provider.Config{
-		APIKey:            credential.APIKey,
-		BearerToken:       credential.BearerToken,
-		Headers:           credential.Headers,
-		Model:             req.Model.Model,
-		ModelCapabilities: capabilities,
-		BudgetContract: provider.BudgetContract{
-			AllowUnknownLimits: info.AllowUnknownLimits,
-		},
-	})
-	if err != nil {
-		return QuickCompleteResult{}, fmt.Errorf("quick complete: initialize provider %q: %w", req.Model.Provider, err)
-	}
+	defer release()
 
 	conv, err := provider.OpenConversation(ctx, prov, ephemeralConvID())
 	if err != nil {
@@ -239,6 +192,80 @@ func (s *Server) QuickComplete(ctx context.Context, req QuickCompleteRequest) (Q
 		stop = result.StopReason
 	}
 	return QuickCompleteResult{Text: strings.TrimSpace(b.String()), Usage: usage, StopReason: stop}, nil
+}
+
+// outOfBandProvider claims a slot in the out-of-band pool and builds the
+// provider a one-shot request runs on, for QuickComplete and QuickDecide alike:
+// both are bounded micro-tasks that share the same four slots, the same
+// credentials and the same admission snapshot. op names the caller in errors.
+//
+// The returned release gives the slot back and must be called once the request
+// is over, whether or not it succeeded. A saturated pool is refused at once with
+// ErrQuickCompleteBusy rather than queued.
+func (s *Server) outOfBandProvider(ctx context.Context, op string, ref core.ModelRef) (provider.Provider, func(), error) {
+	// Concurrency limiter: acquire a slot or bail fast. The buffered channel is
+	// the semaphore; a full buffer means the cap is saturated.
+	release := func() {}
+	if s.quickCompleteSem != nil {
+		select {
+		case s.quickCompleteSem <- struct{}{}:
+			release = func() { <-s.quickCompleteSem }
+		default:
+			return nil, nil, ErrQuickCompleteBusy
+		}
+	}
+
+	prov, err := s.initOutOfBandProvider(ctx, op, ref)
+	if err != nil {
+		release()
+		return nil, nil, err
+	}
+	return prov, release, nil
+}
+
+func (s *Server) initOutOfBandProvider(ctx context.Context, op string, ref core.ModelRef) (provider.Provider, error) {
+	// Wait out startup provider discovery so capability resolution sees the real
+	// live list (no-op in steady state).
+	s.awaitProvidersReady(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	creds, err := core.NewCredentialsStore()
+	if err != nil {
+		return nil, fmt.Errorf("%s: credentials: %w", op, err)
+	}
+	credential, err := creds.GetProviderCredential(ref.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("%s: provider %q unavailable: %w", op, ref.Provider, err)
+	}
+
+	capabilities := s.resolveModelCapabilities(ref.Provider, ref.Model)
+	info, _ := provider.GetProviderInfo(ref.Provider)
+
+	// Build the provider directly (bypassing conversationCache) so this ephemeral
+	// turn never pollutes the per-conversation handle cache or reuses a user
+	// conversation's provider-side session.
+	//
+	// No WorkspaceRoot, deliberately: a quick completion (naming a conversation,
+	// a one-shot summary) reads no files and runs no tools, so it has nothing to
+	// gain from a workspace and no conversation whose binding to honour. It also
+	// passes no ProjectPath, so a CLI provider reached this way falls back to its
+	// own detection — as it did before workspaces existed.
+	prov, err := provider.InitializeProvider(ref.Provider, provider.Config{
+		APIKey:            credential.APIKey,
+		BearerToken:       credential.BearerToken,
+		Headers:           credential.Headers,
+		Model:             ref.Model,
+		ModelCapabilities: capabilities,
+		BudgetContract: provider.BudgetContract{
+			AllowUnknownLimits: info.AllowUnknownLimits,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: initialize provider %q: %w", op, ref.Provider, err)
+	}
+	return prov, nil
 }
 
 // ephemeralConvID mints a throwaway conversation id for an out-of-band turn, so

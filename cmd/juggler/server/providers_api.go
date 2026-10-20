@@ -120,6 +120,14 @@ type ProviderStatus struct {
 	// workspace row's HostsLocalProviders (workspace.Row) to say so before the
 	// turn.
 	SpawnsLocalProcess bool `json:"spawnsLocalProcess,omitempty"`
+	// Decisions mirrors ProviderInfo's: this provider's models answer decision
+	// requests. A picker that chooses a decision model offers only these.
+	Decisions bool `json:"decisions,omitempty"`
+	// DecisionOnly mirrors ProviderInfo's: this provider cannot hold a
+	// conversation, so no chat picker offers its models and nothing that seeds a
+	// conversation may choose one. Omitted for the providers that chat, which is
+	// nearly all of them.
+	DecisionOnly bool `json:"decisionOnly,omitempty"`
 	// SwitchTo names a provider better suited to the server this one is pointed
 	// at (ProviderInfo.Successor), for the UI to offer the switch. Nil for
 	// nearly every provider, and for any provider that is switched off.
@@ -329,6 +337,8 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 				Credentialed:       credentialed,
 				Disabled:           disabled,
 				SpawnsLocalProcess: pInfo.SpawnsLocalProcess,
+				Decisions:          pInfo.Decisions,
+				DecisionOnly:       pInfo.DecisionOnly,
 				SwitchTo:           switchTo,
 				ModelsWithContext:  modelsWithContext,
 			}
@@ -493,8 +503,10 @@ func preferredAvailableModel(providers []ProviderStatus, defaultModels func(prov
 	for _, p := range providers {
 		// A provider qualifies only on models the user can actually choose, so
 		// one whose whole catalogue is hidden drops out rather than seeding new
-		// conversations with a model the menu refuses to offer.
-		if p.Available && firstVisibleModel(p) != "" {
+		// conversations with a model the menu refuses to offer. A provider that
+		// cannot chat drops out for the same reason: the default is a model to
+		// hold a conversation on.
+		if p.Available && !p.DecisionOnly && firstVisibleModel(p) != "" {
 			candidates = append(candidates, p)
 		}
 	}
