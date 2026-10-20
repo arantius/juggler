@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   Apache-2.0 - see LICENSE
 // SPDX-License-Identifier: Apache-2.0
 
-import { generateText, extensionConfigResolve } from 'juggler/ops';
+import { generateText, decide, extensionConfigResolve } from 'juggler/ops';
 import DefaultStrategyType from './default-strategy-type.js';
 import { TOOL_STATES, itemField } from 'juggler/model';
 import {
@@ -13,6 +13,9 @@ import {
   buildPolicyPrompt,
   buildReviewerPrompt,
   parseReview,
+  buildDecisionQuestion,
+  parseDecision,
+  isNoDecisionModel,
   reviewFailureNote,
   isBusyRejection,
   busyRetryDelay,
@@ -72,6 +75,16 @@ import { WRITE_FILE_ITEM_TYPE, isFileEditingAllowed } from '../../../js/services
  * reaches the two hard-coded exclusions below — file edits and calls marked
  * non-auto-approvable never go to the reviewer at any level.
  *
+ * **A decision model, when the user has chosen one** (Settings → Defaults →
+ * Decision model), is asked instead of the cheap model. It answers one yes/no
+ * question with a probability rather than writing a verdict, so the call is
+ * approved only when that probability reaches `DECISION_ALLOW_THRESHOLD`, and
+ * everything else — a lower probability, a malformed answer, an error — leaves it
+ * parked exactly as a text `deny` does. With none chosen, or the chosen one
+ * unable to serve, the review runs on the cheap model as it always did; a
+ * decision model that fails for any other reason does not silently hand the
+ * review to a different, separately billed model.
+ *
  * Future (deliberately out of scope for v1): hard-deny with rationale fed back
  * to the model, a per-turn circuit breaker, and a reviewer-model setting.
  * @augments {DefaultStrategyType}
@@ -111,9 +124,9 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         "don't stop for every little command..."
       ],
       approach: 'Auto-approve runs the same loop as Default, so the permission system still decides everything first: read tools, allowlisted commands, and in-project edits are approved automatically, and only the calls that would otherwise stop to ask you are handed off for review.\n\n'
-        + 'Each parked call is checked by a cheap, fast model — the one set as your cheap model in settings — against a safety policy. You choose how strict that policy is in the Settings section of this page: Balanced (the default) approves only what your own words or standing permissions cover, Relaxed also trusts ordinary in-project work the agent chose itself, and Custom applies a policy you write. Every level still sends destructive, exfiltrating, security-weakening and trust-boundary-crossing actions to you, unless your custom policy says otherwise; file edits and calls that always need a human are never reviewed at all. To keep that judgement trustworthy the reviewer sees only your own messages and the agent\'s raw tool calls; it never sees the agent\'s explanations or any tool output, so it cannot be argued into an approval or fed instructions hidden in a tool result.\n\n'
+        + 'Each parked call is checked by a cheap, fast model — the one set as your cheap model in settings, or your decision model if you have chosen one — against a safety policy. You choose how strict that policy is in the Settings section of this page: Balanced (the default) approves only what your own words or standing permissions cover, Relaxed also trusts ordinary in-project work the agent chose itself, and Custom applies a policy you write. Every level still sends destructive, exfiltrating, security-weakening and trust-boundary-crossing actions to you, unless your custom policy says otherwise; file edits and calls that always need a human are never reviewed at all. To keep that judgement trustworthy the reviewer sees only your own messages and the agent\'s raw tool calls; it never sees the agent\'s explanations or any tool output, so it cannot be argued into an approval or fed instructions hidden in a tool result.\n\n'
         + 'Alongside that it is given the facts of your setup as ground truth: the project root, your home directory, and the permissions you have already granted — whether file editing is on, which folders are allowed, which commands are allowlisted. Those come from your settings rather than the conversation, so the reviewer can tell routine work you have already sanctioned from something the agent decided on its own.\n\n'
-        + 'The reviewer answers a simple allow or deny. A confident allow silently approves the call and the run continues. Anything else — a deny, an uncertain answer, a timeout, or an errored reviewer — leaves the call parked for you to decide, exactly as under Default, and the card tells you which it was.\n\n'
+        + 'The reviewer answers a simple allow or deny; a decision model gives a probability instead, and the call is approved only when it is at least 90% sure. A confident allow silently approves the call and the run continues. Anything else — a deny, an uncertain answer, a timeout, or an errored reviewer — leaves the call parked for you to decide, exactly as under Default, and the card tells you which it was.\n\n'
           + 'Reviews run on a small shared pool, so when a turn parks several calls at once they queue: a call refused a slot waits a moment and tries again for a few seconds before giving up and leaving itself parked. The approval buttons stay live throughout, so you can always decide instantly rather than wait.\n\n'
         + 'Because it only ever approves, the strategy can remove a prompt you would have granted but can never block the model or run something on its own that the reviewer distrusts.',
       tradeoffs: {
@@ -213,10 +226,9 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
       { toolName, toolInput },
       { context: this._reviewContext() }
     );
-    const model = /** @type {any} */ (this.state)?.reviewerModel ?? 'cheap';
     // The policy is read per review, so a change in Settings applies to the next
     // parked call without restarting the conversation.
-    const system = buildPolicyPrompt(resolvePolicy(await this._loadPolicySettings()));
+    const policy = resolvePolicy(await this._loadPolicySettings());
 
     // Re-attempts are counted per cause. Being refused a slot and being answered
     // too slowly wait for different things and are worth different numbers of
@@ -227,13 +239,7 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
 
     for (;;) {
       try {
-        // Budget: the verdict word plus a ~12-word reason. The verdict comes
-        // first by prompt design, so even a truncated answer parses correctly.
-        const { text } = await this._complete(
-          { system, prompt, model, maxTokens: 48, timeoutMs: REVIEW_TIMEOUT_MS },
-          this._abortController?.signal
-        );
-        const { verdict, reason } = parseReview(text);
+        const { verdict, reason } = await this._review(policy, prompt, this._abortController?.signal);
         if (verdict === 'allow') {
           // Provenance `strategy`: this strategy is the approving body. The value
           // names WHO approved (a strategy), not the process (an automatic review).
@@ -285,6 +291,43 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         return { note: reviewFailureNote(err) };
       }
     }
+  }
+
+  /**
+   * Ask a model whether the parked call is safe, and read its answer as a verdict.
+   *
+   * The decision model is tried first, unless the conversation names a reviewer
+   * model of its own (`state.reviewerModel`), which is an explicit choice and is
+   * used as given. When the server says there is no decision model to ask (see
+   * `isNoDecisionModel`) the review falls through to the cheap model, so a user
+   * who never chose one sees no change. Any other failure propagates: the caller
+   * retries the two that are worth retrying and otherwise leaves the call parked.
+   * @param {{level: string, body: string}} policy - From `resolvePolicy`
+   * @param {string} prompt - The transcript and parked call, from `buildReviewerPrompt`
+   * @param {AbortSignal} [signal] - Aborts the review when the turn is cancelled
+   * @returns {Promise<{verdict: 'allow'|'deny', reason: string}>} The verdict and (deny-only) reason
+   * @private
+   */
+  async _review(policy, prompt, signal) {
+    const reviewerModel = /** @type {any} */ (this.state)?.reviewerModel;
+    if (reviewerModel === undefined || reviewerModel === null) {
+      try {
+        const result = await this._decide(
+          { state: prompt, questions: [buildDecisionQuestion(policy)], timeoutMs: REVIEW_TIMEOUT_MS },
+          signal
+        );
+        return parseDecision(result);
+      } catch (err) {
+        if (!isNoDecisionModel(err)) throw err;
+      }
+    }
+    // Budget: the verdict word plus a ~12-word reason. The verdict comes
+    // first by prompt design, so even a truncated answer parses correctly.
+    const { text } = await this._complete(
+      { system: buildPolicyPrompt(policy), prompt, model: reviewerModel ?? 'cheap', maxTokens: 48, timeoutMs: REVIEW_TIMEOUT_MS },
+      signal
+    );
+    return parseReview(text);
   }
 
   /**
@@ -363,6 +406,18 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
    */
   async _complete(params, signal) {
     return generateText(params, signal);
+  }
+
+  /**
+   * Thin seam around the out-of-band decision call, for the same reason as
+   * `_complete`. Do not add logic here — it must stay a plain pass-through to
+   * `decide`.
+   * @param {import('../../../js/services/ops-api.js').DecideParams} params
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<import('../../../js/services/ops-api.js').DecideResult>} The answers and usage
+   */
+  async _decide(params, signal) {
+    return decide(params, signal);
   }
 
   /**
