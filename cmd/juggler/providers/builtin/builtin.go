@@ -16,6 +16,7 @@ import (
 	"juggler/cmd/juggler/providers/copilot"
 	"juggler/cmd/juggler/providers/deepseek"
 	"juggler/cmd/juggler/providers/gemini"
+	"juggler/cmd/juggler/providers/jev"
 	"juggler/cmd/juggler/providers/llamacpp"
 	"juggler/cmd/juggler/providers/lmstudio"
 	"juggler/cmd/juggler/providers/localai"
@@ -47,6 +48,7 @@ var All = []Provider{
 	{copilot.Register, true},
 	{deepseek.Register, true},
 	{gemini.Register, true},
+	{jev.Register, true},
 	{llamacpp.Register, true},
 	{lmstudio.Register, true},
 	{localai.Register, true},

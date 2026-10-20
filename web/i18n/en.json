@@ -665,6 +665,7 @@
   "Item ID: {id}": "Item ID: {id}",
   "Items in the conversation have changed, so the next message will cause a cache-miss": "Items in the conversation have changed, so the next message will cause a cache-miss",
   "Its tools run without asking, in every conversation. Global servers only.": "Its tools run without asking, in every conversation. Global servers only.",
+  "Jev, TypeSafe's decision model. It answers yes/no, choice and score questions with probabilities instead of writing text, so it is cheap and fast enough to judge things like tool approvals. It cannot be used for chat.": "Jev, TypeSafe's decision model. It answers yes/no, choice and score questions with probabilities instead of writing text, so it is cheap and fast enough to judge things like tool approvals. It cannot be used for chat.",
   "Juggler": "Juggler",
   "Juggler - New Window": "Juggler - New Window",
   "Juggler - {name}": "Juggler - {name}",

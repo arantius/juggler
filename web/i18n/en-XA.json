@@ -665,6 +665,7 @@
   "Item ID: {id}": "[Îţéɱ ÎÐ: {id} ··]",
   "Items in the conversation have changed, so the next message will cause a cache-miss": "[Îţéɱš îñ ţĥé çöñṽéŕšåţîöñ ĥåṽé çĥåñĝéð, šö ţĥé ñéẋţ ɱéššåĝé ŵîļļ çåûšé å çåçĥé-ɱîšš ························]",
   "Its tools run without asking, in every conversation. Global servers only.": "[Îţš ţööļš ŕûñ ŵîţĥöûţ åšķîñĝ, îñ éṽéŕý çöñṽéŕšåţîöñ. Ĝļöƀåļ šéŕṽéŕš öñļý. ·····················]",
+  "Jev, TypeSafe's decision model. It answers yes/no, choice and score questions with probabilities instead of writing text, so it is cheap and fast enough to judge things like tool approvals. It cannot be used for chat.": "[Ĵéṽ, ŢýþéŠåƒé''š ðéçîšîöñ ɱöðéļ. Îţ åñšŵéŕš ýéš/ñö, çĥöîçé åñð šçöŕé ǫûéšţîöñš ŵîţĥ þŕöƀåƀîļîţîéš îñšţéåð öƒ ŵŕîţîñĝ ţéẋţ, šö îţ îš çĥéåþ åñð ƒåšţ éñöûĝĥ ţö ĵûðĝé ţĥîñĝš ļîķé ţööļ åþþŕöṽåļš. Îţ çåññöţ ƀé ûšéð ƒöŕ çĥåţ. ·····························································]",
   "Juggler": "[Ĵûĝĝļéŕ ··]",
   "Juggler - New Window": "[Ĵûĝĝļéŕ - Ñéŵ Ŵîñðöŵ ······]",
   "Juggler - {name}": "[Ĵûĝĝļéŕ - {name} ··]",
