@@ -889,6 +889,16 @@ type ProviderInfo struct {
 	// This exists because a catalog's own order puts its flagship first, and
 	// the automatic default is spent without the user ever choosing it.
 	DefaultModels []string
+	// Decisions marks a provider whose models can answer decision requests (it
+	// implements Decider). It is declared here as well as in the type so the
+	// settings UI can tell which providers offer a decision model without
+	// initialising each one, and so a model picker can offer only the providers
+	// that can serve what it is choosing for.
+	Decisions bool
+	// DecisionOnly marks a provider that offers decisions and cannot hold a
+	// conversation, so no chat picker may offer its models. The zero value is a
+	// provider that chats, which is every provider that predates decision models.
+	DecisionOnly bool
 	// FreeToRun marks a provider that bills nothing per token — a local runtime
 	// serving models off the user's own hardware. It is the property the cheap
 	// model's last resolution step depends on: with nothing billed, re-running
@@ -957,6 +967,9 @@ type Successor struct {
 	// nothing to carry.
 	Adopt func() error
 }
+
+// Chats reports whether the provider's models can be used in a conversation.
+func (p ProviderInfo) Chats() bool { return !p.DecisionOnly }
 
 // EffectiveAuthType preserves the legacy convention where an empty
 // ConfigKeyName means "keyless toggle" unless a provider opted into a

@@ -344,12 +344,20 @@ func (p *admissionProvider) Unwrap() Provider { return p.Provider }
 // has them. A capability that sends model requests belongs here: one that is
 // left out is found by As on the unchecked provider instead.
 func (p *admissionProvider) AsCapability(target any) bool {
-	if t, ok := target.(*ConversationProvider); ok {
+	switch t := target.(type) {
+	case *ConversationProvider:
 		inner, ok := As[ConversationProvider](p.Provider)
 		if !ok {
 			return false
 		}
 		*t = admissionConversationProvider{inner: inner, capabilities: p.capabilities, contract: p.contract}
+		return true
+	case *Decider:
+		inner, ok := As[Decider](p.Provider)
+		if !ok {
+			return false
+		}
+		*t = admissionDecider{inner: inner, capabilities: p.capabilities, contract: p.contract}
 		return true
 	}
 	return false
