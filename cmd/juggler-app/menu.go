@@ -104,26 +104,28 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 		{label: msg.NewCtx("menu", "Close"), role: application.CloseWindow},
 	}}
 
-	edit := []menuNode{
-		{label: msg.New("Undo"), role: application.Undo},
-		{label: msg.New("Redo"), role: application.Redo},
-		{label: msg.New("Cut"), role: application.Cut},
-		{label: msg.New("Copy"), role: application.Copy},
-		{label: msg.New("Paste"), role: application.Paste},
-	}
+	// The Edit menu is macOS-only. There the role items are native selectors
+	// and the menu is how WKWebView gets its editing keys at all. On Windows
+	// the menu is never displayed, yet Wails still turns each accelerator into
+	// a global key binding that runs its own JS edit command while WebView2
+	// handles the same key natively — so Ctrl+V pasted twice and Backspace,
+	// Ctrl+Z and the rest acted twice. WebView2 needs no help with them.
+	var edit []menuNode
 	if goos == "darwin" {
-		edit = append(edit,
-			menuNode{label: msg.New("Paste and Match Style"), role: application.PasteAndMatchStyle},
-			menuNode{label: msg.New("Delete"), role: application.Delete},
-			menuNode{label: msg.New("Select All"), role: application.SelectAll},
-			menuNode{label: msg.New("Speech"), role: application.SpeechMenu, children: []menuNode{
+		edit = []menuNode{
+			{label: msg.New("Undo"), role: application.Undo},
+			{label: msg.New("Redo"), role: application.Redo},
+			{label: msg.New("Cut"), role: application.Cut},
+			{label: msg.New("Copy"), role: application.Copy},
+			{label: msg.New("Paste"), role: application.Paste},
+			{label: msg.New("Paste and Match Style"), role: application.PasteAndMatchStyle},
+			{label: msg.New("Delete"), role: application.Delete},
+			{label: msg.New("Select All"), role: application.SelectAll},
+			{label: msg.New("Speech"), role: application.SpeechMenu, children: []menuNode{
 				{label: msg.New("Start Speaking"), role: application.StartSpeaking},
 				{label: msg.New("Stop Speaking"), role: application.StopSpeaking},
-			}})
-	} else {
-		edit = append(edit,
-			menuNode{label: msg.New("Delete"), role: application.Delete},
-			menuNode{label: msg.New("Select All"), role: application.SelectAll})
+			}},
+		}
 	}
 
 	// Font-size zoom (mirrors the header bar's −/+ buttons), not the webview's
@@ -153,21 +155,23 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 		window = append(window, menuNode{label: msg.NewCtx("menu", "Close"), role: application.CloseWindow})
 	}
 
-	return []menuNode{
-		session,
-		{label: msg.New("Edit"), role: application.EditMenu, children: edit},
-		{label: msg.New("View"), children: view},
+	spec := []menuNode{session}
+	if edit != nil {
+		spec = append(spec, menuNode{label: msg.New("Edit"), role: application.EditMenu, children: edit})
+	}
+	return append(spec,
+		menuNode{label: msg.New("View"), children: view},
 		// The Window role, not a submenu of our own: it is what has macOS list the
 		// open windows in it.
-		{label: msg.New("Window"), role: application.WindowMenu, children: window},
-		{label: msg.New("Help"), children: []menuNode{
+		menuNode{label: msg.New("Window"), role: application.WindowMenu, children: window},
+		menuNode{label: msg.New("Help"), children: []menuNode{
 			{label: msg.New("Learn More"), onClick: func(_ *application.Context) {
 				if err := openInBrowser("https://juggler.studio"); err != nil {
 					logf("open Learn More failed: %v", err)
 				}
 			}},
 		}},
-	}
+	)
 }
 
 // appMenuNode is the macOS application menu. It mirrors Wails' AppMenu role
