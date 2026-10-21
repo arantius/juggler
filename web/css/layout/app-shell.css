@@ -154,6 +154,39 @@ app-container {
     background-color: var(--text-primary);
 }
 
+/* A window on a server the app did not start names it: the host as a label
+   after the icon, and the button grows to hold it. `.is-remote` is set with
+   the host by header-controls.js. The host never truncates — a clipped name
+   could read as another machine's. The count badge stays pinned over the
+   icon's corner rather than the end of the wider button. Pixel-sized like the
+   rest of the header's controls. */
+/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
+.network-button.is-remote {
+    width: auto;
+    gap: 8px;
+    padding: 0 10px 0 32px;
+}
+
+.network-button.is-remote::before {
+    left: 16px;
+}
+
+.network-button__host {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+:where(.network-button:hover) .network-button__host {
+    color: var(--text-primary);
+}
+
+:where(.network-button.is-remote) .network-button__clients {
+    right: auto;
+    left: 18px;
+}
+/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
+
 /* A wide header has room to say it: the badge becomes a "2 connected" label
    beside the icon, and the button grows to hold it. `.has-clients` is set with
    the count by header-controls.js. Pixel-sized like the rest of the header's

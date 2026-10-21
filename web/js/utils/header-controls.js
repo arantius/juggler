@@ -54,25 +54,39 @@ async function fetchClientCount() {
 }
 
 /**
- * Show on the network button how many OTHER clients share this session. The
- * server's count includes this one, so one is subtracted; alone, the button is
- * plain "Network settings" with no count. The count is a badge over the icon
- * (or, where the header has room, a "N connected" label) and is also spoken in
- * the button's title and accessible name.
+ * Show on the network button where this window's server is and how many OTHER
+ * clients share this session. A window on a server the app did not start names
+ * that server's host beside the icon: nothing else on screen tells a window
+ * onto another computer from one onto this one, and what the agent runs, it
+ * runs there. The server's count includes this one, so one is subtracted;
+ * alone, the button carries no count. The count is a badge over the icon (or,
+ * where the header has room, a "N connected" label) and is also spoken in the
+ * button's title and accessible name.
  * @param {HTMLElement} button - The header's #network-button.
- * @param {{events?: ClientsEventSource, seed?: () => Promise<number|null>}} [options]
- *   Where joins and leaves are heard (the session socket by default), and how
- *   the starting count is read (the /connectivity endpoint by default).
+ * @param {{events?: ClientsEventSource, seed?: () => Promise<number|null>, host?: string}} [options]
+ *   Where joins and leaves are heard (the session socket by default), how the
+ *   starting count is read (the /connectivity endpoint by default), and the
+ *   host of a server the app did not start ('' for this computer's own).
  * @returns {{ready: Promise<void>, dispose: () => void}} `ready` settles once
  *   the starting count is shown; `dispose` stops listening.
  */
-export function bindNetworkClients(button, { events = wsService, seed = fetchClientCount } = {}) {
+export function bindNetworkClients(button, { events = wsService, seed = fetchClientCount, host = externalServerHost() } = {}) {
   const clients = /** @type {HTMLElement|null} */ (button.querySelector('.network-button__clients'));
+  const hostLabel = /** @type {HTMLElement|null} */ (button.querySelector('.network-button__host'));
+  if (hostLabel) {
+    hostLabel.textContent = host;
+    hostLabel.hidden = !host;
+  }
+  // Lets CSS widen the button to hold the host.
+  button.classList.toggle('is-remote', !!host);
 
   const show = (/** @type {number|null|undefined} */ total) => {
     const others = Math.max(0, (total || 1) - 1);
-    const label = t('{count, plural, =0 {Network settings} one {Network settings — {count} other client connected} other {Network settings — {count} other clients connected}}',
-      { count: others });
+    const label = host
+      ? t('{count, plural, =0 {Network settings — connected to the Juggler server at {host}} one {Network settings — connected to the Juggler server at {host}, with {count} other client} other {Network settings — connected to the Juggler server at {host}, with {count} other clients}}',
+        { count: others, host })
+      : t('{count, plural, =0 {Network settings} one {Network settings — {count} other client connected} other {Network settings — {count} other clients connected}}',
+        { count: others });
     button.title = label;
     button.setAttribute('aria-label', label);
     if (clients) {
@@ -118,25 +132,6 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
       events.off('clients-changed', heardFirst);
     },
   };
-}
-
-/**
- * Show which server this window views, in the badge leading the project chip,
- * when that server is one the app did not start; hide the badge otherwise.
- * Nothing else on screen tells a window onto another computer from one onto
- * this one, and what the agent runs, it runs there.
- * @param {HTMLElement} badge - The header's #project-remote-host.
- * @param {string} [host] - `host[:port]` of the server, '' for this computer's.
- * @returns {void}
- */
-export function bindRemoteHost(badge, host = externalServerHost()) {
-  badge.hidden = !host;
-  if (!host) return;
-  const label = /** @type {HTMLElement|null} */ (badge.querySelector('.ppd-remote-host'));
-  if (label) label.textContent = host;
-  const name = t('Connected to the Juggler server at {host}. Everything in this window happens on that computer.', { host });
-  badge.title = name;
-  badge.setAttribute('aria-label', name);
 }
 
 /**
@@ -335,9 +330,6 @@ export function setupHeaderControls(session) {
 
   const networkButton = document.getElementById('network-button');
   if (networkButton) bindNetworkClients(networkButton);
-
-  const remoteHost = document.getElementById('project-remote-host');
-  if (remoteHost) bindRemoteHost(remoteHost);
 
   // Native menu (Session ▸ Open…) bridges to the picker via this event, since the
   // Go side can't import the JS module directly. Same entry point as the

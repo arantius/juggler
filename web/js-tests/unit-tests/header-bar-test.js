@@ -18,20 +18,20 @@
  *      its badge and its accessible name; the project chip carries none.
  *   4. Undo/redo act on the conversation, so they sit beside the project chip,
  *      and join the button row on a phone.
- *   5. The app-wide controls come in groups (view, status, app, panel) whose
+ *   5. The app-wide controls come in groups (network, view, app, panel) whose
  *      spacing grows with the header; with room, the network count is a label.
  *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
  *      with their shortcuts.
  *   7. Tooltips name shortcuts, and never restore a title that changed under them.
  *   8. Under en-XA the network button's title and accessible name are translated.
- *   9. A window on a server the app did not start names that server's host in
- *      a badge leading the project chip.
+ *   9. A window on a server the app did not start names that server's host
+ *      inside the network button, which leads the button row.
  * @module unit-tests/header-bar-test
  */
 
 import { assert, styledProbeFrame } from '../utilities/test-helpers.js';
 import { serverPath } from '../../js/utils/api-url.js';
-import { bindNetworkClients, bindRemoteHost } from '../../js/utils/header-controls.js';
+import { bindNetworkClients } from '../../js/utils/header-controls.js';
 import { externalServerHost } from '../../js/utils/project-open-mode.js';
 import { setupHeaderOverflowMenu } from '../../js/utils/header-overflow-menu.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
@@ -341,14 +341,14 @@ export async function runTests() {
   try {
     /** @type {Record<string, string[]>} */
     const expected = {
-      view: ['tool-grouping-button', 'zoom-out-button', 'zoom-in-button', 'theme-button'],
-      status: ['bell-button', 'network-button'],
+      network: ['network-button'],
+      view: ['tool-grouping-button', 'zoom-out-button', 'zoom-in-button', 'theme-button', 'bell-button'],
       app: ['help-button', 'settings-button'],
       panel: ['pinboard-header-button'],
     };
     const groups = [...served.querySelectorAll('.header-actions-controls > .header-group')];
     assert(groups.map((g) => g.className).join() === Object.keys(expected).map((k) => `header-group header-group--${k}`).join(),
-      `the controls are grouped view, status, app, panel — got ${groups.map((g) => g.className).join(' | ')}`);
+      `the controls are grouped network, view, app, panel — got ${groups.map((g) => g.className).join(' | ')}`);
     for (const [name, ids] of Object.entries(expected)) {
       const got = [...served.querySelectorAll(`.header-group--${name} button`)].map((b) => b.id);
       assert(got.filter((id) => ids.includes(id)).join() === ids.join(),
@@ -358,14 +358,14 @@ export async function runTests() {
     /**
      * @param {number} width - Header width to lay out at.
      * @returns {Promise<{between: number, within: number}>} The gap between two
-     *   groups (theme → bell) and between two buttons of one group (zoom-in → theme).
+     *   groups (bell → help) and between two buttons of one group (theme → bell).
      */
     const gapsAt = async (width) => {
       const f = await framedHeader(served, width);
       try {
         return {
-          between: f.box('#bell-button').left - f.box('#theme-button').right,
-          within: f.box('#theme-button').left - f.box('#zoom-in-button').right,
+          between: f.box('#help-button').left - f.box('#bell-button').right,
+          within: f.box('#bell-button').left - f.box('#theme-button').right,
         };
       } finally {
         f.frame.remove();
@@ -539,57 +539,112 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`network button en-XA: ${msg(e)}`); }
 
-  // --- 9: a window on a server the app did not start names that server ---
+  // --- 9: a window on another server names it in the network button ---
   try {
     // Only the external-server flag makes a host worth naming.
-    const root = document.createElement('html');
-    assert(externalServerHost(root, { host: 'devbox:8080' }) === '',
+    const html = document.createElement('html');
+    assert(externalServerHost(html, { host: 'devbox:8080' }) === '',
       'a window on a server the app started has no remote host');
-    root.dataset.externalServer = '1';
-    assert(externalServerHost(root, { host: 'devbox:8080' }) === 'devbox:8080',
+    html.dataset.externalServer = '1';
+    assert(externalServerHost(html, { host: 'devbox:8080' }) === 'devbox:8080',
       'a window on a server by URL is named by its host');
 
-    assert(!!served.querySelector('project-path-display > #project-remote-host'),
-      'the project group has a #project-remote-host badge');
-    const wide = await framedHeader(served, 1400);
-    try {
-      const badge = wide.el('#project-remote-host');
-      const display = () => wide.doc.defaultView?.getComputedStyle(badge).display;
-      assert(display() === 'none', 'as served, before anything is known, no badge shows');
+    // One place for what the network is doing: no second badge by the project.
+    assert(!served.querySelector('project-path-display [id*="remote"], project-path-display [class*="remote"]'),
+      'the project chip carries no server indicator — the host lives in the network button');
 
-      bindRemoteHost(badge, '');
-      assert(display() === 'none', 'a window on its own server shows no badge');
+    /** @type {Set<(data: any) => void>} */
+    const heard = new Set();
+    const events = {
+      on: (/** @type {string} */ _type, /** @type {(data: any) => void} */ fn) => { heard.add(fn); },
+      off: (/** @type {string} */ _type, /** @type {(data: any) => void} */ fn) => { heard.delete(fn); },
+    };
+    const clientsChanged = (/** @type {number} */ count) => {
+      const clients = Array.from({ length: count }, (_, i) => ({ id: `c${i}`, viewerId: `v${i}` }));
+      for (const fn of [...heard]) fn({ count, clients });
+    };
 
-      bindRemoteHost(badge, 'devbox:8080');
-      assert(display() !== 'none', 'a window on another server shows the badge');
-      assert(badge.textContent?.trim() === 'devbox:8080', `the badge reads the host, got "${badge.textContent}"`);
-      assert(badge.title.includes('devbox:8080') && badge.getAttribute('aria-label') === badge.title,
-        `its title and accessible name say which server, got "${badge.title}"`);
-      const b = wide.box('#project-remote-host');
-      const chip = wide.box('#project-path-chip');
-      assert(b.width > 0 && b.right <= chip.left + 1,
-        `the badge leads the project chip: where, then what (badge ${Math.round(b.left)}–${Math.round(b.right)}, chip at ${Math.round(chip.left)})`);
+    for (const width of [1000, 2000]) {
+      const f = await framedHeader(served, width);
+      try {
+        const view = /** @type {Window} */ (f.doc.defaultView);
+        const button = f.el('#network-button');
+        const host = f.el('.network-button__host');
+        const hostShown = () => view.getComputedStyle(host).display !== 'none';
 
-      // A desktop window's header is a drag region; the badge must keep its tooltip.
-      wide.doc.body.classList.add('window-mode');
-      const drag = wide.doc.defaultView?.getComputedStyle(badge).getPropertyValue('--wails-draggable').trim();
-      assert(drag === 'no-drag', `the badge is not a drag handle (got "${drag}")`);
-    } finally {
-      wide.frame.remove();
+        // This computer's own server: the icon alone, as ever.
+        const local = bindNetworkClients(button, { events, seed: async () => 1, host: '' });
+        await local.ready;
+        assert(!hostShown(), `${width}px: a local window names no host`);
+        assert(Math.round(button.getBoundingClientRect().width) === 32,
+          `${width}px: a local window's button is icon-sized, got ${button.getBoundingClientRect().width}px`);
+        local.dispose();
+
+        const remote = bindNetworkClients(button, { events, seed: async () => 1, host: 'devbox:8080' });
+        try {
+          await remote.ready;
+          assert(hostShown() && host.textContent === 'devbox:8080',
+            `${width}px: a remote window's button reads the host, got shown=${hostShown()} "${host.textContent}"`);
+          const b = button.getBoundingClientRect();
+          const h = host.getBoundingClientRect();
+          assert(h.left >= b.left && h.right <= b.right + 0.5,
+            `${width}px: the host sits inside the button (${Math.round(h.left)}–${Math.round(h.right)} in ${Math.round(b.left)}–${Math.round(b.right)})`);
+          assert(button.title.includes('devbox:8080') && button.getAttribute('aria-label') === button.title,
+            `${width}px: the title and accessible name name the server, got "${button.title}"`);
+          assert(b.right <= f.box('#tool-grouping-button').left,
+            `${width}px: the network button leads the button row`);
+
+          clientsChanged(3);
+          assert(button.title.includes('devbox:8080') && button.title.includes('2'),
+            `${width}px: the title names the server and the other clients, got "${button.title}"`);
+          const count = f.el('.network-button__count');
+          assert(view.getComputedStyle(f.el('.network-button__clients')).display !== 'none' && count.textContent === '2',
+            `${width}px: the count still shows beside the host`);
+          // Measured afresh: the row is right-aligned, so a button that grows
+          // to hold a label moves its left edge.
+          const c = count.getBoundingClientRect();
+          const at = button.getBoundingClientRect();
+          if (width === 1000) {
+            // Narrow, the count is the badge, and it stays on the icon rather
+            // than drifting to the end of a now-wider button.
+            assert(c.left < at.left + 32,
+              `${width}px: the badge sits over the icon (badge at ${Math.round(c.left - at.left)}px into the button)`);
+          } else {
+            const now = host.getBoundingClientRect();
+            assert(c.left >= now.right,
+              `${width}px: the "N connected" label follows the host, never overlaps it (count at ${Math.round(c.left - at.left)}px, host ends at ${Math.round(now.right - at.left)}px)`);
+          }
+        } finally {
+          remote.dispose();
+        }
+      } finally {
+        f.frame.remove();
+      }
     }
 
-    const badge = /** @type {HTMLElement} */ (document.importNode(
-      /** @type {Element} */ (served.querySelector('#project-remote-host')), true));
+    const { root, get } = mountButtons(served, ['network-button']);
     /** @type {string[]} */
     const shown = [];
-    await underPseudoLocale('test-header-bar-remote', () => {
-      bindRemoteHost(badge, '9:9');
-      shown.push(badge.title, String(badge.getAttribute('aria-label')));
-    });
+    try {
+      await underPseudoLocale('test-header-bar-remote', async () => {
+        const binding = bindNetworkClients(get('network-button'), { events, seed: async () => null, host: '9:9' });
+        try {
+          await binding.ready;
+          for (const total of [1, 2, 4]) {
+            clientsChanged(total);
+            shown.push(get('network-button').title, String(get('network-button').getAttribute('aria-label')));
+          }
+        } finally {
+          binding.dispose();
+        }
+      });
+    } finally {
+      root.remove();
+    }
     const raw = shown.filter((s) => !isPseudoLocalized(s));
-    assert(raw.length === 0, `plain English under en-XA (remote badge): ${JSON.stringify(raw)}`);
+    assert(raw.length === 0, `plain English under en-XA (remote network button): ${JSON.stringify(raw)}`);
     passed++;
-  } catch (e) { failed++; errors.push(`remote host badge: ${msg(e)}`); }
+  } catch (e) { failed++; errors.push(`remote host in the network button: ${msg(e)}`); }
 
   return { passed, failed, errors };
 }

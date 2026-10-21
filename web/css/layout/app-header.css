@@ -137,32 +137,6 @@
     opacity: 0.85;
 }
 
-/* The server a window views, when the app did not start it: the host, leading
-   the chip, so where the project lives reads before which project it is.
-   Hidden (the `hidden` attribute) on a window onto this computer's server.
-   Its text never shrinks below the host — a clipped host could name a
-   different machine — so the chip's path gives way first. */
-:where(.app-header) .ppd-remote {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
-    padding: 0.125rem 0.5rem;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-pill);
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
-    white-space: nowrap;
-    cursor: default;
-}
-
-:where(.app-header) .ppd-remote-icon {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
-    fill: currentcolor;
-}
-
 /* Inline "open new window" button welded to the right of the chip. Native
    window only — hidden by default and revealed under .window-mode (styles.css),
    since a remote browser tab has no host able to spawn a window. */

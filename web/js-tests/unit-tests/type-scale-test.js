@@ -25,14 +25,16 @@ import { assert } from '../utilities/test-helpers.js';
 
 /**
  * Declarations allowed a literal, as `[selector ending, value]`:
- * - the network badge, update button and header icon buttons size their text
- *   in px beside px geometry, which deliberately does not follow the zoom;
+ * - the network badge and host label, update button and header icon buttons
+ *   size their text in px beside px geometry, which deliberately does not
+ *   follow the zoom;
  * - the plugin detail title is the one 1.75rem heading;
  * - the user-message bubble and reply-suggestion chips are rounder than
  *   every radius step and short of a pill.
  */
 const ALLOWED = [
   ['.network-button__clients', '12px'],
+  ['.network-button__host', '12px'],
   ['update-button .update-btn', '13px'],
   ['header-actions .btn-icon-header', '14px'],
   ['.plugin-detail-name', '1.75rem'],

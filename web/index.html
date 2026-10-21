@@ -395,16 +395,8 @@
                  change it) + an inline "open new window" button. The chip is
                  always available; the new-window button is native-window-only
                  (hidden by CSS in remote browser tabs — they have no host to
-                 spawn a window). A window on a server the app did not start
-                 (Connect to Server, --url) leads with that server's host;
-                 header-controls.js shows and names it. -->
+                 spawn a window). -->
             <project-path-display id="project-path-display" title="Project directory">
-                <span class="ppd-remote" id="project-remote-host" role="note" hidden>
-                    <svg class="ppd-remote-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M40-120v-80h880v80H40Zm120-120q-33 0-56.5-23.5T80-320v-440q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v440q0 33-23.5 56.5T800-240H160Zm0-80h640v-440H160v440Zm0 0v-440 440Z"/>
-                    </svg>
-                    <span class="ppd-remote-host"></span>
-                </span>
                 <button class="btn-ghost ppd-chip" id="project-path-chip" type="button"
                         title="Change project folder" aria-label="Change project folder"
                         aria-haspopup="dialog" aria-expanded="false">
@@ -450,14 +442,28 @@
                      server version notice with the in-app auto-updater (when
                      present) and opens the update dialog on click. -->
                 <update-button id="update-button" hidden></update-button>
-                <!-- Regular controls, in four groups: how the transcript looks
-                     (view), what the window is doing (status), the app's own
-                     surfaces (app), and the board's edge (panel). The groups are
+                <!-- Regular controls, in four groups: where the server is
+                     (network), how the window looks and sounds (view), the app's
+                     own surfaces (app), and the board's edge (panel). The groups are
                      spaced further apart the wider the header is; on a phone
                      they dissolve into one squeezed, non-wrapping row, while the
                      update pill (a sibling, outside this element) takes a row of
                      its own. -->
                 <div class="header-actions-controls">
+                <div class="header-group header-group--network">
+                <!-- Network Button — opens Settings › Connectivity. First in the
+                     row: it says where this window's server is. A window on a
+                     server the app did not start (Connect to Server, --url) names
+                     that server's host beside the icon, and while OTHER clients
+                     share this session it also shows how many: a badge over the
+                     icon, or "N connected" where the header has room. The host,
+                     the count and the title are kept by header-controls.js. -->
+                <button class="btn-ghost btn-icon-header network-button" id="network-button" title="Network settings" aria-label="Network settings">
+                    <span class="network-button__host" aria-hidden="true" hidden></span>
+                    <span class="network-button__clients" aria-hidden="true" hidden><span class="network-button__count"></span><span class="network-button__suffix"> connected</span></span>
+                </button>
+                </div>
+
                 <div class="header-group header-group--view">
                 <!-- Group Tool Runs Button — collapses a run of adjacent
                      tool-use rows into a single group tile that opens in the
@@ -490,23 +496,13 @@
                         <path d="M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q8 0 17 .5t23 1.5q-36 32-56 79t-20 99q0 90 63 153t153 63q52 0 99-18.5t79-51.5q1 12 1.5 19.5t.5 14.5q0 150-105 255T480-120Zm0-60q109 0 190-67.5T771-406q-25 11-53.67 16.5Q688.67-384 660-384q-114.69 0-195.34-80.66Q384-545.31 384-660q0-24 5-51.5t18-62.5q-98 27-162.5 109.5T180-480q0 125 87.5 212.5T480-180Zm-4-297Z"/>
                     </svg>
                 </button>
-                </div>
 
-                <div class="header-group header-group--status">
                 <!-- Notification Sounds (bell) Button — per-window sound on/off -->
                 <button class="btn-ghost btn-icon-header bell-button" id="bell-button" title="Toggle notification sounds" aria-label="Toggle notification sounds">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
                         <path d="M160-200v-66.67h84v-310q0-86.67 51.33-153.67Q346.67-797.33 432-817.33v-29.34q0-20 14.07-34.33 14.06-14.33 34-14.33 19.93 0 34.26 14.33 14.34 14.33 14.34 34.33v29.34q85.33 20 137 87 51.66 67 51.66 153.66v310h83.34V-200H160Zm320-302Zm-.18 422q-33.15 0-56.49-23.43Q400-126.85 400-160h160q0 33.33-23.49 56.67Q513.03-80 479.82-80ZM310.67-266.67h338.66v-310q0-70.66-49.5-120.16t-120.16-49.5q-70.67 0-120.17 49.5-49.5 49.5-49.5 120.16v310Z"/>
                     </svg>
                     <span class="bell-slash" aria-hidden="true"></span>
-                </button>
-
-                <!-- Network Button — opens Settings › Connectivity. While OTHER
-                     clients share this session it also shows how many: a badge
-                     over the icon, or "N connected" where the header has room.
-                     The count and the title are kept by header-controls.js. -->
-                <button class="btn-ghost btn-icon-header network-button" id="network-button" title="Network settings" aria-label="Network settings">
-                    <span class="network-button__clients" aria-hidden="true" hidden><span class="network-button__count"></span><span class="network-button__suffix"> connected</span></span>
                 </button>
                 </div>
 

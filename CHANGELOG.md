@@ -8,7 +8,7 @@ of changes; this project follows semantic versioning.
 - Auto-approve can judge tool calls with a decision model chosen in Settings
 - Extension op `decide` asks a decision model yes/no, choice and score questions
 - Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch
-- Windows on another server show its host in the header and window title
+- Windows on another server show its host in the network button and window title
 - Theme and zoom are per machine, and survive reconnecting to another server
 - Long-pressing text on Android no longer opens a Copy menu over the selection
 - Resizing a column no longer resizes every other column; widths are kept per depth
