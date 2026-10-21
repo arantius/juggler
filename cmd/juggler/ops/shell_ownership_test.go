@@ -21,11 +21,16 @@ import (
 // the command to say it is up, so the process really exists by the time a test
 // acts on it — otherwise a stop would be exercising only the pre-start context
 // cancellation and never the process group.
+//
+// `ready` is printed after `sleep` is forked, so it also proves the child
+// exists: the shell's tree is then two processes, and a stop that signals only
+// the shell leaves `sleep` holding the output pipe. Printed before the fork, a
+// stop landing between the two found a lone shell with nothing to survive it.
 func startTestTask(t *testing.T, root, convID string) string {
 	t.Helper()
 	shellOps := NewShellOperations(NewPathScope(root, nil))
 	res, err := shellOps.startBackground(map[string]any{
-		"command": "echo ready; sleep 30",
+		"command": "sleep 30 & echo ready; wait",
 		"convId":  convID,
 	})
 	if err != nil {

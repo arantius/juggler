@@ -131,3 +131,40 @@ func TestDocSaverCoalescesAndCancels(t *testing.T) {
 	default:
 	}
 }
+
+// A document that keeps changing is still saved: every change restarts the
+// debounce, so without a ceiling a change arriving more often than the debounce
+// holds the save off for as long as the changes keep coming.
+func TestDocSaverSavesADocumentThatNeverGoesQuiet(t *testing.T) {
+	s := newDocSaver()
+	s.debounce = 100 * time.Millisecond
+	s.maxWait = 300 * time.Millisecond
+	t.Cleanup(s.cancel)
+
+	// Changes every 20ms — five per debounce — for far longer than the ceiling.
+	// The bound is how long the changes keep coming, not how soon the save
+	// lands: the assertion is only that it lands while they do.
+	changing := time.After(5 * time.Second)
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	s.rearm()
+	for {
+		select {
+		case <-s.fired():
+			// A burst begun after the save gets a ceiling of its own, so its
+			// first change waits out a whole debounce. Half of one is a bound
+			// only a fault can beat: a timer never fires early.
+			s.rearm()
+			select {
+			case <-s.fired():
+				t.Fatal("the first change after a save fired at once: the ceiling carried over from the burst before")
+			case <-time.After(s.debounce / 2):
+			}
+			return
+		case <-changing:
+			t.Fatalf("no save in 5s of a change every 20ms, against a %v debounce capped at %v", s.debounce, s.maxWait)
+		case <-tick.C:
+			s.rearm()
+		}
+	}
+}

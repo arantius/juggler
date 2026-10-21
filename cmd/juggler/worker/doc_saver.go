@@ -15,8 +15,9 @@ import (
 //
 //   - The unsaved bit, which any goroutine may raise and a successful write
 //     clears.
-//   - The debounce timer, and the two hand-offs around it: a change asking the
-//     loop to re-arm it, and the timer telling the loop it fired.
+//   - The debounce timer, capped so a burst that never pauses is still saved
+//     (SaveMaxWait), and the two hand-offs around it: a change asking the loop
+//     to re-arm it, and the timer telling the loop it fired.
 //   - The flush queue, a synchronous save request with a reply channel.
 //
 // The write itself, and what a save sweeps afterwards, are the worker's (see
@@ -34,6 +35,10 @@ type docSaver struct {
 	// document makes that genuinely concurrent with run(). So noteChange posts
 	// to rearmQueue and the run loop owns the timer.
 	debounceTimer *time.Timer
+	// burstStart is when the change that began the current burst re-armed the
+	// timer: the debounce is never pushed past maxWait from it. Run goroutine
+	// only, like debounceTimer.
+	burstStart time.Time
 	// rearmQueue carries "the document changed, re-arm the debounce" from any
 	// goroutine to the run loop. Buffered by one and sent to non-blockingly: a
 	// burst coalesces into a single re-arm, which is what a debounce wants
@@ -47,6 +52,10 @@ type docSaver struct {
 	// waiting on the SaveDebounceTime timer. Each request carries a reply chan
 	// that the run loop signals after the save completes.
 	flushQueue chan chan error
+	// debounce and maxWait are SaveDebounceTime and SaveMaxWait, held here so a
+	// test can shrink them.
+	debounce time.Duration
+	maxWait  time.Duration
 }
 
 // newDocSaver builds a saver with nothing pending.
@@ -55,6 +64,8 @@ func newDocSaver() docSaver {
 		rearmQueue: make(chan struct{}, 1),
 		fireQueue:  make(chan struct{}, 1),
 		flushQueue: make(chan chan error, 4),
+		debounce:   SaveDebounceTime,
+		maxWait:    SaveMaxWait,
 	}
 }
 
@@ -78,13 +89,22 @@ func (s *docSaver) markSaved() { s.unsaved.Store(false) }
 // rearmRequests is where the run loop hears noteChange.
 func (s *docSaver) rearmRequests() <-chan struct{} { return s.rearmQueue }
 
-// rearm (re)starts the debounce timer. Run goroutine only — it is the sole
-// writer of debounceTimer.
+// rearm (re)starts the debounce timer, never past the burst's ceiling. Run
+// goroutine only — it is the sole writer of debounceTimer and burstStart.
+//
+// A burst is the run of re-arms one timer absorbs. It ends when that timer is
+// no longer pending — fired, held for a forced save, or cancelled — which is
+// exactly when Stop reports false, so the timer goroutine never has to say so.
 func (s *docSaver) rearm() {
-	if s.debounceTimer != nil {
-		s.debounceTimer.Stop()
+	now := time.Now()
+	if s.debounceTimer == nil || !s.debounceTimer.Stop() {
+		s.burstStart = now
 	}
-	s.debounceTimer = time.AfterFunc(SaveDebounceTime, func() {
+	delay := s.debounce
+	if left := s.maxWait - now.Sub(s.burstStart); left < delay {
+		delay = max(left, 0)
+	}
+	s.debounceTimer = time.AfterFunc(delay, func() {
 		// Signal the run loop to save — never save from the timer goroutine, as
 		// that races with the run loop accessing the doc.
 		select {

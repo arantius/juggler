@@ -8,6 +8,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,22 +144,31 @@ func TestStreamingCancelStillForceKillsWhatOutlivesTheGrace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Cancelled the moment the command says its child exists — never on a timer,
+	// which a slow fork outran: the cancel then found a lone shell, and with
+	// nothing left to hold the pipe there was correctly nothing to escalate.
 	out := make(chan ShellStreamChunk, 64)
 	drained := make(chan struct{})
+	var sawReady atomic.Bool
 	go func() {
 		defer close(drained)
-		for range out { //nolint:revive // draining is the point
+		var seen strings.Builder
+		for chunk := range out {
+			seen.WriteString(chunk.Data)
+			if !sawReady.Load() && strings.Contains(seen.String(), "ready") {
+				sawReady.Store(true)
+				cancel()
+			}
 		}
 	}()
 
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
 	// The backgrounded child inherits the leader's process group and the pipe's
 	// write end, so killing the leader alone leaves cmd.Wait blocked.
-	shellOps.ExecuteStreaming(ctx, "shell-cancel-child", "", "sleep 5 & sleep 5", "", 10000, out)
+	shellOps.ExecuteStreaming(ctx, "shell-cancel-child", "", "sleep 5 & echo ready; wait", "", 10000, out)
 	<-drained
+	if !sawReady.Load() {
+		t.Fatalf("the command never said its child was up, so it was never cancelled")
+	}
 
 	waitForEscalation(t, escalations, "a process group still holding the pipe past the kill grace was never force-killed")
 }
@@ -227,7 +237,8 @@ func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
 		t.Skip("POSIX process-group semantics only")
 	}
 
-	// startTestTask's command leaves `sleep 30` running as a child of the shell.
+	// startTestTask returns once its `sleep 30` child exists, so the polite
+	// stop — which signals only the shell — always leaves it behind.
 	id := startTestTask(t, t.TempDir(), "conv-survivor")
 	escalations := countEscalations(t)
 

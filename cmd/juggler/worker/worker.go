@@ -38,6 +38,15 @@ const (
 // the model is still streaming. Empirically a clean balance.
 const SaveDebounceTime = 2 * time.Second
 
+// SaveMaxWait bounds how long a run of changes can hold the debounce off. Every
+// change restarts SaveDebounceTime, so a conversation that keeps changing —
+// a long streaming turn, a program writing its journal — would otherwise not be
+// saved, and its transaction, asset and program-snapshot sweeps would not run,
+// until it had been quiet for 2s. Ten seconds is five debounces: long enough
+// that a short turn still coalesces into one write, short enough that a crash
+// mid-turn loses seconds rather than the turn.
+const SaveMaxWait = 10 * time.Second
+
 // threadContext names one items array a write can land in: a thread's nested
 // array, or the root conversation's for the zero value. A turn carries the one it
 // writes to (turnState.thread); a handler that writes somewhere else resolves its

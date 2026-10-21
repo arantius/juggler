@@ -23,6 +23,7 @@ of changes; this project follows semantic versioning.
 - Extension SDK adds `formatTokens`, menu-keyboard and live-task-output helpers, and `hasStrategy`
 - A failed auto-name toast says why, such as an expired login and how to renew it
 - Usage meters no longer show a reset window's old figure, and flag failed refreshes
+- A conversation that never pauses, like a long streaming turn, is still saved every 10s
 
 ## [0.7.7] - 2026-10-17
 

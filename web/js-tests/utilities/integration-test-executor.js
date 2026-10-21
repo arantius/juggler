@@ -174,6 +174,7 @@ import { runTests as runTestBudgetTests } from '../unit-tests/test-budget-test.j
 import { runTests as runExclusiveTestFlagsTests } from '../unit-tests/exclusive-test-flags-test.js';
 import { runTests as runSuiteVerdictTests } from '../unit-tests/suite-verdict-test.js';
 import { runTests as runSuiteDocumentIsolationTests } from '../unit-tests/suite-document-isolation-test.js';
+import { runTests as runWaitReportTests } from '../unit-tests/wait-report-test.js';
 import { runTests as runSuitePopupIsolationTests } from '../unit-tests/suite-popup-isolation-test.js';
 import { runTests as runEngineAutoloadTests } from '../unit-tests/engine-autoload-test.js';
 import { runTests as runSyncBatchBackoffTests } from '../unit-tests/sync-batch-backoff-test.js';
@@ -448,7 +449,7 @@ import {
   setCurrentTestName
 } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
-import { racePatiently, resetPatience, patienceGranted } from './test-patience.js';
+import { racePatiently, resetPatience, patienceGranted, waitsInFlightReport } from './test-patience.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
 
@@ -723,6 +724,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:exclusive-test-flags', run: runExclusiveTestFlagsTests },
   { name: 'unit:suite-verdict', run: runSuiteVerdictTests },
   { name: 'unit:suite-document-isolation', run: runSuiteDocumentIsolationTests },
+  { name: 'unit:wait-report', run: runWaitReportTests },
   { name: 'unit:suite-popup-isolation', run: runSuitePopupIsolationTests },
   { name: 'unit:engine-autoload', run: runEngineAutoloadTests },
   { name: 'unit:sync-batch-backoff', run: runSyncBatchBackoffTests },
@@ -1269,14 +1271,21 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
     // machine that is merely slow buys more of it (`./test-patience.js`), so the
     // "stopped making progress" this reports on expiry is now something it has
     // actually established rather than a wall-clock reading of a busy laptop.
-    const settled = await racePatiently(suite.run(ctx), UNIT_SUITE_BUDGET_MS);
+    //
+    // Untracked: this race is running whenever anything in the suite is, so
+    // listed among the suite's own waits it would name nothing.
+    const settled = await racePatiently(suite.run(ctx), UNIT_SUITE_BUDGET_MS, { track: false });
     if (!settled) {
+      // Taken before anything else is awaited, so the waits it describes are
+      // as they stood when the budget ran out.
+      const parked = waitsInFlightReport();
       const granted = patienceGranted();
       return {
         passed: 0,
         failed: 1,
         errors: [
           `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms${granted.totalMs ? ` plus ${Math.round(granted.totalMs / 1000)}s granted for load` : ''} — it stopped making progress and never returned a result`,
+          ...parked,
           ...projectSizeLines(await fetchProjectSize()),
           ...await machineLoadReport(),
           ...(granted.line ? [granted.line] : [])

@@ -255,7 +255,7 @@ export async function styledProbeFrame(width, height = 600, timeout = 4000) {
 
   const wanted = doc.querySelectorAll('link[rel="stylesheet"]').length;
   const loaded = await pollPatiently(() => doc.styleSheets.length >= wanted,
-    { nominalMs: timeout, intervalMs: 20 });
+    { nominalMs: timeout, intervalMs: 20, what: `${wanted} stylesheet(s) to load in the fixture frame` });
   // Say so rather than measuring on: without the sheets every geometry
   // assertion reads `auto`, and reports a layout mismatch for what is really
   // a stylesheet that never arrived.
@@ -380,7 +380,7 @@ export async function releaseTestConversation(session, conversationId, reason) {
 // onto the next one.
 export async function waitForWorkerReady(conversationId, timeout = 10000) {
   const ready = await pollPatiently(() => workerManager.isWorkerReady(conversationId),
-    { nominalMs: timeout, intervalMs: 50 });
+    { nominalMs: timeout, intervalMs: 50, what: `the worker for ${conversationId} to be ready` });
   if (ready) return;
   throw new Error(`Worker not ready after ${timeout}ms for ${conversationId} — ${await whyGivingUp()}`);
 }
@@ -500,7 +500,7 @@ export async function executeToolsAndGetContext(conversation, session, toolCalls
   for (const tc of toolCalls) {
     const toolCall = { id: tc.id, name: tc.name, input: tc.input };
     const execPromise = toolExecutor.executeToolCall(toolCall, conversation._responseHandler, conversation.rootMessageThread);
-    if (!await racePatiently(execPromise, 10000)) {
+    if (!await racePatiently(execPromise, 10000, { what: `[${tc.name}] tool execution` })) {
       throw new Error(`[${tc.name}] tool execution timeout (10s) — ${await whyGivingUp()}`);
     }
   }
@@ -866,7 +866,7 @@ export async function waitForPendingApproval(conversation, toolUseId, timeoutMs 
       }
     }
     return null;
-  }, { nominalMs: timeoutMs });
+  }, { nominalMs: timeoutMs, what: `pending approval: ${toolUseId}` });
   if (pending) return pending;
   throw new Error(`Timeout waiting for pending approval: ${toolUseId} — ${await whyGivingUp()}`);
 }
@@ -919,7 +919,7 @@ export async function waitFor(predicate, optsOrWhat = {}, timeoutMs = undefined)
     ? { description: optsOrWhat, timeoutMs }
     : optsOrWhat;
   const nominalMs = opts.timeoutMs ?? 5000;
-  const got = await pollPatiently(predicate, { nominalMs, intervalMs: opts.intervalMs ?? 10 });
+  const got = await pollPatiently(predicate, { nominalMs, intervalMs: opts.intervalMs ?? 10, what: opts.description });
   if (got) return got;
   const description = opts.description ?? 'condition';
   const what = typeof description === 'function' ? description() : description;
@@ -969,7 +969,7 @@ export function createOrphanedApproval(conversation, toolUseId, toolName, toolIn
  * @returns {Promise<T>} The promise result or throws on timeout
  */
 export async function withTimeout(promise, timeoutMs, description) {
-  const settled = await racePatiently(promise, timeoutMs);
+  const settled = await racePatiently(promise, timeoutMs, { what: description });
   if (settled) return settled.value;
   throw new Error(`Timeout: ${description} (${timeoutMs}ms) — ${await whyGivingUp()}`);
 }

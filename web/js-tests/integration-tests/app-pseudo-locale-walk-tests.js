@@ -154,7 +154,7 @@ async function until(probe, what, nominalMs = 10000) {
   stage = what;
   const got = await pollPatiently(() => {
     try { return probe(); } catch { return null; }
-  }, { nominalMs: budgetFor(nominalMs), intervalMs: 50 });
+  }, { nominalMs: budgetFor(nominalMs), intervalMs: 50, what });
   if (!got) throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}${describeShell()}`);
   return /** @type {T} */ (got);
 }
