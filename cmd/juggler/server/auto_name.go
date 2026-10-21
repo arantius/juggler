@@ -14,6 +14,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/providers/provider"
 	providerutils "juggler/cmd/juggler/providers/utils"
 	"juggler/cmd/juggler/worker"
 	"juggler/internal/jlog"
@@ -383,7 +384,7 @@ func (s *Server) autoNameConversation(convID, firstMessage, customSystem string,
 			}
 			jlog.Error("auto-name %s: completion failed (attempt %d/%d, after %d transient retries); leaving default name: %v",
 				convID, attempt, autoNameMaxAttempts, transientRetries, err)
-			s.noticeAutoNameFailed(convID)
+			s.noticeAutoNameFailed(convID, autoNameCompletionFailedNotice(cheap.Model, err))
 			return
 		}
 		candidate := sanitizeAutoName(res.Text)
@@ -407,7 +408,7 @@ func (s *Server) autoNameConversation(convID, firstMessage, customSystem string,
 	}
 	if title == "" {
 		jlog.Error("auto-name %s: no acceptable title after %d attempts; leaving default name", convID, autoNameMaxAttempts)
-		s.noticeAutoNameFailed(convID)
+		s.noticeAutoNameFailed(convID, autoNameNoTitleNotice(cheap.Model))
 		return
 	}
 
@@ -423,7 +424,7 @@ func (s *Server) autoNameConversation(convID, firstMessage, customSystem string,
 	canonical, err := sm.RenameConversation(convID, title)
 	if err != nil {
 		jlog.Error("auto-name %s: rename failed: %v", convID, err)
-		s.noticeAutoNameFailed(convID)
+		s.noticeAutoNameFailed(convID, autoNameRenameFailedNotice(err))
 		return
 	}
 
@@ -476,10 +477,76 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // actually attempted and gave up — never for a configuration gap that would
 // re-fire on every new conversation. The message names no conversation: the
 // remedy (the tab's own "Auto-name" button) is the same either way, and the tab
-// still carrying an "Untitled N" name is the one that failed.
-func (s *Server) noticeAutoNameFailed(convID string) {
+// still carrying an "Untitled N" name is the one that failed. What it does name
+// is why, since the remedy for an expired login is not another press of
+// Auto-name: m is one of the autoName*Notice messages below.
+func (s *Server) noticeAutoNameFailed(convID string, m msg.Message) {
 	jlog.Debug("auto-name %s: announcing failure to clients", convID)
-	serverBroadcaster{srv: s}.BroadcastNotice(msg.New("Couldn't auto-name a tab — the model was unavailable. Rename it, or press Auto-name to try again."))
+	serverBroadcaster{srv: s}.BroadcastNotice(m)
+}
+
+// autoNameCompletionFailedNotice is the toast for a naming whose completion
+// failed for good: model is the cheap model it ran on, which the user may never
+// have picked consciously, and the reason is autoNameFailureReason's.
+func autoNameCompletionFailedNotice(model string, err error) msg.Message {
+	return msg.New("Couldn't auto-name a tab with {model}: {reason}. Rename it, or press Auto-name to try again.",
+		"model", model, "reason", autoNameFailureReason(err))
+}
+
+// autoNameNoTitleNotice is the toast for a model that answered, twice, with
+// nothing usable as a title — reachable, so naming it "unavailable" would send
+// the user looking for a login problem that isn't there.
+func autoNameNoTitleNotice(model string) msg.Message {
+	return msg.New("Couldn't auto-name a tab: {model} didn't reply with a usable title. Rename it, or press Auto-name to try again.",
+		"model", model)
+}
+
+// autoNameRenameFailedNotice is the toast for a title that was derived but could
+// not be applied.
+func autoNameRenameFailedNotice(err error) msg.Message {
+	return msg.New("Couldn't auto-name a tab: {reason}. Rename it, or press Auto-name to try again.",
+		"reason", autoNameFailureReason(err))
+}
+
+// autoNameFailureReason renders a naming failure as the clause a toast quotes,
+// with no trailing full stop (the template supplies one). Where a provider has
+// written the explanation for the user, that is what is quoted, unwrapped from
+// the plumbing around it:
+//
+//   - providerUnavailableError — the credential resolver's account (e.g. an
+//     expired Codex login and the command that renews it), the same text the
+//     model chooser shows as that provider's sign-in hint.
+//   - provider.AuthError — the provider refused the credential mid-request: its
+//     own message, then its remediation hint.
+//   - ErrQuickCompleteTimeout — a fixed clause, since its error text is mostly
+//     the wrapped context.DeadlineExceeded.
+//
+// Anything else is the error's own text, minus the "quick complete:" prefix
+// that names our channel rather than the problem.
+func autoNameFailureReason(err error) string {
+	var reason string
+	var unavailable *providerUnavailableError
+	var authErr *provider.AuthError
+	switch {
+	case errors.As(err, &unavailable):
+		reason = unavailable.err.Error()
+	case errors.As(err, &authErr):
+		reason = trimSentenceEnd(authErr.Error())
+		if hint := trimSentenceEnd(authErr.Hint); hint != "" {
+			reason += ". " + hint
+		}
+	case errors.Is(err, ErrQuickCompleteTimeout):
+		reason = "the model did not answer in time"
+	default:
+		reason = strings.TrimPrefix(err.Error(), "quick complete: ")
+	}
+	return trimSentenceEnd(reason)
+}
+
+// trimSentenceEnd strips trailing whitespace and full stops, so a clause can be
+// followed by the template's own punctuation without doubling it.
+func trimSentenceEnd(s string) string {
+	return strings.TrimRight(strings.TrimSpace(s), ". ")
 }
 
 // sanitizeAutoName turns a raw model reply into a clean, bounded, single-line

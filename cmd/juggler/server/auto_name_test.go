@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/worker"
 )
 
@@ -249,6 +250,71 @@ func TestAutoNamePromptListsTitlesInUse(t *testing.T) {
 	}
 	if !strings.Contains(without, "fix the flaky test") {
 		t.Fatalf("prompt missing the message:\n%s", without)
+	}
+}
+
+// TestAutoNameFailedNotice pins that the toast for a naming whose completion
+// gave up carries the reason it gave up, in the provider's own words — the same
+// sentence the model chooser shows for that provider — rather than a blanket
+// "the model was unavailable" that leaves the user no way to tell an expired
+// login from an outage. The "quick complete:" plumbing prefixes are ours, not
+// the provider's, and stay out of it.
+func TestAutoNameFailedNotice(t *testing.T) {
+	const codexHint = "codex access token is expired; sign in with the Codex app or run `codex login` (checked /home/u/.codex/auth.json)"
+
+	tests := []struct {
+		name    string
+		err     error
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "expired login",
+			err:     &providerUnavailableError{op: "quick complete", provider: "codex", err: errors.New(codexHint)},
+			want:    []string{"gpt-5-mini", codexHint},
+			notWant: []string{"quick complete", "unavailable"},
+		},
+		{
+			name: "provider refused the credential mid-request",
+			err: fmt.Errorf("stream: %w", &provider.AuthError{
+				Provider: "anthropic", Status: 401,
+				Message: "OAuth access token has expired.",
+				Hint:    "Sign in again with `claude login`.",
+			}),
+			want:    []string{"OAuth access token has expired", "Sign in again with `claude login`"},
+			notWant: []string{"stream:"},
+		},
+		{
+			name:    "timed out",
+			err:     ErrQuickCompleteTimeout,
+			want:    []string{"did not answer in time"},
+			notWant: []string{"quick complete", "deadline exceeded"},
+		},
+		{
+			name:    "anything else",
+			err:     fmt.Errorf("quick complete: open conversation: %w", errors.New("400 invalid_request_error")),
+			want:    []string{"open conversation: 400 invalid_request_error"},
+			notWant: []string{"quick complete"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := autoNameCompletionFailedNotice("gpt-5-mini", tt.err).English()
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("notice %q is missing %q", got, want)
+				}
+			}
+			for _, bad := range tt.notWant {
+				if strings.Contains(got, bad) {
+					t.Errorf("notice %q contains %q", got, bad)
+				}
+			}
+			if strings.Contains(got, "..") {
+				t.Errorf("notice %q doubles its full stop", got)
+			}
+		})
 	}
 }
 

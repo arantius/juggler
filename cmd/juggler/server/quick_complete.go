@@ -56,6 +56,24 @@ var ErrQuickCompleteBusy = errors.New("quick-complete concurrency limit reached"
 // sentinel or as an ordinary deadline.
 var ErrQuickCompleteTimeout = fmt.Errorf("quick complete: the model did not answer in time: %w", context.DeadlineExceeded)
 
+// providerUnavailableError reports an out-of-band request that never reached its
+// provider because the provider has no usable credential — no key, switched off,
+// or an external login that has lapsed. err is GetProviderCredential's own
+// account of why, which is also the sign-in hint the model chooser shows for
+// that provider, so a caller that reports the failure to the user (the
+// auto-namer's toast) unwraps it to say the same thing the chooser does.
+type providerUnavailableError struct {
+	op       string // the caller, as outOfBandProvider names it
+	provider string // registry name of the provider
+	err      error
+}
+
+func (e *providerUnavailableError) Error() string {
+	return fmt.Sprintf("%s: provider %q unavailable: %v", e.op, e.provider, e.err)
+}
+
+func (e *providerUnavailableError) Unwrap() error { return e.err }
+
 // QuickCompleteRequest is one bounded, out-of-band single-turn completion. The
 // caller pre-resolves Model to a concrete {provider, model, thinking}.
 type QuickCompleteRequest struct {
@@ -95,7 +113,8 @@ type QuickCompleteResult struct {
 // immediately rather than queueing, and a request that outlives its own bound
 // gets ErrQuickCompleteTimeout; both are retryable by construction. Missing
 // credentials and provider failures are returned as they arrive, for the caller
-// to handle (the auto-namer swallows them).
+// to handle (the auto-namer quotes them in its failure toast); a missing
+// credential arrives as a *providerUnavailableError.
 func (s *Server) QuickComplete(ctx context.Context, req QuickCompleteRequest) (QuickCompleteResult, error) {
 	if req.Model.Provider == "" || req.Model.Model == "" {
 		return QuickCompleteResult{}, fmt.Errorf("quick complete: model not specified")
@@ -237,7 +256,7 @@ func (s *Server) initOutOfBandProvider(ctx context.Context, op string, ref core.
 	}
 	credential, err := creds.GetProviderCredential(ref.Provider)
 	if err != nil {
-		return nil, fmt.Errorf("%s: provider %q unavailable: %w", op, ref.Provider, err)
+		return nil, &providerUnavailableError{op: op, provider: ref.Provider, err: err}
 	}
 
 	capabilities := s.resolveModelCapabilities(ref.Provider, ref.Model)
