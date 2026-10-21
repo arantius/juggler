@@ -26,6 +26,7 @@ of changes; this project follows semantic versioning.
 - A failed auto-name toast says why, such as an expired login and how to renew it
 - Usage meters no longer show a reset window's old figure, and flag failed refreshes
 - A conversation that never pauses, like a long streaming turn, is still saved every 10s
+- Windows with WSL: worktree workspaces show their git status instead of "No git repository"
 
 ## [0.7.7] - 2026-10-17
 

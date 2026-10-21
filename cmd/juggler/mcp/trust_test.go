@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -133,13 +134,22 @@ func TestTrustIsPerCommand(t *testing.T) {
 	if !merged["tool"].untrusted {
 		t.Error("saving beside an untrusted entry trusted it")
 	}
-	if info, err := os.Stat(trustPath()); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("trust store: %v, mode %v", err, info)
+	info, err := os.Stat(trustPath())
+	if err != nil {
+		t.Fatalf("trust store: %v", err)
+	}
+	// Windows has no permission bits to carry "owner only" (os.Stat reports
+	// 0666 for every writable file); the profile directory's ACL guards it.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("trust store mode %o, want 600", info.Mode().Perm())
 	}
 }
 
 // mcp.json can hold bearer tokens in headers and secrets in env.
 func TestConfigFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no permission bits; the profile directory's ACL guards the file")
+	}
 	path := filepath.Join(t.TempDir(), "sub", mcpFileName)
 	if err := writeConfigFile(path, map[string]ServerConfig{"x": {Command: "y"}}); err != nil {
 		t.Fatal(err)

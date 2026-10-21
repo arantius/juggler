@@ -20,7 +20,8 @@ import {
   createTestSession,
   releaseTestConversation,
   waitForWorkerReady,
-  waitFor
+  waitFor,
+  withTimeout
 } from '../../../js-tests/utilities/test-helpers.js';
 import { budgetFor } from '../../../js-tests/utilities/test-deadline.js';
 import { fetchJson } from '../../../js/services/http.js';
@@ -134,17 +135,26 @@ export async function readIn(session, conversation, path) {
 }
 
 /**
+ * How long one git command in this suite is waited for. Each is a local
+ * operation on a repository of a few files; the figure is a bound for a
+ * report, not a cost anyone expects to pay.
+ * @type {number}
+ */
+export const SHELL_WAIT_MS = 15000;
+
+/**
  * Run a command in the project and insist it worked.
  *
  * Failures carry the command and git's own words: a worktree that could not be
  * made for a reason this suite never sees is a much longer afternoon than one
- * that says `fatal: invalid reference`.
+ * that says `fatal: invalid reference`. The command is a named wait, so one
+ * that never returns is reported by name rather than as a silent suite timeout.
  * @param {any} ops - Project-pinned operations.
  * @param {string} command - What to run.
  * @returns {Promise<any>} The result, once it has succeeded.
  */
 export async function mustRun(ops, command) {
-  const result = await ops.shell({ command });
+  const result = await withTimeout(ops.shell({ command }), SHELL_WAIT_MS, `\`${command}\` to return`);
   if (!result.success) {
     throw new Error(`\`${command}\` failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
   }

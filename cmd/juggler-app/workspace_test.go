@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -123,7 +124,10 @@ func TestTheWorkspaceFileIsReplacedRatherThanRewritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.SameFile(before, after) {
+	// Windows' os.Stat keeps the path, not the file's identity, and SameFile
+	// looks that up when it compares — so both sides are whatever holds the
+	// name by then, and it reports the same file however the write was done.
+	if runtime.GOOS != "windows" && os.SameFile(before, after) {
 		t.Error("the workspace file was rewritten in place; an interrupted write would tear it")
 	}
 	if got := readWorkspaceFile(path).Windows; len(got) != 1 || got[0].Project != "/b" {

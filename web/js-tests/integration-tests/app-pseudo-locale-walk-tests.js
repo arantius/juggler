@@ -48,10 +48,13 @@ const SETTINGS_TABS = [
  * - `#auto-name-instruction-input`: its placeholder is the built-in prompt sent
  *   to the model, which stays in English whatever the UI language.
  * - `.plugin-version`, `.plugin-author`: an extension's manifest fields.
+ * - `.connectivity-url`: a URL the connectivity panel links to — a server's
+ *   address, or where to get a tool a tunnel mode needs.
  * - `code`, `pre`: tool arguments, paths and file content.
  */
 const DATA = '.ppd-path, .user-message-text, .markdown, .model-name, .info-card__usage-sub, '
-  + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, code, pre';
+  + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
+  + '.connectivity-url, code, pre';
 
 /**
  * Whether an element shows data. Besides {@link DATA}, a conversation tab's name

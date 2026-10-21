@@ -910,6 +910,43 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   }
 
   /**
+   * Point the new tree's `.git` file at its repository by a relative path.
+   *
+   * `git worktree add` writes an absolute `gitdir:` in the shell's own idea of
+   * an absolute path, and on Windows the server reads the tree with a different
+   * git: one made through WSL says `/mnt/c/…`, which the native git behind the
+   * status endpoint cannot open, so the tree reads as no repository at all. A
+   * relative gitdir means the same thing to every git of every version. Only the
+   * ordinary shape is rewritten — `<repo>/.git/worktrees/<name>` — and the result
+   * is checked with git before it stands; anything else is left as git wrote it.
+   *
+   * The repository's own pointer back to the tree is git's, and stays absolute.
+   * @param {any} ctx - The hook's context.
+   * @param {string} repoRel - The repository, relative to the operations' root.
+   * @param {string} treeRel - The tree, relative to the repository.
+   * @param {string} location - The tree's absolute path, as the server has it.
+   * @param {string} repoRoot - The repository's absolute path, as the server has it.
+   * @returns {Promise<void>} Once the file says what it should, or is left alone.
+   */
+  async _relativeGitfile(ctx, repoRel, treeRel, location, repoRoot) {
+    const read = await this._inRepo(ctx, repoRel, `cat "${treeRel}/.git"`);
+    const written = /^gitdir:\s*(.+?)\s*$/m.exec(String(read?.stdout ?? ''))?.[1];
+    if (!read?.success || !written) return;
+    const target = written.replace(/\\/g, '/');
+    if (!/^(\/|[A-Za-z]:\/)/.test(target)) return;
+    const name = /\/\.git\/worktrees\/([A-Za-z0-9._-]+)$/.exec(target)?.[1];
+    const back = relativePath(location, repoRoot);
+    if (!name || !back) return;
+
+    const gitfile = `"${treeRel}/.git"`;
+    await this._inRepo(ctx, repoRel, `printf 'gitdir: %s\\n' "${back}/.git/worktrees/${name}" > ${gitfile}`);
+    const holds = await this._inRepo(ctx, repoRel, `git -C "${treeRel}" rev-parse --git-dir`);
+    if (!holds?.success) {
+      await this._inRepo(ctx, repoRel, `printf 'gitdir: %s\\n' ${singleQuoted(written)} > ${gitfile}`);
+    }
+  }
+
+  /**
    * Make the tree.
    *
    * Two irreversible steps, and only the first has an inverse: the hook's
@@ -966,6 +1003,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     });
     const create = branchCreatedByUs ? `-b "${branch}" "${treeRel}" "${base}"` : `"${treeRel}" "${branch}"`;
     await this._mustRun(ctx, repoRel, `git worktree add -q ${create}`);
+    await this._relativeGitfile(ctx, repoRel, treeRel, location, repoRoot);
 
     // The hook is the repository's, not the tree's: it usually lives under a
     // gitignored `.juggler/`, so a fresh checkout would not have a copy of it.

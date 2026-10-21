@@ -42,7 +42,11 @@ function registerGated() {
     return class {
       /** @param {any} ctx */
       constructor(ctx) { this.ctx = ctx; }
-      async prepare() { await gateOf(this.ctx); throw new Error('released'); }
+      async prepare() {
+        entered.get(this.ctx.conversation)?.();
+        await gateOf(this.ctx);
+        throw new Error('released');
+      }
     };
   };
   return () => { /** @type {any} */ (contextItemRegistry).get = prior; };
@@ -57,12 +61,11 @@ const gates = new WeakMap();
 const gateOf = (ctx) => gates.get(ctx.conversation) || Promise.resolve();
 
 /**
- * Let an execution started this task reach its registration: execute() first
- * awaits the registry's dynamic import, which settles within the microtasks
- * before the next macrotask.
- * @returns {Promise<void>}
+ * Called by the fake prepare() on entry. The executor registers an action
+ * before it calls prepare(), so reaching prepare() means the action is running.
+ * @type {WeakMap<object, () => void>}
  */
-const registered = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+const entered = new WeakMap();
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -92,18 +95,24 @@ export async function runTests() {
 
   /**
    * Start an action of `conversationId` that stays running until `release`.
+   * `started` settles once the executor has registered it — or once the
+   * execution has ended without getting that far, so a test asserting on it
+   * fails rather than hangs. execute() awaits a dynamic import before it
+   * registers anything, and how many turns of the event loop that takes is
+   * the engine's business, so no timer stands in for it.
    * @param {any} executor
    * @param {string} conversationId
-   * @returns {{release: () => void, done: Promise<unknown>}} The gate and the execution
+   * @returns {{release: () => void, done: Promise<unknown>, started: Promise<unknown>}} The gate, the execution, and its registration
    */
   const gated = (executor, conversationId) => {
     /** @type {() => void} */
     let release = () => {};
     const conversation = { id: conversationId };
     gates.set(conversation, new Promise((resolve) => { release = () => resolve(undefined); }));
+    const reached = new Promise((resolve) => { entered.set(conversation, () => resolve(undefined)); });
     const done = executor.execute(GATED, {}, { conversation, _approvalHandled: true })
       .catch((/** @type {unknown} */ e) => e);
-    return { release, done };
+    return { release, done, started: Promise.race([reached, done]) };
   };
 
   await run('onSettled fires once the conversation\'s last action unwinds', async () => {
@@ -112,7 +121,7 @@ export async function runTests() {
     const a = gated(executor, 'conv-a');
     const b = gated(executor, 'conv-a');
     const off = executor.onSettled('conv-a', () => { fired++; });
-    await registered();
+    await Promise.all([a.started, b.started]);
     assert(executor.hasRunningActionsFor('conv-a'), 'the gated actions are not running');
     a.release();
     await a.done;
@@ -159,7 +168,7 @@ export async function runTests() {
     pin('unobserveMetadata', () => {});
 
     const a = gated(executor, 'conv-settle');
-    await registered();
+    await a.started;
     assert(conv.isTurnActive(), 'the running action does not hold the turn');
 
     const realInterval = globalThis.setInterval;
