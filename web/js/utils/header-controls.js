@@ -16,7 +16,7 @@ import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { fetchJson } from '../services/http.js';
 import { uiPort } from '../services/ui-port.js';
 import { apiUrl } from './api-url.js';
-import { chooseProject, projectIsFixed, projectsOpenInNewWindow } from './project-open-mode.js';
+import { chooseProject, externalServerHost, projectIsFixed, projectsOpenInNewWindow } from './project-open-mode.js';
 import { busyState } from '../model/processing-status.js';
 import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
@@ -118,6 +118,25 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
       events.off('clients-changed', heardFirst);
     },
   };
+}
+
+/**
+ * Show which server this window views, in the badge leading the project chip,
+ * when that server is one the app did not start; hide the badge otherwise.
+ * Nothing else on screen tells a window onto another computer from one onto
+ * this one, and what the agent runs, it runs there.
+ * @param {HTMLElement} badge - The header's #project-remote-host.
+ * @param {string} [host] - `host[:port]` of the server, '' for this computer's.
+ * @returns {void}
+ */
+export function bindRemoteHost(badge, host = externalServerHost()) {
+  badge.hidden = !host;
+  if (!host) return;
+  const label = /** @type {HTMLElement|null} */ (badge.querySelector('.ppd-remote-host'));
+  if (label) label.textContent = host;
+  const name = t('Connected to the Juggler server at {host}. Everything in this window happens on that computer.', { host });
+  badge.title = name;
+  badge.setAttribute('aria-label', name);
 }
 
 /**
@@ -316,6 +335,9 @@ export function setupHeaderControls(session) {
 
   const networkButton = document.getElementById('network-button');
   if (networkButton) bindNetworkClients(networkButton);
+
+  const remoteHost = document.getElementById('project-remote-host');
+  if (remoteHost) bindRemoteHost(remoteHost);
 
   // Native menu (Session ▸ Open…) bridges to the picker via this event, since the
   // Go side can't import the JS module directly. Same entry point as the

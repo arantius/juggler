@@ -18,6 +18,7 @@
 
 import { isDesktopWindow, postWindowControl } from '../../sdk/lib/window-control.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { externalServerHost } from './project-open-mode.js';
 
 /**
  * Derive the window title from the session's project path: the app name plus
@@ -25,14 +26,23 @@ import { t } from '../../sdk/lib/i18n.js';
  * taskbars and window menus have little room and truncate from the end, so a
  * full path would clip away the one part that tells two windows apart. A window
  * with no project yet (freshly opened, still at the picker) gets a placeholder
- * so its entry stays meaningful.
+ * so its entry stays meaningful. A window on a server the app did not start
+ * adds that server's host after the name, so a remote window never reads like a
+ * local one of the same project.
  * @param {string} projectPath - Absolute project path, or '' when none is set.
+ * @param {string} [serverHost] - `host[:port]` of a server the app did not
+ *   start, '' for this computer's own.
  * @returns {string} The window title.
  */
-export function windowTitleForProject(projectPath) {
+export function windowTitleForProject(projectPath, serverHost = '') {
   // Both separators: the desktop app reports native paths, so Windows projects
   // arrive backslash-separated.
   const dirName = (projectPath || '').replace(/[/\\]+$/, '').split(/[/\\]/).pop();
+  if (serverHost) {
+    return dirName
+      ? t('Juggler - {name} — on {host}', { name: dirName, host: serverHost })
+      : t('Juggler - New Window — on {host}', { host: serverHost });
+  }
   return dirName ? t('Juggler - {name}', { name: dirName }) : t('Juggler - New Window');
 }
 
@@ -50,7 +60,7 @@ export function windowTitleForProject(projectPath) {
  */
 export function updateWindowTitle(projectPath) {
   if (!isDesktopWindow()) return;
-  const title = windowTitleForProject(projectPath);
+  const title = windowTitleForProject(projectPath, externalServerHost());
   const query = '?title=' + encodeURIComponent(title)
     + '&project=' + encodeURIComponent(projectPath || '');
   postWindowControl('title', query);

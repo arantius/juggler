@@ -392,8 +392,16 @@
                  change it) + an inline "open new window" button. The chip is
                  always available; the new-window button is native-window-only
                  (hidden by CSS in remote browser tabs — they have no host to
-                 spawn a window). -->
+                 spawn a window). A window on a server the app did not start
+                 (Connect to Server, --url) leads with that server's host;
+                 header-controls.js shows and names it. -->
             <project-path-display id="project-path-display" title="Project directory">
+                <span class="ppd-remote" id="project-remote-host" role="note" hidden>
+                    <svg class="ppd-remote-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
+                        <path d="M40-120v-80h880v80H40Zm120-120q-33 0-56.5-23.5T80-320v-440q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v440q0 33-23.5 56.5T800-240H160Zm0-80h640v-440H160v440Zm0 0v-440 440Z"/>
+                    </svg>
+                    <span class="ppd-remote-host"></span>
+                </span>
                 <button class="btn-ghost ppd-chip" id="project-path-chip" type="button"
                         title="Change project folder" aria-label="Change project folder"
                         aria-haspopup="dialog" aria-expanded="false">

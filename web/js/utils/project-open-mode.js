@@ -19,6 +19,19 @@ export function projectsOpenInNewWindow() {
 }
 
 /**
+ * The host of the server this window views, when the app did not start that
+ * server (`?external=1`: Connect to Server, or --url); '' for a window on a
+ * server of its own. Such a server is treated as remote even at a loopback
+ * address, because the app knows nothing more about it than its URL.
+ * @param {HTMLElement} [root] - The page's root element, carrying the flag.
+ * @param {{host: string}} [loc] - Where the page was served from.
+ * @returns {string} `host[:port]`, or ''.
+ */
+export function externalServerHost(root = document.documentElement, loc = window.location) {
+  return root.dataset.externalServer === '1' ? loc.host : '';
+}
+
+/**
  * Whether this page's project is fixed: a session the machine server spawned
  * for one project, whose server refuses to switch it (the page is served with
  * `data-fixed-project="1"`). Another folder is another session there.

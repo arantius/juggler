@@ -24,12 +24,15 @@
  *      with their shortcuts.
  *   7. Tooltips name shortcuts, and never restore a title that changed under them.
  *   8. Under en-XA the network button's title and accessible name are translated.
+ *   9. A window on a server the app did not start names that server's host in
+ *      a badge leading the project chip.
  * @module unit-tests/header-bar-test
  */
 
 import { assert, styledProbeFrame } from '../utilities/test-helpers.js';
 import { serverPath } from '../../js/utils/api-url.js';
-import { bindNetworkClients } from '../../js/utils/header-controls.js';
+import { bindNetworkClients, bindRemoteHost } from '../../js/utils/header-controls.js';
+import { externalServerHost } from '../../js/utils/project-open-mode.js';
 import { setupHeaderOverflowMenu } from '../../js/utils/header-overflow-menu.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import keyShortcutManager from '../../js/services/key-shortcut-manager.js';
@@ -535,6 +538,58 @@ export async function runTests() {
     assert(raw.length === 0, `plain English under en-XA (network button): ${JSON.stringify(raw)}`);
     passed++;
   } catch (e) { failed++; errors.push(`network button en-XA: ${msg(e)}`); }
+
+  // --- 9: a window on a server the app did not start names that server ---
+  try {
+    // Only the external-server flag makes a host worth naming.
+    const root = document.createElement('html');
+    assert(externalServerHost(root, { host: 'devbox:8080' }) === '',
+      'a window on a server the app started has no remote host');
+    root.dataset.externalServer = '1';
+    assert(externalServerHost(root, { host: 'devbox:8080' }) === 'devbox:8080',
+      'a window on a server by URL is named by its host');
+
+    assert(!!served.querySelector('project-path-display > #project-remote-host'),
+      'the project group has a #project-remote-host badge');
+    const wide = await framedHeader(served, 1400);
+    try {
+      const badge = wide.el('#project-remote-host');
+      const display = () => wide.doc.defaultView?.getComputedStyle(badge).display;
+      assert(display() === 'none', 'as served, before anything is known, no badge shows');
+
+      bindRemoteHost(badge, '');
+      assert(display() === 'none', 'a window on its own server shows no badge');
+
+      bindRemoteHost(badge, 'devbox:8080');
+      assert(display() !== 'none', 'a window on another server shows the badge');
+      assert(badge.textContent?.trim() === 'devbox:8080', `the badge reads the host, got "${badge.textContent}"`);
+      assert(badge.title.includes('devbox:8080') && badge.getAttribute('aria-label') === badge.title,
+        `its title and accessible name say which server, got "${badge.title}"`);
+      const b = wide.box('#project-remote-host');
+      const chip = wide.box('#project-path-chip');
+      assert(b.width > 0 && b.right <= chip.left + 1,
+        `the badge leads the project chip: where, then what (badge ${Math.round(b.left)}–${Math.round(b.right)}, chip at ${Math.round(chip.left)})`);
+
+      // A desktop window's header is a drag region; the badge must keep its tooltip.
+      wide.doc.body.classList.add('window-mode');
+      const drag = wide.doc.defaultView?.getComputedStyle(badge).getPropertyValue('--wails-draggable').trim();
+      assert(drag === 'no-drag', `the badge is not a drag handle (got "${drag}")`);
+    } finally {
+      wide.frame.remove();
+    }
+
+    const badge = /** @type {HTMLElement} */ (document.importNode(
+      /** @type {Element} */ (served.querySelector('#project-remote-host')), true));
+    /** @type {string[]} */
+    const shown = [];
+    await underPseudoLocale('test-header-bar-remote', () => {
+      bindRemoteHost(badge, '9:9');
+      shown.push(badge.title, String(badge.getAttribute('aria-label')));
+    });
+    const raw = shown.filter((s) => !isPseudoLocalized(s));
+    assert(raw.length === 0, `plain English under en-XA (remote badge): ${JSON.stringify(raw)}`);
+    passed++;
+  } catch (e) { failed++; errors.push(`remote host badge: ${msg(e)}`); }
 
   return { passed, failed, errors };
 }

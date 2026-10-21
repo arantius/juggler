@@ -88,12 +88,27 @@ export async function runTests(_ctx) {
       'expected the "New Window" placeholder');
   });
 
+  await test('a window on another server names that server too', () => {
+    // Two windows on the same project name, one here and one on a remote box,
+    // must not read the same in the Window menu.
+    const local = windowTitleForProject('/home/me/juggler');
+    const remote = windowTitleForProject('/home/me/juggler', 'devbox:8080');
+    assert(remote.includes('juggler') && remote.includes('devbox:8080'),
+      `expected the project and the host in "${remote}"`);
+    assert(remote !== local, 'a remote window must not be titled like a local one');
+    const empty = windowTitleForProject('', 'devbox:8080');
+    assert(empty.includes('devbox:8080'), `a project-less remote window still names its host: "${empty}"`);
+  });
+
   await test('under en-XA the whole title is one translated message', async () => {
-    // The directory name is data, so it is a digit here.
+    // The directory name and host are data, so they are digits here.
     await underPseudoLocale('window-title-test', () => {
       for (const path of ['/7/8', '']) {
-        const title = windowTitleForProject(path);
-        assert(isPseudoLocalized(title), `title for ${JSON.stringify(path)}: ${JSON.stringify(title)}`);
+        for (const host of ['', '9:9']) {
+          const title = windowTitleForProject(path, host);
+          assert(isPseudoLocalized(title),
+            `title for ${JSON.stringify(path)} on ${JSON.stringify(host)}: ${JSON.stringify(title)}`);
+        }
       }
     });
   });
