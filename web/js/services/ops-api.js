@@ -517,13 +517,16 @@ async function callOp(toolId, operation, params, signal, allowedPaths, workspace
   // caller's own cancellation: an expiry is an ordinary failure the tool reports,
   // while the caller's abort is an AbortError that must reach it unchanged (the
   // executor turns that into a cancelled result). The caller's signal is chained
-  // onto ours so Escape still cancels the request.
+  // onto ours so Escape still cancels the request — and unchained in `finally`,
+  // because a turn hands one long-lived signal to every op it runs, and each
+  // listener left on it would hold this request's controller for the turn.
   const deadline = new AbortController();
   let expired = false;
   const timer = setTimeout(() => { expired = true; deadline.abort(); }, timeoutMs);
+  const onCallerAbort = () => deadline.abort();
   if (signal) {
     if (signal.aborted) deadline.abort();
-    else signal.addEventListener('abort', () => deadline.abort(), { once: true });
+    else signal.addEventListener('abort', onCallerAbort, { once: true });
   }
 
   /** @type {OpsResponse<T>} */
@@ -558,6 +561,7 @@ async function callOp(toolId, operation, params, signal, allowedPaths, workspace
     throw err;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
 
   if (!result.success) {

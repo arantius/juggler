@@ -12,7 +12,7 @@
  */
 
 import { revealLabel } from '../components/reveal-button.js';
-import { showNotice } from '../components/modal-dialog.js';
+import { uiPort } from '../services/ui-port.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { registerContextMenuProvider, codeReferenceMenuItem } from '../services/context-menu-service.js';
 import { isAbsolutePath } from './code-selection.js';
@@ -179,7 +179,7 @@ async function openInHost(path) {
   try {
     await openPath({ path });
   } catch (err) {
-    showNotice(t("Couldn't open that file. {error}", { error: extractErrorMessage(err) }));
+    uiPort()?.notice(t("Couldn't open that file. {error}", { error: extractErrorMessage(err) }));
   }
 }
 
@@ -192,7 +192,7 @@ async function showPath(path) {
   try {
     await revealPath({ path });
   } catch (err) {
-    showNotice(t("Couldn't show that file. {error}", { error: extractErrorMessage(err) }));
+    uiPort()?.notice(t("Couldn't show that file. {error}", { error: extractErrorMessage(err) }));
   }
 }
 
@@ -448,7 +448,7 @@ registerContextMenuProvider({
         // browser refused would otherwise look exactly like one that worked.
         onClick: () => {
           void copyToClipboard(path).catch((err) => {
-            showNotice(t("Couldn't copy the path. {error}", { error: extractErrorMessage(err) }));
+            uiPort()?.notice(t("Couldn't copy the path. {error}", { error: extractErrorMessage(err) }));
           });
         },
       },

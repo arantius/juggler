@@ -534,7 +534,9 @@ function flushAll() {
 // or by another project's server — arrives as a broadcast carrying the whole
 // document; a reconnect re-reads it, because nothing could have been delivered
 // while the socket was down. Owning the subscription next to the cache is what
-// keeps "what are the settings now" a question with one answer.
+// keeps "what are the settings now" a question with one answer. Both
+// subscriptions are page-lifetime and never released, by design: the cache they
+// feed lives as long as the page.
 if (typeof window !== 'undefined') {
   wsService.on('settings-changed', (/** @type {any} */ settings) => {
     adoptGlobalSettings(settings || {});

@@ -32,6 +32,8 @@ const _waiters = [];
 /** @type {Array<(list: Provider[]) => void>} */
 const _readyWaiters = [];
 
+// Page-lifetime subscriptions, never released by design: this module IS the
+// page's providers cache, and lives exactly as long as the socket it listens to.
 wsService.on('providers-update', (/** @type {unknown} */ data) => {
   _cache = /** @type {Provider[]} */ (Array.isArray(data) ? data : []);
   _hasReceived = true;

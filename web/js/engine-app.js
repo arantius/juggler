@@ -108,6 +108,7 @@ class EngineApp {
       services: {
         llmState: this._llmState,
         actionExecutor,
+        workerManager,
         wsService
       }
     });

@@ -43,22 +43,24 @@ export const sendRefusedWhenProviderDisabledTest = {
     const wsService = (await import('../../js/services/websocket.js')).default;
     const providersCache = (await import('../../js/services/providers-cache.js')).default;
     const recentModels = (await import('../../js/services/recent-models.js')).default;
-    const win = /** @type {any} */ (window);
+    const { registerUiPort, uiPort } = await import('../../js/services/ui-port.js');
+    const { registerSettingsOpener } = await import('../../js/services/settings-launcher.js');
 
     const prior = providersCache.get();
-    const priorConfirm = win.showConfirm;
-    const priorOpenSettings = win.openSettings;
     const priorRecord = recentModels.record;
 
     /** @type {string[]} */
     const confirmMessages = [];
     let openSettingsCalls = 0;
     let recentRecordCalls = 0;
-    win.showConfirm = (/** @type {string} */ message) => {
-      confirmMessages.push(message);
-      return Promise.resolve(false); // user dismisses
-    };
-    win.openSettings = () => { openSettingsCalls++; };
+    const restorePort = registerUiPort({
+      ...(uiPort() || /** @type {any} */ ({})),
+      confirm: (/** @type {string} */ message) => {
+        confirmMessages.push(message);
+        return Promise.resolve(false); // user dismisses
+      },
+    });
+    const restoreOpener = registerSettingsOpener(() => { openSettingsCalls++; });
     recentModels.record = /** @type {any} */ (() => {
       recentRecordCalls++;
       return Promise.resolve();
@@ -105,8 +107,8 @@ export const sendRefusedWhenProviderDisabledTest = {
       }
     } finally {
       recentModels.record = priorRecord;
-      win.showConfirm = priorConfirm;
-      win.openSettings = priorOpenSettings;
+      restorePort();
+      restoreOpener();
       wsService._emit('providers-update', prior);
     }
   }

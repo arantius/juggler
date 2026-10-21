@@ -1235,16 +1235,21 @@ class WebSocketService {
    * Register an event listener. The returned function unregisters it, so a
    * subscriber can keep that instead of keeping the callback for {@link off}
    * (the same shape as `session.subscribe`).
+   *
+   * A name off the closed {@link WSEventType} list throws, in every build. Such
+   * a subscription would never be called — a silent dead listener — and every
+   * caller is code in this tree that subscribes as its module loads, so the
+   * throw lands in the first test that loads it, long before a release.
    * @param {WSEventType} event - Event type to listen for
    * @param {WSEventCallback} callback - Callback function
    * @returns {() => void} Unsubscribe function
+   * @throws {TypeError} For a name this service never emits
    */
   on(event, callback) {
-    if (this._listeners[event]) {
-      this._listeners[event].push(callback);
-    } else {
-      console.error(`[ESSENTIAL] [WebSocket] Cannot register listener for unknown event '${event}'`);
+    if (!this._listeners[event]) {
+      throw new TypeError(`[WebSocket] no event named '${event}' is ever emitted; the names are WSEventType`);
     }
+    this._listeners[event].push(callback);
     return () => this.off(event, callback);
   }
 

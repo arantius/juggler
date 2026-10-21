@@ -59,6 +59,7 @@ import { createButton as makeButton, escapeHtml } from '../../sdk/lib/html.js';
 import { focusWhenShown } from '../utils/focus.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { registerUiPort } from '../services/ui-port.js';
 
 class ModalDialog extends JugglerElement {
   constructor() {
@@ -634,4 +635,14 @@ export function showNotice(/** @type {string} */ message, /** @type {{ duration?
 // Global alias, mirroring showAlert/showConfirm/showPrompt/showChoice.
 // @ts-ignore - Extending window object
 window.showNotice = showNotice;
+
+// The typed port the model and services layers ask for the dialogs by
+// (services/ui-port.js). The `window.*` aliases above are for extensions.
+registerUiPort({
+  alert: showAlert,
+  confirm: showConfirm,
+  prompt: showPrompt,
+  choice: showChoice,
+  notice: showNotice,
+});
 

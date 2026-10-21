@@ -41,9 +41,8 @@ import {
  */
 async function parkAsStub(session, id, name, loadState) {
   await session.releaseConversation(id);
-  const Conversation = (await import('../../js/model/conversation.js')).default;
-  const stub = new Conversation(
-    id, name, session, session.getServices(),
+  const stub = session.buildConversation(
+    id, name, session.getServices(),
     { skipBuiltInContextItems: true, loadState }
   );
   session.registry.insert(id, stub, 'test');

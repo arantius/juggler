@@ -29,7 +29,6 @@
  */
 
 import contextItemRegistry from '../registries/context-item-registry.js';
-import Conversation from './conversation.js';
 import { UNTITLED_BASE } from './conversation-naming.js';
 import { SAVE_DEBOUNCE_MS } from '../utils/constants.js';
 import workerManager from '../services/worker-manager.js';
@@ -42,6 +41,7 @@ import { setupWorkerCallbacks } from './session-worker-callbacks.js';
 import { normalizeAttachments } from '../utils/attachments.js';
 
 /** @typedef {import('./session.js').default} Session */
+/** @typedef {import('./conversation.js').default} Conversation */
 /** @typedef {import('./session.js').SessionData} SessionData */
 /** @typedef {import('./session.js').HistoryMessage} HistoryMessage */
 
@@ -76,6 +76,7 @@ import { normalizeAttachments } from '../utils/attachments.js';
  * @property {() => Promise<void>} createInitialConversation - Seed the first conversation of an empty project
  * @property {() => Conversation|null} visibleConversation - The conversation on screen (`Session.getVisibleConversation`)
  * @property {(conversation: Conversation) => Promise<unknown>} seedAutoItems - Seed a conversation's assistant files and auto items (`Session.seedConversationAutoItems`)
+ * @property {(patch: Record<string, any>) => void} patchMetadata - Apply a metadata patch locally and announce it (`Session.applySessionMetadataPatch`); the next save carries it
  */
 
 /**
@@ -292,10 +293,9 @@ export default class SessionPersistence {
         // writes and hanging tool execution.
         if (!isEngine()) {
           for (const convId of data.conversationOrder) {
-            const stub = new Conversation(
+            const stub = host.session().buildConversation(
               convId,
               names[convId] || UNTITLED_BASE,
-              host.session(),
               services,
               { skipBuiltInContextItems: true, loadState: 'unloaded' }
             );
@@ -353,24 +353,8 @@ export default class SessionPersistence {
 
       host.notify('session:loaded', host.session());
 
-      // Auto-detect AI assistant files on first load (only once per session).
       // Runs after session:loaded so listeners have updated the visible conversation.
-      //
-      // Skipped for a conversation still waiting to be told where it works:
-      // seeding it here would put the project's assistant files into a
-      // conversation that has not chosen a tree yet, and its own initialisation
-      // seeds the right ones anyway.
-      if (!host.state().metadata.hasScannedAIFiles) {
-        const conversation = host.visibleConversation();
-        if (conversation && !conversation.awaitingSetup) {
-          host.seedAutoItems(conversation)
-            .then(() => {
-              host.state().metadata.hasScannedAIFiles = true;
-            });
-        } else {
-          host.state().metadata.hasScannedAIFiles = true;
-        }
-      }
+      void this._scanAssistantFilesOnce();
 
     } catch (error) {
       // Log error with message and stack for debugging
@@ -380,6 +364,34 @@ export default class SessionPersistence {
       }
       throw error;
     }
+  }
+
+  /**
+   * Seed the visible conversation's AI assistant files, once per session: the
+   * `hasScannedAIFiles` metadata flag records that it has been done, written
+   * through the patch API so its listeners hear it, and only once the seeding
+   * succeeded — a failed one is logged and tried again on the next load.
+   *
+   * Skipped for a conversation still waiting to be told where it works:
+   * seeding it here would put the project's assistant files into a
+   * conversation that has not chosen a tree yet, and its own initialisation
+   * seeds the right ones anyway. With nothing to seed, the scan counts as done.
+   * @returns {Promise<void>} Settles once the scan is done or has failed; never rejects.
+   * @private
+   */
+  async _scanAssistantFilesOnce() {
+    const host = this._host;
+    if (host.state().metadata.hasScannedAIFiles) return;
+    const conversation = host.visibleConversation();
+    if (conversation && !conversation.awaitingSetup) {
+      try {
+        await host.seedAutoItems(conversation);
+      } catch (error) {
+        console.warn('[Session] Seeding the assistant files failed:', extractErrorMessage(error));
+        return;
+      }
+    }
+    host.patchMetadata({ hasScannedAIFiles: true });
   }
 
   /**

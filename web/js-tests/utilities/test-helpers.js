@@ -90,6 +90,7 @@ export async function initializeRegistries() {
 async function createMockServices() {
   const { default: LLMState } = await import('../../js/services/llm-state.js');
   const { default: realActionExecutor } = await import('../../js/services/action-executor.js');
+  const { default: realWorkerManager } = await import('../../js/services/worker-manager.js');
 
   return /** @type {any} */ ({
     llmState: new LLMState(),
@@ -101,6 +102,7 @@ async function createMockServices() {
       stopThinking: () => {}
     },
     actionExecutor: realActionExecutor,
+    workerManager: realWorkerManager,
     wsService: createMockWebSocketService()
   });
 }

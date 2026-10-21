@@ -34,6 +34,7 @@ import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
 import {
   __holdNextRegistryRebuildForTests,
+  anyLocalConversationBusy,
   reloadRegistries,
   whenRegistriesSettled,
 } from '../../js/registries/reload-registries.js';
@@ -227,6 +228,41 @@ export async function runTests(_ctx) {
   /** @returns {boolean} Whether the registries a turn's tools and prompt come from are populated */
   const registriesPopulated = () => strategyRegistry.isInitialized() && contextItemRegistry.isInitialized();
 
+  /**
+   * Put a conversation running a turn in the engine's session for the length of
+   * `body`. The turn is a stand-in whose document announces a change only when
+   * told to (`announce`), as a real one does on each transaction.
+   * @param {(turn: {processingState: {status: string}, announce: () => void}) => Promise<void>} body
+   * @returns {Promise<void>}
+   */
+  async function withEngineTurn(body) {
+    const g = /** @type {any} */ (globalThis);
+    const hadEngineApp = Object.prototype.hasOwnProperty.call(g, 'engineApp');
+    const previousEngineApp = g.engineApp;
+    /** @type {Set<() => void>} */
+    const listeners = new Set();
+    const turn = {
+      processingState: { status: 'streaming' },
+      isAwaitingApproval: () => false,
+      onDocumentChange: (/** @type {() => void} */ fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+      announce: () => { for (const fn of [...listeners]) fn(); },
+    };
+    const session = {
+      conversations: new Map([['conv-1', turn]]),
+      events: { subscribe: () => () => {} },
+    };
+    g.engineApp = { getSession: () => session };
+    try {
+      await body(turn);
+    } finally {
+      turn.processingState.status = 'idle';
+      turn.announce();
+      if (hadEngineApp) g.engineApp = previousEngineApp;
+      else delete g.engineApp;
+    }
+  }
+
+
   await test('a tool list requested mid-rebuild is built from the rebuilt registries', async () => {
     await whenRegistriesSettled();
     const names = (/** @type {Array<Record<string, any>>} */ tools) => tools.map((t) => t.name).sort().join(',');
@@ -285,14 +321,9 @@ export async function runTests(_ctx) {
   // anything, so a request that waited for the whole reload would wait on itself.
   await test('a tool list is served at once while a reload waits for the running turn', async () => {
     await whenRegistriesSettled();
-    const g = /** @type {any} */ (globalThis);
-    const hadEngineApp = Object.prototype.hasOwnProperty.call(g, 'engineApp');
-    const previousEngineApp = g.engineApp;
-    const turn = { processingState: { status: 'streaming' }, isAwaitingApproval: () => false };
-    g.engineApp = { getSession: () => ({ conversations: new Map([['conv-1', turn]]) }) };
     /** @type {Promise<void>} */
     let reloading = Promise.resolve();
-    try {
+    await withEngineTurn(async () => {
       reloading = reloadRegistries();
       const wm = fakeWorkerManager();
       await asRealm(true, async () => {
@@ -304,12 +335,34 @@ export async function runTests(_ctx) {
         `the tool list must not wait for a reload that is waiting for this turn, sent ${JSON.stringify(wm.sent)}`
       );
       assert(registriesPopulated(), 'a reload waiting for quiescence must leave the registries intact');
-    } finally {
-      turn.processingState.status = 'idle';
-      await reloading;
-      if (hadEngineApp) g.engineApp = previousEngineApp;
-      else delete g.engineApp;
-    }
+    });
+    await reloading;
+  });
+
+  // The reload hears the turn end from the document, the moment it does, and is
+  // not woken by a clock in between: a status that changes without the document
+  // saying so is not seen until it does.
+  await test('a reload waiting for a turn goes ahead when the document says it ended', async () => {
+    await whenRegistriesSettled();
+    await withEngineTurn(async (turn) => {
+      assert(registriesPopulated() && anyLocalConversationBusy(),
+        `precondition: strategies=${strategyRegistry.isInitialized()} items=${contextItemRegistry.isInitialized()} busy=${anyLocalConversationBusy()}`);
+      /** @type {() => void} */
+      let release = () => {};
+      __holdNextRegistryRebuildForTests(new Promise((resolve) => { release = () => resolve(undefined); }));
+      const reloading = reloadRegistries();
+      try {
+        turn.processingState.status = 'idle';
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assert(registriesPopulated(), `the reload went ahead before anything announced the turn had ended (strategies=${strategyRegistry.isInitialized()} items=${contextItemRegistry.isInitialized()} busy=${anyLocalConversationBusy()})`);
+        turn.announce();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert(!contextItemRegistry.isInitialized(), 'the reload did not go ahead once the turn was announced idle');
+      } finally {
+        release();
+        await reloading;
+      }
+    });
   });
 
   await test('a viewer leaves no round-trip stamp behind for a request it ignored', async () => {

@@ -14,10 +14,10 @@ import keyShortcutManager from '../services/key-shortcut-manager.js';
 import wsService from '../services/websocket.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { fetchJson } from '../services/http.js';
-import { showAlert } from '../components/modal-dialog.js';
+import { uiPort } from '../services/ui-port.js';
 import { apiUrl } from './api-url.js';
 import { chooseProject, projectIsFixed, projectsOpenInNewWindow } from './project-open-mode.js';
-import { statusHoldsTurn } from '../model/processing-status.js';
+import { busyState } from '../model/processing-status.js';
 import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
 /**
@@ -181,7 +181,7 @@ export function setupHeaderControls(session) {
   // run anywhere in it is reason enough to lock them out. Reading the doc
   // metadata (not the local llmState projection) means viewers that didn't
   // initiate the turn lock out too.
-  const isBusy = () => statusHoldsTurn(currentConversation?.processingState?.status);
+  const isBusy = () => !!currentConversation && busyState(currentConversation).turn;
 
   // A button disabled by a running turn says so; one disabled because there is
   // nothing to step through needs no explanation and keeps its plain name.
@@ -288,7 +288,7 @@ export function setupHeaderControls(session) {
       await apiService.newWindow();
     } catch (err) {
       const { extractUserMessage } = await import('../../sdk/lib/error-utils.js');
-      await showAlert(extractUserMessage(err), t('New window'));
+      await uiPort()?.alert(extractUserMessage(err), t('New window'));
     }
   };
   if (newWindowBtn) {

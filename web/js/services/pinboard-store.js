@@ -119,6 +119,9 @@ function adopt(pins) {
   }
 }
 
+// Page-lifetime subscriptions, never released by design: the store is the
+// page's one board, and lives exactly as long as the socket it listens to.
+//
 // The whole frame, not just its pins: a broadcast goes to every viewer of the
 // project, and which board it is about is the only way to tell whether it is
 // about this one.

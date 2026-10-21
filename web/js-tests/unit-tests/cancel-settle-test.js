@@ -1,0 +1,185 @@
+//     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+//     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+//   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+
+/**
+ * Unit tests: `Conversation.cancelAndSettle` waits on events, not a clock.
+ *
+ * A turn is settled when the worker's `processingState` frame is idle and no
+ * frontend tool action of the conversation is still running. The first is a
+ * Yjs metadata write; the second is the action executor's `onSettled` event,
+ * which fires once a conversation's last action has unwound. These cases drive
+ * a real executor with an action held open on a gate, and check that the wait
+ * ends when the action does, scoped to its own conversation, with no timer
+ * polling behind it.
+ * @module unit-tests/cancel-settle
+ */
+
+import { assert } from '../utilities/test-helpers.js';
+import Conversation from '../../js/model/conversation.js';
+import actionExecutor from '../../js/services/action-executor.js';
+import contextItemRegistry from '../../js/registries/context-item-registry.js';
+
+/** The action id the fake class is registered under for the walk. */
+const GATED = 'cancel-settle-gated-action';
+
+/**
+ * A fresh executor, so nothing another lane runs on the shared one is counted.
+ * @returns {any} The executor
+ */
+const freshExecutor = () => new (/** @type {any} */ (actionExecutor).constructor)();
+
+/**
+ * Register the gated fake action for the walk: its prepare() waits on the gate
+ * its conversation was started with, then throws — an exit like any other for
+ * the executor's bookkeeping. Returns the restorer.
+ * @returns {() => void} Puts the registry's `get` back
+ */
+function registerGated() {
+  const prior = contextItemRegistry.get;
+  /** @type {any} */ (contextItemRegistry).get = (/** @type {string} */ id) => {
+    if (id !== GATED) return prior.call(contextItemRegistry, id);
+    return class {
+      /** @param {any} ctx */
+      constructor(ctx) { this.ctx = ctx; }
+      async prepare() { await gateOf(this.ctx); throw new Error('released'); }
+    };
+  };
+  return () => { /** @type {any} */ (contextItemRegistry).get = prior; };
+}
+
+/** @type {WeakMap<object, Promise<unknown>>} */
+const gates = new WeakMap();
+/**
+ * @param {any} ctx - The action's construction context.
+ * @returns {Promise<unknown>} The gate its execution was started with.
+ */
+const gateOf = (ctx) => gates.get(ctx.conversation) || Promise.resolve();
+
+/**
+ * Let an execution started this task reach its registration: execute() first
+ * awaits the registry's dynamic import, which settles within the microtasks
+ * before the next macrotask.
+ * @returns {Promise<void>}
+ */
+const registered = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+/**
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ */
+export async function runTests() {
+  let passed = 0;
+  let failed = 0;
+  /** @type {string[]} */
+  const errors = [];
+
+  /**
+   * @param {string} label - Test label.
+   * @param {() => Promise<void>} fn - Test body.
+   */
+  const run = async (label, fn) => {
+    const restore = registerGated();
+    try {
+      await fn();
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      restore();
+    }
+  };
+
+  /**
+   * Start an action of `conversationId` that stays running until `release`.
+   * @param {any} executor
+   * @param {string} conversationId
+   * @returns {{release: () => void, done: Promise<unknown>}} The gate and the execution
+   */
+  const gated = (executor, conversationId) => {
+    /** @type {() => void} */
+    let release = () => {};
+    const conversation = { id: conversationId };
+    gates.set(conversation, new Promise((resolve) => { release = () => resolve(undefined); }));
+    const done = executor.execute(GATED, {}, { conversation, _approvalHandled: true })
+      .catch((/** @type {unknown} */ e) => e);
+    return { release, done };
+  };
+
+  await run('onSettled fires once the conversation\'s last action unwinds', async () => {
+    const executor = freshExecutor();
+    let fired = 0;
+    const a = gated(executor, 'conv-a');
+    const b = gated(executor, 'conv-a');
+    const off = executor.onSettled('conv-a', () => { fired++; });
+    await registered();
+    assert(executor.hasRunningActionsFor('conv-a'), 'the gated actions are not running');
+    a.release();
+    await a.done;
+    assert(fired === 0, 'fired while another action of the conversation was still running');
+    b.release();
+    await b.done;
+    assert(fired === 1, `expected one settle, got ${fired}`);
+    off();
+  });
+
+  await run('onSettled is scoped to its own conversation', async () => {
+    const executor = freshExecutor();
+    let fired = 0;
+    const off = executor.onSettled('conv-a', () => { fired++; });
+    const other = gated(executor, 'conv-b');
+    other.release();
+    await other.done;
+    assert(fired === 0, 'another conversation\'s action settled this one');
+    off();
+  });
+
+  await run('an unsubscribed listener is not called', async () => {
+    const executor = freshExecutor();
+    let fired = 0;
+    const off = executor.onSettled('conv-a', () => { fired++; });
+    off();
+    const a = gated(executor, 'conv-a');
+    a.release();
+    await a.done;
+    assert(fired === 0, 'a removed listener still fired');
+  });
+
+  await run('cancelAndSettle resolves when the running action does, without polling', async () => {
+    const executor = freshExecutor();
+    const conv = Object.create(Conversation.prototype);
+    const pin = (/** @type {string} */ key, /** @type {any} */ value) =>
+      Object.defineProperty(conv, key, { value, writable: true, configurable: true });
+    pin('id', 'conv-settle');
+    pin('_actionExecutor', executor);
+    pin('processingState', undefined);
+    pin('stopProcessing', () => {});
+    pin('showWarning', () => {});
+    pin('observeMetadata', () => {});
+    pin('unobserveMetadata', () => {});
+
+    const a = gated(executor, 'conv-settle');
+    await registered();
+    assert(conv.isTurnActive(), 'the running action does not hold the turn');
+
+    const realInterval = globalThis.setInterval;
+    let intervals = 0;
+    globalThis.setInterval = /** @type {any} */ ((/** @type {any[]} */ ...args) => { intervals++; return realInterval(...args); });
+    let settled = false;
+    let waiting;
+    try {
+      waiting = conv.cancelAndSettle('test').then(() => { settled = true; });
+    } finally {
+      globalThis.setInterval = realInterval;
+    }
+    await Promise.resolve();
+    assert(!settled, 'settled while the action was still running');
+    a.release();
+    await a.done;
+    await waiting;
+    assert(settled, 'never settled');
+    assert(intervals === 0, `cancelAndSettle started ${intervals} interval timer(s)`);
+  });
+
+  return { passed, failed, errors };
+}

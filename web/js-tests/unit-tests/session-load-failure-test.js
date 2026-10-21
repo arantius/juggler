@@ -24,6 +24,7 @@ import { assert, trackTestSession } from '../utilities/test-helpers.js';
 import ConnectionManager from '../../js/services/connection-manager.js';
 import SessionPersistence from '../../js/model/session-persistence.js';
 import { HttpError } from '../../js/services/http.js';
+import { registerUiPort, uiPort } from '../../js/services/ui-port.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 
@@ -43,8 +44,6 @@ import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 async function failLoadWith(thrown) {
   const proto = /** @type {any} */ (SessionPersistence.prototype);
   const origLoad = proto.load;
-  const win = /** @type {any} */ (window);
-  const origAlert = win.showAlert;
   /** @type {string[]} */
   const alerts = [];
   /** @type {string[]} */
@@ -57,10 +56,13 @@ async function failLoadWith(thrown) {
   proto.load = async function () {
     throw thrown;
   };
-  win.showAlert = (/** @type {string} */ message, /** @type {string} */ title) => {
-    alerts.push(message);
-    alertTitles.push(title);
-  };
+  const restorePort = registerUiPort({
+    ...(uiPort() || /** @type {any} */ ({})),
+    alert: async (/** @type {string} */ message, /** @type {string|undefined} */ title) => {
+      alerts.push(message);
+      alertTitles.push(String(title));
+    },
+  });
   try {
     await cm._loadSession();
     if (cm._session) trackTestSession(cm._session);
@@ -73,7 +75,7 @@ async function failLoadWith(thrown) {
     return { alerts, alertTitles, readyError, loaded: cm._sessionLoaded };
   } finally {
     proto.load = origLoad;
-    win.showAlert = origAlert;
+    restorePort();
     cm._unfollowGit?.();
   }
 }

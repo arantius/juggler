@@ -24,7 +24,7 @@ import { approvePermittedPendingApprovals } from './conversation-tool-actions.js
 import { isWorkspaceUsable, patchWorkspace, reorderWorkspaces } from '../services/workspaces.js';
 import { placeForNewConversation, placementForNewConversation, takesTheHead } from '../services/workspace-provisioning.js';
 import ConversationBin from './conversation-bin.js';
-import { statusHoldsTurn } from './processing-status.js';
+import { busyState } from './processing-status.js';
 import ConversationSyncReducer from './conversation-sync-reducer.js';
 import ConversationRegistry from './conversation-registry.js';
 import ProjectSwitchController from './project-switch-controller.js';
@@ -144,6 +144,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @typedef {object} ConversationServices
  * @property {import('../services/llm-state.js').default} llmState - LLM state manager for tracking processing
  * @property {import('../services/action-executor.js').default} actionExecutor - Action executor for cancellation
+ * @property {import('../services/worker-manager.js').default} workerManager - The worker transport each Conversation sends its commands through
  * @property {import('../services/websocket.js').default} wsService - WebSocket service; the Session subscribes its server-push listeners on it (setServices). Conversation does not read it.
  */
 
@@ -410,7 +411,8 @@ class Session {
       foldArrivals: (settled, arrivals) => this._foldArrivals(settled, arrivals),
       createInitialConversation: () => this._createInitialConversation(),
       visibleConversation: () => this.getVisibleConversation(),
-      seedAutoItems: (conversation) => this.seedConversationAutoItems(conversation)
+      seedAutoItems: (conversation) => this.seedConversationAutoItems(conversation),
+      patchMetadata: (patch) => this.applySessionMetadataPatch(patch)
     });
   }
 
@@ -522,7 +524,7 @@ class Session {
   async releaseConversation(id) {
     const conv = this.registry.get(id);
     if (!conv) return false;
-    /** @type {any} */ (conv)._actionExecutor?.cancelConversationActions?.(id);
+    conv.cancelLocalActions();
     await this._teardownConversation(conv, 'releaseConversation');
     return true;
   }
@@ -701,10 +703,9 @@ class Session {
     if (!this.registry.has(id)) {
       const services = this.getServices();
       if (services) {
-        const stub = new Conversation(
+        const stub = this.buildConversation(
           id,
           this.registry.name(id) || UNTITLED_BASE,
-          this,
           services,
           { skipBuiltInContextItems: true, loadState: 'unloaded' }
         );
@@ -732,10 +733,16 @@ class Session {
       // loaded must not leave a permanent dead tab at the top of the bar. It was
       // announced on the way in, so announce the removal too: subscribers hold
       // per-conversation elements keyed off the create, and dropping the map
-      // entry silently strands them.
+      // entry silently strands them. Torn down like any removed conversation:
+      // the stub owns a document and its observers, and a tab that showed it
+      // registered it with the LLM state.
+      //
+      // Only a stub still 'unloaded' — one the load never reached. A load that
+      // got going marks its stub 'error' before it throws (loadExisting), and
+      // that one stays, as the retry affordance.
       const stub = this.registry.get(id);
       if (stubbed && stub?.loadState === 'unloaded') {
-        this.registry.remove(id, '_loadIntoHead-stub-failed');
+        await this._teardownConversation(stub, '_loadIntoHead-stub-failed');
         this.events.notify('conversation:deleted', stub);
       }
       return null;
@@ -743,14 +750,47 @@ class Session {
   }
 
   /**
-   * Listen to the session's event feed ({@link SessionEvents#subscribe}).
+   * Build a Conversation of this session, seeding the session's name cache
+   * with `name` when it has none for the id yet — so `conversation.name` (a
+   * getter over that cache) resolves for a conversation the next
+   * GET /api/session has not listed. The on-disk folder name is the source of
+   * truth and the cache its projection, which is why the session writes it and
+   * the conversation only reads it.
+   * @param {string} id - Conversation id
+   * @param {string} name - Its name, if the session does not know one
+   * @param {ConversationServices} services - What it is built with (getServices)
+   * @param {object} [options] - The Conversation constructor's options
+   * @returns {Conversation} The conversation, not yet in the registry
+   */
+  buildConversation(id, name, services, options = {}) {
+    if (name && !this.getConversationName(id)) {
+      this.setConversationName(id, name);
+    }
+    return new Conversation(id, this, services, options);
+  }
+
+  /**
+   * Listen to the session's event feed ({@link SessionEvents#subscribe}): to
+   * every event, `subscribe(cb)`, or to one type, `subscribe(type, cb)`.
    * Kept on the session on purpose: extensions subscribe through it, so it is
    * extension API rather than a pass-through to tidy away.
+   * @overload
    * @param {import('./session-events.js').SessionEventListener} callback - Called with each event.
    * @returns {() => void} Stops this subscription.
    */
-  subscribe(callback) {
-    return this.events.subscribe(callback);
+  /**
+   * @overload
+   * @param {import('./session-events.js').SessionEventType} type - The one type to hear.
+   * @param {import('./session-events.js').SessionEventListener} callback - Called with each event of that type.
+   * @returns {() => void} Stops this subscription.
+   */
+  /**
+   * @param {any} typeOrCallback - A type, or the callback for everything.
+   * @param {import('./session-events.js').SessionEventListener} [callback] - The callback, when a type is given.
+   * @returns {() => void} Stops this subscription.
+   */
+  subscribe(typeOrCallback, callback) {
+    return this.events.subscribe(typeOrCallback, /** @type {any} */ (callback));
   }
 
   /**
@@ -944,8 +984,8 @@ class Session {
    */
   _isConvBusy(conv) {
     if (!conv) return false;
-    if (conv.llmState?.isConversationProcessing?.(conv.id)) return true;
-    return statusHoldsTurn(conv.getMetadata('processingState')?.status);
+    const busy = busyState(conv);
+    return busy.running || busy.turn;
   }
 
   /**
@@ -984,7 +1024,7 @@ class Session {
     const active = [];
     for (const [id, conv] of this.conversations) {
       if (wanted && !wanted.has(id)) continue;
-      if (this._isConvBusy(conv) || conv.isProcessing) {
+      if (this._isConvBusy(conv)) {
         active.push(conv);
       }
     }
@@ -2156,12 +2196,13 @@ class Session {
       this._requestConversationLoad(conversationId, { retry: true });
     }
 
-    // Fetch context window if conversation has a model but no context window
-    // Don't await - let it fetch in background and notify when ready
+    // Fetch the context window if the conversation has a model but no window
+    // yet, in the background. The conversation announces
+    // `conversation:context-window-updated` itself when it resolves one, naming
+    // itself, so a switch away in the meantime changes nothing.
     if (conv.modelConfig && !conv.contextWindow) {
-      conv.ensureContextWindow().then(() => {
-        // Notify again after context window is fetched so token display updates
-        this.events.notify('conversation:context-window-updated', conv);
+      conv.ensureContextWindow().catch((/** @type {unknown} */ err) => {
+        console.warn(`[Session] context window for ${conversationId} not resolved:`, err);
       });
     }
 

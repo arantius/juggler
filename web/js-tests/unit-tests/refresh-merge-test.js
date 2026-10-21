@@ -81,7 +81,6 @@ export async function runTests(_ctx) {
   const errors = [];
 
   const session = await createTestSession();
-  const Conversation = (await import('../../js/model/conversation.js')).default;
 
   // Test 1: a conversation inserted while the refresh is in flight survives it.
   // This is the restore: the sync reducer's `restored` claims the head of the bar
@@ -98,8 +97,8 @@ export async function runTests(_ctx) {
       created.push(held.id);
 
       realApi = interceptGetSession(session, () => {
-        const stub = new Conversation(
-          arrivalId, 'Arrival', session, session.getServices(),
+        const stub = session.buildConversation(
+          arrivalId, 'Arrival', session.getServices(),
           { skipBuiltInContextItems: true, loadState: 'unloaded' }
         );
         session.registry.insert(arrivalId, stub, 'test');
@@ -135,8 +134,8 @@ export async function runTests(_ctx) {
       const name = live.name;
 
       await session.releaseConversation(live.id);
-      const stub = new Conversation(
-        live.id, name, session, session.getServices(),
+      const stub = session.buildConversation(
+        live.id, name, session.getServices(),
         { skipBuiltInContextItems: true, loadState: 'unloaded' }
       );
       session.registry.insert(live.id, stub, 'test');

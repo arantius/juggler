@@ -110,8 +110,8 @@ export async function runTests() {
      */
     const conv = (status) => ({
       id: 'c1',
-      llmState: { isConversationProcessing: () => false },
-      getMetadata: (/** @type {string} */ key) => (key === 'processingState' ? { status } : undefined),
+      isProcessing: false,
+      processingState: { status },
     });
     for (const status of RUNNING) {
       assert(isBusy.call({}, conv(status)) === true, `the tab barrier counts '${status}' as busy`);

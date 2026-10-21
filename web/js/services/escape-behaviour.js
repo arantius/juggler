@@ -457,13 +457,36 @@ if (typeof window !== 'undefined') {
 // ---------------------------------------------------------------------------
 
 /**
- * The app facade the handler acts through. Read live rather than captured: the
- * Escape call sites are wired up before `window.jugglerApp` exists.
- * @returns {any} The app singleton, or undefined before boot.
+ * What the handler acts through: the app, which provides itself as it boots
+ * ({@link provideEscapeApp}). Asked for at each press rather than captured,
+ * because the Escape call sites are wired up before the app exists.
+ * @typedef {object} EscapeApp
+ * @property {() => boolean} shouldHandleEscape - Whether the visible conversation has a turn Escape may stop
+ * @property {(threadItemId: string|null, options: {source?: string, polite?: boolean}) => void} cancelLLMOperation - Stop (or, polite, pause) from a column's vantage
+ * @property {() => (import('../model/conversation.js').default|null)} getVisibleConversation - The conversation on screen
+ */
+
+/** @type {EscapeApp|null} */
+let escapeApp = null;
+
+/**
+ * Provide the app the Escape handler acts through. Called once by the app; the
+ * returned function puts the previous one back, which is how a test stands in
+ * for the app for one case.
+ * @param {EscapeApp|null} next - The app, or null for none
+ * @returns {() => void} Restores the app provided before this call
+ */
+export function provideEscapeApp(next) {
+  const previous = escapeApp;
+  escapeApp = next;
+  return () => { escapeApp = previous; };
+}
+
+/**
+ * @returns {EscapeApp|null} The provided app, or null before boot.
  */
 function app() {
-  // @ts-ignore - jugglerApp is added dynamically in app.js
-  return typeof window === 'undefined' ? undefined : window.jugglerApp;
+  return escapeApp;
 }
 
 /**

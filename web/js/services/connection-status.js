@@ -32,6 +32,8 @@ function set(next) {
   for (const fn of _subscribers) fn(_status);
 }
 
+// Page-lifetime subscriptions, never released by design: this module is the
+// page's one view of the socket's state.
 wsService.on('open', () => set(null));
 wsService.on('close', () => set('disconnected'));
 wsService.on('error', () => set('error'));

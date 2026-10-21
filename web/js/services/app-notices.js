@@ -10,7 +10,7 @@
  * @module services/app-notices
  */
 
-import { showAlert } from '../components/modal-dialog.js';
+import { uiPort } from './ui-port.js';
 import { MAX_CONVERSATIONS, CONVERSATION_LIMIT_MESSAGE } from '../model/session.js';
 import { t, formatNumber, serverText } from '../../sdk/lib/i18n.js';
 
@@ -32,10 +32,10 @@ export function failedModulesMessage(fresh) {
  * Tell the user a conversation was not created because the cap of
  * open conversations is reached. Every creation path
  * that pre-checks the cap shows this, so the cap reads the same everywhere.
- * @returns {Promise<any>} Resolves when the alert is dismissed
+ * @returns {Promise<any>} Resolves when the alert is dismissed, or at once with no dialogs mounted
  */
 export function showConversationLimitAlert() {
-  return showAlert(t(CONVERSATION_LIMIT_MESSAGE, { max: formatNumber(MAX_CONVERSATIONS) }), t('Too many conversations'));
+  return uiPort()?.alert(t(CONVERSATION_LIMIT_MESSAGE, { max: formatNumber(MAX_CONVERSATIONS) }), t('Too many conversations')) ?? Promise.resolve();
 }
 
 /**

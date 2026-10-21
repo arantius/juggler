@@ -33,6 +33,7 @@ import { closePopupById } from '../../js/utils/popup-manager.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
+import { provideAppSession } from '../../js/utils/app-session.js';
 import {
   areReplySuggestionsEnabled,
   __resetReplySuggestionsSettingForTests,
@@ -644,11 +645,7 @@ export async function runTests(_ctx) {
     const originalShowModal = win.showModal;
     win.showModal = async (/** @type {any} */ opts) => { modals.push(opts); };
     // A pin to a strategy that is not registered, so the "unavailable" option draws.
-    const globals = /** @type {any} */ (globalThis);
-    const originalApp = globals.jugglerApp;
-    globals.jugglerApp = {
-      getSession: () => ({ getMetadata: () => '123', patchMetadata: () => {} }),
-    };
+    const restoreAppSession = provideAppSession(() => /** @type {any} */ ({ getMetadata: () => '123', patchMetadata: () => {} }));
     const digitProviders = () => [
       { name: 'p', displayName: '1', available: true, modelsWithContext: [{ id: 'm', displayName: '7', contextWindow: 1000 }] },
       { name: 'k', displayName: '2', available: false, authType: 'api_key' },
@@ -791,7 +788,7 @@ export async function runTests(_ctx) {
       registry.getAllManifests = originalManifests;
       window.fetch = originalFetch;
       win.showModal = originalShowModal;
-      globals.jugglerApp = originalApp;
+      restoreAppSession();
       __resetReplySuggestionsSettingForTests();
       document.querySelectorAll('.model-picker').forEach(node => node.remove());
       host.remove();

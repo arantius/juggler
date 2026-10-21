@@ -5,7 +5,7 @@
 /**
  * Escape-key behaviour — the configurable stop/prompt rungs of the Escape ladder.
  *
- * Drives the real handler (`handleEscapeKey`) against a stubbed `jugglerApp`, so
+ * Drives the real handler (`handleEscapeKey`) against a stubbed app (`provideEscapeApp`), so
  * the assertions are about the DECISION each preset makes — hard cancel, polite
  * pause, arm, clear, or nothing — and the vantage it forwards. The rung above
  * (popup dismissal) is the callers' job and is not exercised here.
@@ -38,6 +38,7 @@ import {
   watchTurnsForEscape,
   ESCAPE_QUIET_MS,
   __setEscapeHostForTests,
+  provideEscapeApp,
 } from '../../js/services/escape-behaviour.js';
 import { isMac, formatBindingLabel } from '../../js/services/key-shortcut-manager.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -142,8 +143,8 @@ export async function runTests(_ctx) {
   /** @type {string[]} */
   const errors = [];
 
-  // The suite stubs a global and writes a shared pref; restore both whatever happens.
-  const priorApp = /** @type {any} */ (window).jugglerApp;
+  // The suite stands in for the app and writes a shared pref; restore both whatever happens.
+  const restoreApp = provideEscapeApp(null);
   const priorPref = cachedMachinePref(PREF_KEY, null);
 
   /** @type {any} */
@@ -157,7 +158,7 @@ export async function runTests(_ctx) {
    */
   const run = async (label, fn) => {
     app = stubApp();
-    /** @type {any} */ (window).jugglerApp = app;
+    provideEscapeApp(app);
     host = stubHost();
     __setEscapeHostForTests(host);
     resetEscapeGesture();
@@ -365,7 +366,7 @@ export async function runTests(_ctx) {
       for (const id of ['stop', 'two-step', 'double-press']) {
         setEscapePreset(id);
         app = stubApp();
-        /** @type {any} */ (window).jugglerApp = app;
+        provideEscapeApp(app);
         app.running = true;
         press(app, { repeat: true });
         assert(app.calls.stop.length === 0 && app.calls.pause.length === 0,
@@ -594,8 +595,7 @@ export async function runTests(_ctx) {
     resetEscapeGesture();
     __setEscapeHostForTests(null);
     void setMachinePref(PREF_KEY, priorPref);
-    if (priorApp === undefined) delete (/** @type {any} */ (window).jugglerApp);
-    else /** @type {any} */ (window).jugglerApp = priorApp;
+    restoreApp();
   }
 
   return { passed, failed, errors };

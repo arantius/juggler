@@ -81,36 +81,55 @@ class SessionEvents {
     this._session = session;
 
     /**
-     * The subscriptions, in the order they were taken. Each is its own entry,
-     * so one callback subscribed twice is called twice, and either
-     * unsubscribe releases only its own.
-     * @type {Set<{callback: SessionEventListener}>}
+     * The subscriptions, in the order they were taken, whether to one type
+     * (`type` set) or to everything (`type` null). Each is its own entry, so
+     * one callback subscribed twice is called twice, and either unsubscribe
+     * releases only its own.
+     * @type {Set<{callback: SessionEventListener, type: SessionEventType|null}>}
      * @private
      */
     this._listeners = new Set();
   }
 
   /**
-   * Listen to every announcement on the feed.
+   * Listen to the feed: to one type of announcement — `subscribe(type, cb)`,
+   * which is what a listener that would otherwise switch on `event.type` for a
+   * single case wants — or to every one, `subscribe(cb)`. Both kinds share one
+   * subscription order.
+   * @overload
    * @param {SessionEventListener} callback - Called synchronously with each event.
    * @returns {() => void} Stops this subscription; calling it again does nothing.
    */
-  subscribe(callback) {
-    const entry = { callback };
+  /**
+   * @overload
+   * @param {SessionEventType} type - The one type to hear.
+   * @param {SessionEventListener} callback - Called synchronously with each event of that type.
+   * @returns {() => void} Stops this subscription; calling it again does nothing.
+   */
+  /**
+   * @param {SessionEventListener|SessionEventType} typeOrCallback - A type, or the callback for everything.
+   * @param {SessionEventListener} [callback] - The callback, when a type is given.
+   * @returns {() => void} Stops this subscription; calling it again does nothing.
+   */
+  subscribe(typeOrCallback, callback) {
+    const entry = typeof typeOrCallback === 'function'
+      ? { callback: typeOrCallback, type: null }
+      : { callback: /** @type {SessionEventListener} */ (callback), type: typeOrCallback };
     this._listeners.add(entry);
     return () => { this._listeners.delete(entry); };
   }
 
   /**
-   * Announce an event to every listener, synchronously and in subscription
-   * order. The walk is over the live set: a listener subscribed during the
-   * fan-out hears this event too, and one unsubscribed before it is reached
-   * does not.
+   * Announce an event to every listener of it, synchronously and in
+   * subscription order. The walk is over the live set: a listener subscribed
+   * during the fan-out hears this event too, and one unsubscribed before it is
+   * reached does not.
    * @param {SessionEventType} type - What happened
    * @param {any} data - What it happened to
    */
   notify(type, data) {
     for (const entry of this._listeners) {
+      if (entry.type !== null && entry.type !== type) continue;
       try {
         entry.callback({ type, data, session: this._session });
       } catch (error) {

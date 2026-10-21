@@ -31,6 +31,12 @@ const SDK_BOUNDARY = JSON.parse(readFileSync(new URL('./sdk-boundary.json', impo
  * @returns {Record<string, string[]>} Each file's declared imports
  */
 const boundaryImports = (entries) => Object.fromEntries(Object.entries(entries).map(([file, e]) => [file, e.imports]));
+// The declared crossings of the model/view boundary, in the same shape, beside
+// the file's own `_comment`.
+const LAYER_BOUNDARY = Object.fromEntries(
+  Object.entries(JSON.parse(readFileSync(new URL('./layer-boundary.json', import.meta.url), 'utf8')))
+    .filter(([file]) => !file.startsWith('_'))
+);
 
 // UI source: every file a user can see text from. Tests and vendored code are not.
 const UI_FILES = ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'];
@@ -385,6 +391,25 @@ export default [
         forbidden: ['web/js/', 'web/sdk/lib/'],
         allowed: boundaryImports(SDK_BOUNDARY.extensions),
         hint: 'Import it through a juggler/* specifier (export it from the SDK façade if it is missing — every specifier is registered in the five places TestSDKSpecifiersRegisteredEverywhere checks). A built-in that is itself a host feature may be declared, with its reason, under "extensions" in tooling/sdk-boundary.json.',
+      }],
+    },
+  },
+  // ===================================================================
+  // The model/view boundary (juggler/sdk-boundary, tooling/layer-boundary.json)
+  // ===================================================================
+  // The model and the services announce what happened and ask for UI through
+  // ports; the components decide what to show. A model or service module that
+  // imports a component makes the layer below depend on the view — and on
+  // whatever that component's module does as it loads.
+  {
+    files: ['web/js/model/**/*.js', 'web/js/services/**/*.js', 'web/js/registries/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/sdk-boundary': ['error', {
+        forbidden: ['web/js/components/'],
+        allowed: boundaryImports(LAYER_BOUNDARY),
+        declaredIn: 'tooling/layer-boundary.json',
+        hint: 'Ask for the UI through a port the component registers into (services/ui-port.js for dialogs, services/settings-launcher.js for settings), or move the logic out of components/. A crossing that cannot move yet is declared, with its reason, in tooling/layer-boundary.json.',
       }],
     },
   },

@@ -6,13 +6,16 @@
  * ESLint rule: a relative import may not cross into a forbidden tree unless
  * the crossing is declared.
  *
- * Two boundaries use it (tooling/eslint.config.js), both declared in
+ * Three boundaries use it (tooling/eslint.config.js). Declared in
  * tooling/sdk-boundary.json:
  * - the Apache-2.0 SDK (`web/sdk/**`) importing the AGPL app (`web/js/**`) —
  *   each crossing is a host binding, listed in LICENSING.md;
  * - a bundled extension (`web/extensions/**`) importing `web/js/**` or
  *   `web/sdk/lib/**` by relative path instead of through a `juggler/*`
  *   specifier — a path no third-party extension can reach.
+ * Declared in tooling/layer-boundary.json:
+ * - the model and services layers (`web/js/model/**`, `web/js/services/**`,
+ *   `web/js/registries/**`) importing a component (`web/js/components/**`).
  *
  * Every kind of module reference counts: `import … from`, a bare `import '…'`,
  * `export … from`, and a dynamic `import('…')` with a literal specifier, which
@@ -22,32 +25,35 @@
  * A declared crossing the file no longer makes is reported too, so the
  * declarations only ever describe the code as it is.
  *
- * Options: `{ forbidden: string[], allowed: { [file]: string[] }, hint: string }`
+ * Options: `{ forbidden: string[], allowed: { [file]: string[] }, hint: string, declaredIn: string }`
  * — repo-relative directory prefixes (`web/js/`), the declared crossings by
- * repo-relative file, and the advice appended to an undeclared one.
+ * repo-relative file, the advice appended to an undeclared one, and the file
+ * the crossings are declared in (default tooling/sdk-boundary.json), named when
+ * one goes stale.
  * @type {import('eslint').Rule.RuleModule}
  */
 export default {
   meta: {
     type: 'problem',
-    docs: { description: 'Relative imports across the SDK/app boundary must be declared in tooling/sdk-boundary.json' },
+    docs: { description: 'Relative imports across a declared boundary (SDK/app, extension/app, model/view) must be declared' },
     schema: [{
       type: 'object',
       properties: {
         forbidden: { type: 'array', items: { type: 'string' } },
         allowed: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
         hint: { type: 'string' },
+        declaredIn: { type: 'string' },
       },
       required: ['forbidden'],
       additionalProperties: false,
     }],
     messages: {
       undeclared: '{{file}} imports {{target}}, across the {{tree}} boundary. {{hint}}',
-      stale: '{{file}} is declared in tooling/sdk-boundary.json as importing {{target}}, and no longer does: remove the entry.',
+      stale: '{{file}} is declared in {{declaredIn}} as importing {{target}}, and no longer does: remove the entry.',
     },
   },
   create(context) {
-    const { forbidden, allowed = {}, hint = '' } = context.options[0];
+    const { forbidden, allowed = {}, hint = '', declaredIn = 'tooling/sdk-boundary.json' } = context.options[0];
     const file = toPosix(relative(context.cwd, context.filename));
     const declared = new Set(allowed[file] ?? []);
     /** @type {Set<string>} */
@@ -81,7 +87,7 @@ export default {
       ImportExpression: check,
       'Program:exit'(node) {
         for (const target of declared) {
-          if (!seen.has(target)) context.report({ node, messageId: 'stale', data: { file, target } });
+          if (!seen.has(target)) context.report({ node, messageId: 'stale', data: { file, target, declaredIn } });
         }
       },
     };

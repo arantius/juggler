@@ -128,6 +128,13 @@ import { runTests as runModalSupersedeTests } from '../unit-tests/modal-supersed
 import { runTests as runModalDialogTests } from '../unit-tests/modal-dialog-test.js';
 import { runTests as runHttpErrorsTests } from '../unit-tests/http-errors-test.js';
 import { runTests as runOpsApiArgumentsTests } from '../unit-tests/ops-api-arguments-test.js';
+import { runTests as runOpsApiSignalTests } from '../unit-tests/ops-api-signal-test.js';
+import { runTests as runCancelSettleTests } from '../unit-tests/cancel-settle-test.js';
+import { runTests as runItemsArrayWaitTests } from '../unit-tests/items-array-wait-test.js';
+import { runTests as runSessionOwnershipTests } from '../unit-tests/session-ownership-test.js';
+import { runTests as runBusyStateTests } from '../unit-tests/busy-state-test.js';
+import { runTests as runUiPortTests } from '../unit-tests/ui-port-test.js';
+import { runTests as runEventFeedsTests } from '../unit-tests/event-feeds-test.js';
 import { runTests as runApprovalButtonsTests } from '../unit-tests/approval-buttons-test.js';
 import { runTests as runResponseHandlerModelTextTests } from '../unit-tests/response-handler-model-text-test.js';
 import { runTests as runCapabilityCatalogTests } from '../unit-tests/capability-catalog-test.js';
@@ -660,6 +667,13 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:modal-dialog', run: runModalDialogTests },
   { name: 'unit:http-errors', run: runHttpErrorsTests },
   { name: 'unit:ops-api-arguments', run: runOpsApiArgumentsTests },
+  { name: 'unit:ops-api-signal', run: runOpsApiSignalTests },
+  { name: 'unit:cancel-settle', run: runCancelSettleTests },
+  { name: 'unit:items-array-wait', run: runItemsArrayWaitTests },
+  { name: 'unit:session-ownership', run: runSessionOwnershipTests },
+  { name: 'unit:busy-state', run: runBusyStateTests },
+  { name: 'unit:ui-port', run: runUiPortTests },
+  { name: 'unit:event-feeds', run: runEventFeedsTests },
   { name: 'unit:approval-buttons', run: runApprovalButtonsTests },
   { name: 'unit:response-handler-model-text', run: runResponseHandlerModelTextTests },
   { name: 'unit:capability-catalog', run: runCapabilityCatalogTests },

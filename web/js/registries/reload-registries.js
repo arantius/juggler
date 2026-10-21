@@ -16,7 +16,7 @@ import { resetUserHooksCache } from '../services/user-hooks.js';
 import { resetSkillsCache } from '../services/skills.js';
 import { beginRegistryRebuild, markRegistriesReady } from './registry-ready.js';
 import { getAppSession } from '../utils/app-session.js';
-import { statusHoldsTurn } from '../model/processing-status.js';
+import { busyState } from '../model/processing-status.js';
 
 /**
  * Event dispatched on `document` after the capability registries have been torn
@@ -83,8 +83,8 @@ const QUIESCENCE_TIMEOUT_MS = 30000;
  * @returns {boolean} True while the conversation is running a turn
  */
 export function isConversationBusy(conv) {
-  if (!statusHoldsTurn(conv.processingState?.status)) return false;
-  return !conv.isAwaitingApproval?.();
+  const busy = busyState(conv);
+  return busy.turn && !busy.awaitingApproval;
 }
 
 /**
@@ -106,19 +106,43 @@ export function anyLocalConversationBusy() {
  * {@link QUIESCENCE_TIMEOUT_MS}. Expiry is reported, not silent: a rebuild that
  * went ahead over a turn is the explanation for anything odd that turn then
  * sees, and there is nowhere else that would say so.
+ *
+ * Asked again whenever something that decides the answer may have moved: any
+ * conversation's document (its processingState frame, an approval landing —
+ * everything {@link isConversationBusy} reads), and each session's feed, which
+ * says when a conversation joins or leaves the set. A conversation that joins
+ * is watched from then on.
  * @returns {Promise<void>}
  */
 async function waitForLocalQuiescence() {
-  const deadline = Date.now() + QUIESCENCE_TIMEOUT_MS;
-  while (anyLocalConversationBusy()) {
-    if (Date.now() >= deadline) {
-      console.warn(
-        `[registries] A turn was still running after ${QUIESCENCE_TIMEOUT_MS}ms; ` +
-        'rebuilding the capability registries anyway.'
-      );
-      return;
+  if (!anyLocalConversationBusy()) return;
+  const quiet = await new Promise((resolve) => {
+    /** @type {Array<() => void>} */
+    const offs = [];
+    const finish = (/** @type {boolean} */ answer) => {
+      clearTimeout(timer);
+      for (const off of offs.splice(0)) off();
+      resolve(answer);
+    };
+    const check = () => { if (!anyLocalConversationBusy()) finish(true); };
+    const watch = (/** @type {any} */ conv) => {
+      const off = conv?.onDocumentChange?.(check);
+      if (off) offs.push(off);
+    };
+    for (const session of getLiveSessions()) {
+      offs.push(session.events.subscribe((event) => {
+        if (event.type === 'conversation:created') watch(event.data);
+        check();
+      }));
+      for (const conv of session.conversations?.values?.() || []) watch(conv);
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const timer = setTimeout(() => finish(!anyLocalConversationBusy()), QUIESCENCE_TIMEOUT_MS);
+  });
+  if (!quiet) {
+    console.warn(
+      `[registries] A turn was still running after ${QUIESCENCE_TIMEOUT_MS}ms; ` +
+      'rebuilding the capability registries anyway.'
+    );
   }
 }
 

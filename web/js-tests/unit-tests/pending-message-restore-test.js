@@ -62,12 +62,13 @@ function fakeComposer() {
  * A Conversation carrying only the fields these methods touch: real prototype
  * (so the methods call each other exactly as they do in production), own
  * properties for the two or three pieces of state involved, and none of the
- * world — doc, session, worker link — that plays no part in any assertion.
+ * world — doc, session — that plays no part in any assertion. Its worker link
+ * is the page's manager, whose methods the cases swap.
  * @param {Record<string, any>} fields - The state this case needs.
  * @returns {any} The stand-in conversation.
  */
 function makeConversation(fields) {
-  return Object.assign(Object.create(Conversation.prototype), fields);
+  return Object.assign(Object.create(Conversation.prototype), { _workerManager: workerManager }, fields);
 }
 
 /**

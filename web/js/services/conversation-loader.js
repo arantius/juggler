@@ -140,8 +140,6 @@ export class ConversationLoader {
    * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
    */
   async createNew(id, name, session, { workspaceId = '' } = {}) {
-    const Conversation = (await import('../model/conversation.js')).default;
-
     // Check if already creating (lock via in-flight promise). In the ENGINE this
     // is the normal path, not a rarity: the worker the server spawns for the new
     // conversation flushes its first yjs-sync before the create's HTTP response
@@ -159,7 +157,7 @@ export class ConversationLoader {
     }
 
     // Start creation (atomic)
-    const promise = this._doCreateNew(name, session, id, Conversation, workspaceId);
+    const promise = this._doCreateNew(name, session, id, workspaceId);
     this._inFlight.set(id, promise);
 
     try {
@@ -190,12 +188,11 @@ export class ConversationLoader {
    * @param {string} name - Conversation name
    * @param {import('../model/session.js').default} session - Parent session
    * @param {string} id - Generated conversation ID
-   * @param {typeof import('../model/conversation.js').default} Conversation - Conversation class
    * @param {string} [workspaceId] - The tree it will work in, if it is one
    * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
    * @private
    */
-  async _doCreateNew(name, session, id, Conversation, workspaceId = '') {
+  async _doCreateNew(name, session, id, workspaceId = '') {
     try {
       // 1. Create conversation instance
       const services = session.getServices();
@@ -213,7 +210,7 @@ export class ConversationLoader {
       // the moment it exists. The durable write happens in initialiseConversation
       // once the worker is up, which is several renders of the tab bar away —
       // and the bar groups the strip by this answer.
-      const conversation = new Conversation(id, name, session, /** @type {import('../model/session.js').ConversationServices} */ (services), { skipBuiltInContextItems: true, workspaceId });
+      const conversation = session.buildConversation(id, name, /** @type {import('../model/session.js').ConversationServices} */ (services), { skipBuiltInContextItems: true, workspaceId });
 
       // CRITICAL: Add to session BEFORE spawning worker. Worker sends yjs-sync
       // messages immediately and the message handler needs to find the
@@ -275,10 +272,10 @@ export class ConversationLoader {
    * to the browser doc. This is the precondition for seeding SYSTEM_1: inserting
    * the system-prompt placeholder while the array is still absent creates a
    * competing browser-side root["items"], which Yjs Map-conflict resolution
-   * later discards in favour of the worker's — dropping SYSTEM_1. Flushes the
-   * batched sync buffer on each check so a just-arrived sync is applied
-   * promptly. Bounded so a pathological worker that never ships an array can't
-   * hang conversation creation; on timeout the caller proceeds anyway and
+   * later discards in favour of the worker's — dropping SYSTEM_1. Answered by
+   * the document as the array lands (Conversation#whenItemsArray). Bounded so a
+   * pathological worker that never ships an array can't hang conversation
+   * creation; on timeout the caller proceeds anyway and
    * ensureSystemPromptPlaceholder creates the array locally, accepting the
    * risk above.
    * @param {import('../model/conversation.js').default} conversation
@@ -287,17 +284,11 @@ export class ConversationLoader {
    * @private
    */
   async _waitForItemsArray(conversation, timeoutMs = 2000) {
-    const deadline = Date.now() + timeoutMs;
-    conversation.flushPendingSyncs();
-    while (!conversation.hasRootItemsArray) {
-      if (Date.now() >= deadline) {
-        console.warn(`[ConversationLoader] items array not synced within ${timeoutMs}ms for ${conversation.id}; SYSTEM_1 may create a local array`);
-        return false;
-      }
-      await new Promise(r => setTimeout(r, 10));
-      conversation.flushPendingSyncs();
+    const present = await conversation.whenItemsArray(timeoutMs);
+    if (!present) {
+      console.warn(`[ConversationLoader] items array not synced within ${timeoutMs}ms for ${conversation.id}; SYSTEM_1 may create a local array`);
     }
-    return true;
+    return present;
   }
 
   // ==========================================================================
@@ -353,9 +344,9 @@ export class ConversationLoader {
       // and other direct callers fall through to create a fresh one.
       let conversation = session.conversations.get(conversationId);
       if (!conversation) {
+        // Its name is the session's to know (the manifest's folder names).
         conversation = new Conversation(
           conversationId,
-          '',  // populated from metadata after worker ready
           session,
           services,
           { skipBuiltInContextItems: true }

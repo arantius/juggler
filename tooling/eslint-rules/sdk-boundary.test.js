@@ -6,7 +6,7 @@
  * Cases for juggler/sdk-boundary. Run by `make lint-js`; throws (exit 1) on the
  * first case that disagrees. Which files the rule applies to, and what each
  * boundary declares, is the config's business (tooling/eslint.config.js,
- * tooling/sdk-boundary.json).
+ * tooling/sdk-boundary.json, tooling/layer-boundary.json).
  */
 
 import { log } from 'node:console';
@@ -26,6 +26,8 @@ const extOptions = [{
   allowed: { 'web/extensions/demo/context-items/demo-context-item.js': ['web/js/services/declared.js'] },
 }];
 const sdkOptions = [{ forbidden: ['web/js/'], allowed: {} }];
+const service = path.join(process.cwd(), 'web/js/services/demo.js');
+const layerOptions = [{ forbidden: ['web/js/components/'], allowed: {}, declaredIn: 'tooling/layer-boundary.json' }];
 
 const undeclared = { messageId: 'undeclared' };
 const stale = { messageId: 'stale' };
@@ -58,6 +60,15 @@ tester.run('sdk-boundary', rule, {
     { filename: ext, options: extOptions, code: "import ContextItem from 'juggler/context-item';", errors: [stale] },
     { filename: sdk, options: sdkOptions, code: "import x from '../js/services/ops-api.js';", errors: [undeclared] },
     { filename: sdk, options: sdkOptions, code: "const { a } = await import('../js/model/session.js');", errors: [undeclared] },
+    // The layering boundary: a service reaching into the components, and a
+    // stale declaration naming the file it is declared in.
+    { filename: service, options: layerOptions, code: "import { showAlert } from '../components/modal-dialog.js';", errors: [undeclared] },
+    {
+      filename: service,
+      options: [{ ...layerOptions[0], allowed: { 'web/js/services/demo.js': ['web/js/components/declared.js'] } }],
+      code: "import x from './ui-port.js';",
+      errors: [{ message: 'web/js/services/demo.js is declared in tooling/layer-boundary.json as importing web/js/components/declared.js, and no longer does: remove the entry.' }],
+    },
   ],
 });
 

@@ -153,7 +153,7 @@ function createdConversation(id, workspaceId) {
     getConversationName: (/** @type {string} */ key) => names.get(key),
     setConversationName: (/** @type {string} */ key, /** @type {string} */ value) => names.set(key, value)
   };
-  return new Conversation(id, id, /** @type {any} */ (host), /** @type {any} */ ({}), {
+  return new Conversation(id, /** @type {any} */ (host), /** @type {any} */ ({}), {
     skipBuiltInContextItems: true,
     workspaceId
   });

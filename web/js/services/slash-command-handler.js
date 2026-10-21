@@ -9,6 +9,7 @@
 
 import commandRegistry from '../registries/command-registry.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { uiPort } from './ui-port.js';
 
 /**
  * @typedef {object} SlashCommandResult
@@ -62,19 +63,19 @@ export function parseInvocation(input) {
  * Back) resolves null rather than false, so every falsy answer leaves the turn
  * alone.
  *
- * Reaches for the `window.*` alias rather than importing the component, the same
- * way the model layer does: this service is imported by tests and by callers with
- * no UI mounted, and with no dialog to answer the invariant still has to hold, so
+ * Asks through the UI port rather than importing the component, the same way
+ * the model layer does: this service is imported by tests and by callers with no
+ * UI mounted, and with no dialog to answer the invariant still has to hold, so
  * an absent presenter proceeds rather than blocking on a prompt nobody can see.
  * @param {string} commandName - Command name without the leading slash
  * @returns {Promise<boolean>} True when the turn may be stopped
  */
 async function confirmStoppingTurn(commandName) {
-  const showConfirm = /** @type {any} */ (window).showConfirm;
-  if (typeof showConfirm !== 'function') {
+  const dialogs = uiPort();
+  if (!dialogs) {
     return true;
   }
-  const answer = await showConfirm(
+  const answer = await dialogs.confirm(
     t('/{command} can\'t run while a turn is in flight. Running it now stops the turn.', { command: commandName }),
     t('Stop the current turn?'),
     { confirmText: t('Stop turn'), cancelText: t('Leave it running'), danger: true }

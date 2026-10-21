@@ -33,6 +33,7 @@ import {
 } from '../../js/services/system-prompt-presets.js';
 import { clipboardUnavailableMessage } from '../../sdk/lib/clipboard.js';
 import { windowTitleForProject } from '../../js/utils/window-title.js';
+import { registerUiPort, uiPort } from '../../js/services/ui-port.js';
 
 /**
  * @typedef {object} TestResult
@@ -137,6 +138,7 @@ function standIn({ modelConfig = null, workspaceId = '', workspaceRoot = null, h
   pin('workspaceRoot', workspaceRoot);
   pin('workspaceHostsLocalProviders', hostsLocal);
   pin('_session', { getWorkspace: () => workspace });
+  pin('_workerManager', workerManager);
   pin('showWarning', (/** @type {string} */ m) => { shown.push(m); });
   return conv;
 }
@@ -151,7 +153,6 @@ async function walk() {
   const texts = {};
   /** @type {Record<string, any>} */
   const returns = {};
-  const win = /** @type {any} */ (window);
 
   let hasStrategy = true;
   let received = true;
@@ -170,9 +171,12 @@ async function walk() {
     swap(providersCache, 'get', () => providers),
     swap(workerManager, 'isWorkerReady', (/** @type {string} */ id) => workerReady(id)),
     swap(actionExecutor, 'hasRunningActionsFor', () => false),
-    swap(win, 'showConfirm', async (/** @type {string} */ message, /** @type {string} */ title, /** @type {any} */ opts) => {
-      confirms.push({ message, title, confirmText: opts?.confirmText, cancelText: opts?.cancelText });
-      return false;
+    registerUiPort({
+      ...(uiPort() || /** @type {any} */ ({})),
+      confirm: async (/** @type {string} */ message, /** @type {string|undefined} */ title, /** @type {any} */ opts) => {
+        confirms.push({ message, title, confirmText: opts?.confirmText, cancelText: opts?.cancelText });
+        return false;
+      },
     }),
     swap(apiService, 'saveSystemPromptPreset', async () => ({ success: false })),
     swap(apiService, 'deleteSystemPromptPreset', async () => ({ success: false })),

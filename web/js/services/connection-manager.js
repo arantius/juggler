@@ -5,6 +5,7 @@
 import apiService from './api.js';
 import wsService from './websocket.js';
 import workerManager from './worker-manager.js';
+import { uiPort } from './ui-port.js';
 import Session from '../model/session.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t, markUntranslated } from '../../sdk/lib/i18n.js';
@@ -343,11 +344,11 @@ class ConnectionManager {
     // a spinner.
     setAppPhase('ready');
 
-    if (loadError && typeof window !== 'undefined') {
+    if (loadError) {
       // Surface the failure now that the picker overlay (wired above) is
-      // available as the recovery path. Viewer-only — the engine worker
-      // has no alert UI.
-      /** @type {any} */ (window).showAlert?.(
+      // available as the recovery path. Viewer-only — the engine realm mounts
+      // no dialogs, so its port is empty.
+      void uiPort()?.alert(
         `${t("Couldn't load the session: {error}", { error: loadError })}\n\n${t('Pick a project to try again.')}`,
         t('Session load failed')
       );
@@ -368,10 +369,8 @@ class ConnectionManager {
     // themselves: conversation-bar handles tab visibility, and conversation-tab
     // repaints its columns (on `session:loaded` too). All that is left here is
     // reporting a failed save.
-    this._unsubscribe = this._session.subscribe((event) => {
-      if (event.type === 'session:save-error') {
-        console.error('[ConnectionManager] Failed to save session:', event.data);
-      }
+    this._unsubscribe = this._session.subscribe('session:save-error', (event) => {
+      console.error('[ConnectionManager] Failed to save session:', event.data);
     });
   }
 

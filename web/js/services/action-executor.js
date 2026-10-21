@@ -200,6 +200,59 @@ class ActionExecutor {
      * @private
      */
     this._executionIdCounter = 0;
+
+    /**
+     * Listeners waiting for a conversation's last running action to unwind.
+     * @type {Map<string, Set<() => void>>}
+     * @private
+     */
+    this._settleListeners = new Map();
+  }
+
+  /**
+   * Hear when a conversation has no action left running.
+   *
+   * Fires from execute()'s cleanup each time an action of `conversationId`
+   * unwinds and none of that conversation's remains — the event half of
+   * {@link ActionExecutor#hasRunningActionsFor}, for a caller that must wait for
+   * the answer to become false rather than poll it. Called synchronously inside
+   * the INV-C region (see execute()), so a listener must not await or write to
+   * the doc; resolving a promise is what it is for.
+   * @param {string} conversationId - The conversation to watch
+   * @param {() => void} listener - Called with no arguments
+   * @returns {() => void} Unsubscribe
+   */
+  onSettled(conversationId, listener) {
+    let listeners = this._settleListeners.get(conversationId);
+    if (!listeners) {
+      listeners = new Set();
+      this._settleListeners.set(conversationId, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = this._settleListeners.get(conversationId);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) this._settleListeners.delete(conversationId);
+    };
+  }
+
+  /**
+   * Tell a conversation's settle listeners, if it has nothing left running.
+   * @param {string|undefined} conversationId
+   * @private
+   */
+  _notifySettled(conversationId) {
+    if (conversationId === undefined || this.hasRunningActionsFor(conversationId)) return;
+    const listeners = this._settleListeners.get(conversationId);
+    if (!listeners) return;
+    for (const listener of [...listeners]) {
+      try {
+        listener();
+      } catch (err) {
+        console.error('[ActionExecutor] settle listener threw:', err);
+      }
+    }
   }
 
   /**
@@ -289,7 +342,9 @@ class ActionExecutor {
       // shows a tool absent from the executing set was necessarily sent AFTER the
       // tool's terminal doc write. Do NOT introduce an await between this delete
       // and that write, or the worker could finalize an already-completed tool.
+      const conversationId = this._runningActions.get(executionId)?.conversationId;
       this._runningActions.delete(executionId);
+      this._notifySettled(conversationId);
     }
   }
 

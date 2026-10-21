@@ -8,7 +8,7 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { attachSwipeDismiss } from '../utils/swipe-dismiss.js';
 import { holdLifted } from '../utils/reorder-drag.js';
 import { openSettings } from './settings-launcher.js';
-import { showNotice } from '../components/modal-dialog.js';
+import { uiPort } from './ui-port.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
@@ -756,7 +756,7 @@ class UIEventManager {
     // A bound conversation is seeded with these files already, so a click that
     // adds nothing is the common case — and without a word it reads as a dead
     // menu item.
-    showNotice(addedCount === 0
+    uiPort()?.notice(addedCount === 0
       ? t('No assistant files to add — they are already in context, or this project has none.')
       : t('{count, plural, one {Added {count} assistant file to context.} other {Added {count} assistant files to context.}}', { count: addedCount }));
   }

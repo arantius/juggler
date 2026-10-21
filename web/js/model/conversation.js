@@ -9,7 +9,6 @@ import { DEFAULT_TRUNCATION_BUDGET } from 'juggler/context-item';
 import { CHARS_PER_TOKEN } from '../utils/token-estimate.js';
 import ConversationDocument from './conversation-document.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
-import workerManager from '../services/worker-manager.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { isConversationalItemType } from '../../sdk/lib/message.js';
 import MessageThread from './message-thread.js';
@@ -22,6 +21,8 @@ import { TURN_CANCELLED_NOTICE } from '../utils/constants.js';
 import { t, serverText } from '../../sdk/lib/i18n.js';
 import { displayConversationName } from './conversation-naming.js';
 import { recordTape } from '../utils/event-tape.js';
+import { uiPort } from '../services/ui-port.js';
+import { openSettings } from '../services/settings-launcher.js';
 import { ENGINE_DERIVED_ORIGIN } from '../utils/document-sync-manager.js';
 import {
   findThreadForArray,
@@ -73,12 +74,6 @@ export const INITIALISED_KEY = 'initialised';
  * whether the pass that would run at the binding has anything left to do.
  */
 export const SEEDED_FOR_KEY = 'seededFor';
-
-/**
- * Cancel-settle poll interval: how often _waitForCancellation re-checks
- * whether the worker and local actions have gone idle.
- */
-const CANCEL_POLL_MS = 16;
 
 /**
  * Hard ceiling on the cancel-settle wait so a wedged worker doesn't hang
@@ -148,12 +143,14 @@ const MAX_TRUNCATION_BUDGET = 200000;
 
 class Conversation {
   /**
+   * Its name is not an argument: {@link Conversation#name} reads the session's
+   * name cache, which the session seeds (Session.buildConversation).
    * @param {string} id - Unique conversation ID
-   * @param {string} name - Display name
    * @param {Session} session - Parent session
    * @param {object} services - Required services
    * @param {import('../services/llm-state.js').default} services.llmState
    * @param {import('../services/action-executor.js').default} services.actionExecutor - Action executor for cancellation
+   * @param {import('../services/worker-manager.js').default} services.workerManager - The worker transport every command to this conversation's worker goes through
    * @param {object} [options] - Optional configuration
    * @param {boolean} [options.isTransient=false] - If true, conversation won't be persisted to backend
    * @param {string} [options.strategyId] - Strategy ID to use (defaults to 'default')
@@ -161,22 +158,13 @@ class Conversation {
    * @param {'unloaded'|'loading'|'loaded'|'error'} [options.loadState='loaded'] - Initial lazy-load lifecycle state. Stubs created during session bootstrap pass 'unloaded'; freshly-created conversations default to 'loaded'.
    * @param {string} [options.workspaceId] - The tree this conversation is being created to work in. Reported as its binding until the durable one is written — see {@link Conversation#workspaceId}.
    */
-  constructor(id, name, session, services, options = {}) {
+  constructor(id, session, services, options = {}) {
     // Identity
     /** @type {string} */
     this.id = id;
 
     /** @type {Session} */
     this._session = session;
-
-    // Seed the session's name cache so `this.name` (a getter) resolves
-    // for newly-created conversations before the next GET /api/session
-    // refresh. The on-disk folder name (resolved server-side by
-    // ScanConvDirs and shipped as `conversationNames`) is the source of
-    // truth; this cache is its in-memory projection.
-    if (name && session && !session.getConversationName(id)) {
-      session.setConversationName(id, name);
-    }
 
     /** @type {string} */
     this.created = new Date().toISOString();
@@ -221,6 +209,9 @@ class Conversation {
 
     /** @type {import('../services/action-executor.js').default} @private */
     this._actionExecutor = services.actionExecutor;
+
+    /** @type {import('../services/worker-manager.js').default} @private */
+    this._workerManager = services.workerManager;
 
     // Each conversation owns its own ResponseHandler so streaming state
     // can't bleed across conversations.
@@ -429,6 +420,59 @@ class Conversation {
   }
 
   /**
+   * Wait for the worker's root items array to arrive — {@link whenDocument}
+   * asking {@link hasRootItemsArray}.
+   * @param {number} timeoutMs - How long to wait before giving up.
+   * @returns {Promise<boolean>} True once the array is present, false at the deadline.
+   */
+  whenItemsArray(timeoutMs) {
+    return this.whenDocument(() => this.hasRootItemsArray, timeoutMs);
+  }
+
+  /**
+   * Wait until `ready()` holds of this conversation's document.
+   *
+   * For state the worker pushes over sync that a caller must not act before:
+   * updates already sitting in the batch are applied first, then `ready` is
+   * asked again after every transaction on the document — a synced batch, a
+   * local write, a change nested anywhere — so the wait ends in the task the
+   * state lands in. `ready` must be cheap and must not write to the document.
+   * @param {() => boolean} ready - The question, asked of the current document.
+   * @param {number} timeoutMs - How long to wait before giving up.
+   * @returns {Promise<boolean>} True once `ready()` held, or its answer at the deadline.
+   */
+  whenDocument(ready, timeoutMs) {
+    this.flushPendingSyncs();
+    if (ready()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (/** @type {boolean} */ answer) => {
+        clearTimeout(timer);
+        off();
+        resolve(answer);
+      };
+      const off = this.onDocumentChange(() => { if (ready()) finish(true); });
+      const timer = setTimeout(() => finish(ready()), timeoutMs);
+    });
+  }
+
+  /**
+   * Hear every change to this conversation's document: called after each
+   * transaction — a synced batch from the worker or a local write, anywhere in
+   * the document. For a caller re-asking a question the document answers
+   * (busy? present?) rather than reading a particular key; a conversation with
+   * no document yet never calls it.
+   * @param {() => void} listener - Called with no arguments, synchronously after the transaction.
+   * @returns {() => void} Unsubscribe
+   */
+  onDocumentChange(listener) {
+    const ydoc = this._doc?.doc;
+    if (!ydoc) return () => {};
+    const handler = () => listener();
+    ydoc.on('afterTransaction', handler);
+    return () => ydoc.off('afterTransaction', handler);
+  }
+
+  /**
    * Read-only accessor for the root items array.
    * Used for rendering bootstrap (e.g., connection-manager on reconnect).
    * @returns {Array<any>} Root items array
@@ -560,9 +604,9 @@ class Conversation {
     // whatever lands inside its capture window, so without this the delete can
     // share a group with an unrelated neighbouring edit — and an Undo offer
     // that silently reverses one of those too is worse than no offer at all.
-    workerManager.stopUndoCapturing(this.id);
+    this._workerManager.stopUndoCapturing(this.id);
     const removed = deleteFn();
-    workerManager.stopUndoCapturing(this.id);
+    this._workerManager.stopUndoCapturing(this.id);
 
     // Every delete that took something out is offered back, one item included:
     // rewinding to a last message that never got its reply removes exactly
@@ -857,13 +901,13 @@ class Conversation {
       // Re-ask path: worker resets to 'pending' and clears result +
       // approvalResponse so the approval/question UI re-renders. The user's
       // fresh answer then drives execution exactly like a first-time ask.
-      workerManager.retryToolApproval(this.id, toolUseId);
+      this._workerManager.retryToolApproval(this.id, toolUseId);
       return;
     }
     // Re-run path: worker clears the result (the "has been run" flag) and
     // sets state='approved'. The document change triggers the observer which
     // re-evaluates and re-executes the tool.
-    workerManager.retryToolAction(this.id, toolUseId);
+    this._workerManager.retryToolAction(this.id, toolUseId);
   }
 
   /**
@@ -903,10 +947,10 @@ class Conversation {
    * @returns {Promise<boolean>} True if undo was successful
    */
   async undo() {
-    if (!workerManager.isWorkerReady(this.id)) {
+    if (!this._workerManager.isWorkerReady(this.id)) {
       return false;
     }
-    const result = await workerManager.undo(this.id);
+    const result = await this._workerManager.undo(this.id);
     // Flush any pending Yjs updates so state is current after undo
     this._doc.flushPendingUpdates();
     return result;
@@ -931,10 +975,10 @@ class Conversation {
    * @returns {Promise<boolean>} True if redo was successful
    */
   async redo() {
-    if (!workerManager.isWorkerReady(this.id)) {
+    if (!this._workerManager.isWorkerReady(this.id)) {
       return false;
     }
-    const result = await workerManager.redo(this.id);
+    const result = await this._workerManager.redo(this.id);
     // Flush any pending Yjs updates so state is current after redo
     this._doc.flushPendingUpdates();
     return result;
@@ -947,7 +991,7 @@ class Conversation {
   canUndo() {
     // Query worker manager for cached undo state
     // Worker is the source of truth for undo (main thread has no UndoManager)
-    return workerManager.canUndo(this.id);
+    return this._workerManager.canUndo(this.id);
   }
 
   /**
@@ -957,7 +1001,7 @@ class Conversation {
   canRedo() {
     // Query worker manager for cached redo state
     // Worker is the source of truth for undo (main thread has no UndoManager)
-    return workerManager.canRedo(this.id);
+    return this._workerManager.canRedo(this.id);
   }
 
   // ========================================================================
@@ -1902,7 +1946,7 @@ class Conversation {
     // discovering it afterwards would take the message and lose it. Checked
     // ahead of the processing branches so a link drop reports itself as one
     // rather than as a busy turn.
-    if (!workerManager.isWorkerReady(this.id)) {
+    if (!this._workerManager.isWorkerReady(this.id)) {
       this.showWarning(t('Still connecting to the engine — try again in a moment.'), 5000);
       return 'worker not ready';
     }
@@ -1916,7 +1960,7 @@ class Conversation {
     // is the worker-less fallback (it would start a second concurrent strategy
     // on the main thread), so it keeps refusing.
     const targetBusy = this.isThreadProcessing(this._targetThreadId(messageThread, threadItemId));
-    const isQueueing = targetBusy && workerManager.isWorkerReady(this.id);
+    const isQueueing = targetBusy && this._workerManager.isWorkerReady(this.id);
     if (options.preemptProcessing) {
       await this.cancelAndSettle('new message preempted');
     } else if (targetBusy && !isQueueing) {
@@ -1980,8 +2024,8 @@ class Conversation {
 
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
-    if (workerManager.isWorkerReady(this.id)) {
-      workerManager.sendMessage(this.id, userMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills);
+    if (this._workerManager.isWorkerReady(this.id)) {
+      this._workerManager.sendMessage(this.id, userMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills);
       const acceptedConfig = messageThread?.modelConfig || this.modelConfig;
       if (acceptedConfig?.provider && acceptedConfig?.model) {
         recentModels.record(acceptedConfig.provider, acceptedConfig.model, acceptedConfig.thinking, acceptedConfig.serviceTier);
@@ -2165,8 +2209,8 @@ class Conversation {
     this._actionExecutor.cancelAllActions();
 
     // Cancel worker if active
-    if (workerManager.isWorkerReady(this.id)) {
-      workerManager.cancel(this.id, reason);
+    if (this._workerManager.isWorkerReady(this.id)) {
+      this._workerManager.cancel(this.id, reason);
     }
   }
 
@@ -2182,9 +2226,9 @@ class Conversation {
    *   (the root) pauses the whole conversation.
    */
   requestPoliteStop(threadItemId = null) {
-    if (!workerManager.isWorkerReady(this.id)) return;
+    if (!this._workerManager.isWorkerReady(this.id)) return;
     const id = threadItemId || '';
-    workerManager.pause(this.id, id);
+    this._workerManager.pause(this.id, id);
     this._politeStops.add(id);
   }
 
@@ -2202,7 +2246,7 @@ class Conversation {
   cancelPoliteStop(threadItemId = null) {
     const id = threadItemId || '';
     if (this.politeStopState(id) === 'none') return;
-    if (workerManager.isWorkerReady(this.id)) workerManager.unpause(this.id, id);
+    if (this._workerManager.isWorkerReady(this.id)) this._workerManager.unpause(this.id, id);
     for (const mark of [...this._politeStops]) {
       if (this._politeStopCovers(mark, id)) this._politeStops.delete(mark);
     }
@@ -2296,7 +2340,26 @@ class Conversation {
    *   tool action is still running.
    */
   isTurnActive() {
-    return statusHoldsTurn(this.processingState?.status) || this._actionExecutor.hasRunningActionsFor(this.id);
+    return statusHoldsTurn(this.processingState?.status) || this.hasLocalActionsRunning();
+  }
+
+  /**
+   * Whether a frontend tool action of this conversation is still running — the
+   * half of {@link isTurnActive} the worker's frame does not show.
+   * @returns {boolean} True while an action of this conversation is in flight
+   */
+  hasLocalActionsRunning() {
+    return this._actionExecutor.hasRunningActionsFor(this.id);
+  }
+
+  /**
+   * Abort every frontend tool action of this conversation still running, without
+   * waiting for them or telling the worker — for a conversation being released,
+   * whose results have nowhere left to go (see Session.releaseConversation).
+   * @returns {number} How many executions were aborted
+   */
+  cancelLocalActions() {
+    return this._actionExecutor.cancelConversationActions(this.id);
   }
 
   /**
@@ -2320,9 +2383,11 @@ class Conversation {
    *      tool action (bash/edit/etc.) of this conversation still mid-flight.
    *
    * Resolves once both are quiet. Idempotent — if nothing is in flight it
-   * resolves on the next microtask. Reactive on the Yjs metadata observer
-   * the worker already writes through; the poll is a safety net for the
-   * action-executor side which does not (yet) push events.
+   * resolves on the next microtask. Event-driven on both sources: the Yjs
+   * metadata observer hears the worker's frame (it replaces `processingState`
+   * whole on every transition, so a shallow `keysChanged` sees each one), and
+   * the executor's `onSettled` hears the conversation's last action unwind.
+   * The ceiling is only for a wedged worker that never writes idle.
    * @param {string} [reason] - What caused the cancel, for the worker's log.
    * @returns {Promise<void>}
    */
@@ -2341,28 +2406,23 @@ class Conversation {
     if (settled()) return;
 
     await new Promise((resolve) => {
-      const finish = () => {
-        if (!finished && settled()) {
-          finished = true;
-          clearInterval(pollId);
-          clearTimeout(timeoutId);
-          this.unobserveMetadata(metaObserver);
-          resolve(undefined);
-        }
-      };
       let finished = false;
+      const done = () => {
+        finished = true;
+        clearTimeout(timeoutId);
+        offActions();
+        this.unobserveMetadata(metaObserver);
+        resolve(undefined);
+      };
+      const finish = () => {
+        if (!finished && settled()) done();
+      };
       const metaObserver = (/** @type {any} */ event) => {
         if (event.keysChanged?.has?.('processingState')) finish();
       };
       this.observeMetadata(metaObserver);
-      const pollId = setInterval(finish, CANCEL_POLL_MS);
-      const timeoutId = setTimeout(() => {
-        if (finished) return;
-        finished = true;
-        clearInterval(pollId);
-        this.unobserveMetadata(metaObserver);
-        resolve(undefined);
-      }, CANCEL_CEILING_MS);
+      const offActions = this._actionExecutor.onSettled(this.id, finish);
+      const timeoutId = setTimeout(() => { if (!finished) done(); }, CANCEL_CEILING_MS);
     });
   }
 
@@ -2626,29 +2686,27 @@ class Conversation {
   }
 
   /**
-   * Show a message with an offer to jump to Provider Settings, falling back to a
-   * toast warning if the confirm dialog isn't wired up.
+   * Show a message with an offer to jump to Provider Settings, falling back to
+   * the inline warning when no dialog is mounted.
    *
-   * The view layer imports these dialogs as module functions; the model reaches
-   * for the `window.*` aliases on purpose, so a headless model never hard-depends
-   * on a component module and keeps working when no UI is mounted at all.
+   * Through the UI port and the settings launcher, which the components
+   * register, so a headless model never depends on a component module and
+   * keeps working when no UI is mounted at all.
    * @param {string} message - Body text for the confirm dialog / toast
    * @param {string} title - Confirm-dialog title
    * @private
    */
   async _offerProviderSettings(message, title) {
-    const showConfirm = /** @type {any} */ (window).showConfirm;
-    if (typeof showConfirm !== 'function') {
+    const dialogs = uiPort();
+    if (!dialogs) {
       this.showWarning(message, 8000);
       return;
     }
-    const goToSettings = await showConfirm(message, title, {
+    const goToSettings = await dialogs.confirm(message, title, {
       confirmText: t('Go to provider settings'),
       cancelText: t('Cancel'),
     });
-    if (goToSettings && typeof (/** @type {any} */ (window).openSettings) === 'function') {
-      /** @type {any} */ (window).openSettings('providers');
-    }
+    if (goToSettings) openSettings('providers');
   }
 
   /**
@@ -2912,8 +2970,8 @@ class Conversation {
    * @param {string|null} [threadItemId] - Target thread, or null for root.
    */
   resendToWorker(message, threadItemId = null) {
-    if (workerManager.isWorkerReady(this.id)) {
-      workerManager.sendMessage(this.id, message.content || '', threadItemId, message.attachments);
+    if (this._workerManager.isWorkerReady(this.id)) {
+      this._workerManager.sendMessage(this.id, message.content || '', threadItemId, message.attachments);
     }
   }
 

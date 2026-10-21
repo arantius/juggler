@@ -270,8 +270,12 @@ class TestExecutor {
         stopThinking: () => {}
       },
       actionExecutor: {
-        cancelAllActions: () => {}
+        cancelAllActions: () => {},
+        cancelConversationActions: () => 0,
+        hasRunningActionsFor: () => false,
+        onSettled: () => () => {}
       },
+      workerManager: (await import('../../js/services/worker-manager.js')).default,
       wsService: {
         sendCancel: () => {},
         on: () => () => {},

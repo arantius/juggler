@@ -35,7 +35,8 @@ import { registerConversationShortcuts } from './services/shortcut-bindings.js';
 import { markSeen } from './services/tips-manager.js';
 import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
-import { watchTurnsForEscape } from './services/escape-behaviour.js';
+import { watchTurnsForEscape, provideEscapeApp } from './services/escape-behaviour.js';
+import { provideAppSession } from './utils/app-session.js';
 import scheduledSendService from './services/scheduled-send-service.js';
 import { initViewportFit } from './utils/viewport-fit.js';
 import { reportDraftsFlushed } from '../sdk/lib/window-control.js';
@@ -402,9 +403,9 @@ class JugglerApp {
   }
 
   /**
-   * The live session, for the handful of callers that reach the app through
-   * `window.jugglerApp` (settings tabs, the plugin catalog, the registry
-   * reloader) rather than being handed one. Null before the session loads.
+   * The live session, for the handful of callers that are not handed one
+   * (settings tabs, the plugin catalog, the registry reloader), which ask
+   * utils/app-session.js — provided from this. Null before the session loads.
    * @returns {import('./model/session.js').default|null} The session, or null.
    */
   getSession() {
@@ -441,6 +442,7 @@ class JugglerApp {
       services: {
         llmState: this._llmState,
         actionExecutor: actionExecutor,
+        workerManager,
         wsService: wsService
       }
     });
@@ -1138,5 +1140,10 @@ class JugglerApp {
 // Initialize app when script loads
 const app = new JugglerApp();
 
-// Export for debugging
+// The app's declared dependents: modules that act on the app without being
+// handed it (utils/app-session.js, services/escape-behaviour.js).
+provideAppSession(() => app.getSession());
+provideEscapeApp(app);
+
+// Export for debugging, and for extensions and the hosted-shell tests
 window.jugglerApp = app;

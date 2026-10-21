@@ -38,6 +38,7 @@ import slashCommandHandler from '../../js/services/slash-command-handler.js';
 import { slashCommandProvider } from '../../js/components/slash-command-provider.js';
 import { extractFileMentionsAsync } from '../../js/components/file-mention-provider.js';
 import commandRegistry from '../../js/registries/command-registry.js';
+import { registerUiPort, uiPort } from '../../js/services/ui-port.js';
 import { menuOrderedCommands, buildCommandRow } from '../../js/services/command-manager-entry.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
@@ -359,7 +360,8 @@ export async function runTests() {
   // description are its extension's text, so they stand in under the id that
   // owns each command. `/name` glyphs are identifiers, not text.
   {
-    const realConfirm = /** @type {any} */ (window).showConfirm;
+    /** @type {() => void} */
+    let restorePort = () => {};
     try {
       /** @type {Record<string, string[]>} */
       const extensionText = {};
@@ -400,7 +402,10 @@ export async function runTests() {
         shown.push(String(rejected.message));
         /** @type {any[]} */
         let asked = [];
-        /** @type {any} */ (window).showConfirm = async (/** @type {any[]} */ ...args) => { asked = args; return false; };
+        restorePort = registerUiPort({
+          ...(uiPort() || /** @type {any} */ ({})),
+          confirm: async (/** @type {any[]} */ ...args) => { asked = args; return false; },
+        });
         await slashCommandHandler.execute('/clear', /** @type {any} */ (busy));
         assert(asked.length === 3, 'stopping a turn asked nothing');
         shown.push(String(asked[0]).replace('/clear', ''), asked[1], asked[2].confirmText, asked[2].cancelText);
@@ -428,7 +433,7 @@ export async function runTests() {
       failed++;
       errors.push('en-XA: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
-      /** @type {any} */ (window).showConfirm = realConfirm;
+      restorePort();
     }
   }
 
