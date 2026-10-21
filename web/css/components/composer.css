@@ -357,6 +357,15 @@ composer-box .attach-btn .attach-icon {
     height: 1.125rem;
 }
 
+/* The svg carries a 16px intrinsic size; left to it, it sits in the span's
+   top-left corner and the paperclip lands up and left of the circle's centre.
+   Fill the span instead, as the send arrow does. */
+composer-box .attach-btn .attach-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
 composer-box textarea:disabled {
     opacity: 0.5;
     cursor: not-allowed;
