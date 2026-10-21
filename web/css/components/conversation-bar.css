@@ -304,10 +304,13 @@ conversation-bar .conversation-box-title {
 
 /* The name, as the shared lozenge (patterns/item-badge.css) filled with the
    workspace's tint: white on the hue, as a category name is in the
-   conversation panel. Dimmed until its box is the chosen one. */
+   conversation panel. Dimmed until its box is the chosen one. The lozenge's
+   top-heavy padding drops the sidebar's monospace capitals below the middle,
+   so the chip splits the same height evenly. */
 conversation-bar .conversation-box-label {
     --preset-badge-bg: var(--workspace-tint);
 
+    padding-block: 0.1875rem;
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
