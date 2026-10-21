@@ -43,12 +43,13 @@ import { markForTranslation, t } from '../../sdk/lib/i18n.js';
  *   (single letters lower-case; named keys like 'Backspace'/'Tab' verbatim).
  * @property {string} [displayKey] - Overrides the glyph shown to the user
  *   (e.g. '+' for the '=' key).
- * @property {'mac'} [platform] - Restrict this KEY to a platform family. A
+ * @property {'mac'|'other'} [platform] - Restrict this KEY to a platform family
+ *   ('other' is Windows and Linux). A
  *   command is bound where its keys are: on any other platform this binding is
  *   not dispatched, not listed and not advertised, so a key we deliberately
  *   left unbound there is never shown. A command whose every binding is
  *   restricted this way disappears from that platform's listings entirely.
- * @property {'mac'} [browserClaims] - A browser keeps this key for itself on
+ * @property {'mac'|'other'} [browserClaims] - A browser keeps this key for itself on
  *   that platform family and never delivers it to the page. In a browser tab
  *   there the binding is treated like one restricted by `platform` — not
  *   dispatched, listed or advertised; the desktop app still has it.
@@ -183,11 +184,12 @@ const NAMED_KEY_LABELS = {
  * is the desktop app's only.
  * @param {KeyBinding} binding
  * @param {boolean} mac - True to ask about macOS, false about Windows/Linux.
+ * @param {boolean} nativeHost - True for a desktop-app window, false for a browser tab.
  * @returns {boolean} True when the binding is bound there.
  */
-function bindingShipsOn(binding, mac) {
+function bindingShipsOn(binding, mac, nativeHost) {
   if (binding.platform && (binding.platform === 'mac') !== mac) return false;
-  return !(binding.browserClaims === 'mac' && mac && !hasNativeHost());
+  return !(binding.browserClaims && (binding.browserClaims === 'mac') === mac && !nativeHost);
 }
 
 /**
@@ -329,6 +331,19 @@ const SHORTCUT_DEFS = [
       + 'the key is left to the browser.'),
     category: markForTranslation('Conversations'),
     defaultBinding: { mod: true, shift: true, key: 'n' },
+    allowInInput: true,
+  },
+  {
+    id: 'quit',
+    label: markForTranslation('Quit Juggler'),
+    description: markForTranslation('Close every window and quit, so the next launch reopens them all. '
+      + 'Windows and Linux desktop app only.'),
+    category: markForTranslation('Conversations'),
+    // Ctrl+Shift+Q, Firefox's Exit there: a Windows or Linux window has no menu
+    // bar to carry Exit, so this and the "…" menu are how it is reached. Never on
+    // macOS, where ⌘Q is the menu bar's and ⌘⇧Q is Log Out; and a browser tab off
+    // macOS leaves the chord to the browser, which may quit on it.
+    defaultBinding: { mod: true, shift: true, key: 'q', platform: 'other', browserClaims: 'other' },
     allowInInput: true,
   },
   {
@@ -803,10 +818,12 @@ class KeyShortcutManager {
    * tab-nav pair keeps Page Up/Down off macOS, having given up ⌥⌘↑/↓). Used by
    * the settings tab and the About-Juggler help corpus.
    * @param {boolean} mac - True to build the macOS listing, false for Windows/Linux.
+   * @param {boolean} [nativeHost] - True for a desktop-app window, false for a
+   *   browser tab; defaults to this page.
    * @returns {Array<{category: string, shortcuts: ShortcutDef[]}>} Groups in declaration order.
    */
-  byCategoryForPlatform(mac) {
-    const defs = [...this._defs.values()].filter((d) => this.getBindings(d.id, mac).length > 0);
+  byCategoryForPlatform(mac, nativeHost = hasNativeHost()) {
+    const defs = [...this._defs.values()].filter((d) => this.getBindings(d.id, mac, nativeHost).length > 0);
     return this._groupByCategory(defs);
   }
 
@@ -849,13 +866,15 @@ class KeyShortcutManager {
    * filtering: the key the user chose is the key the command answers to.
    * @param {string} id
    * @param {boolean} [mac] - Which platform to ask about; defaults to the running one.
+   * @param {boolean} [nativeHost] - True to ask about a desktop-app window, false
+   *   about a browser tab; defaults to this page.
    * @returns {KeyBinding[]} All triggering bindings, or [] if the id is unknown.
    */
-  getBindings(id, mac = isMac()) {
+  getBindings(id, mac = isMac(), nativeHost = hasNativeHost()) {
     if (this._overrides.has(id)) return [/** @type {KeyBinding} */ (this._overrides.get(id))];
     const def = this._defs.get(id);
     if (!def) return [];
-    return [def.defaultBinding, ...(def.aliasBindings ?? [])].filter((b) => bindingShipsOn(b, mac));
+    return [def.defaultBinding, ...(def.aliasBindings ?? [])].filter((b) => bindingShipsOn(b, mac, nativeHost));
   }
 
   /**

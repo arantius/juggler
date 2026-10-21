@@ -144,6 +144,29 @@ func (a *appState) confirmThenQuit() {
 	application.InvokeAsync(func() { a.app.Quit() })
 }
 
+// wmEndSession is Windows' WM_ENDSESSION: the user is signing out or shutting
+// down (wParam non-zero), or something cancelled a shutdown that had been asked
+// about (wParam zero).
+const wmEndSession = 0x0016
+
+// interceptWndProc sees every Windows message to the app's windows before
+// Wails does (the WndProcInterceptor option). Wails quits on any WM_ENDSESSION
+// to its hidden window, whether or not the session is really ending. A
+// cancelled one is kept from it. An ending one authorises the quit, which the
+// busy guard would otherwise veto and hand to a confirmation that Windows kills
+// unanswered — skipping the shutdown that records the whole window set. There
+// is nothing to ask at that point: the session ends whatever is running.
+func (a *appState) interceptWndProc(_ uintptr, msg uint32, wParam, _ uintptr) (uintptr, bool) {
+	if msg != wmEndSession {
+		return 0, false
+	}
+	if wParam == 0 {
+		return 0, true
+	}
+	a.reg(func(st *regState) { st.quitting = true })
+	return 0, false
+}
+
 // ownedServerURLs lists the servers whose work a quit stops: the ones this app
 // spawned. A window onto any other server (a headless instance, a terminal
 // server, a URL) leaves it running when the app goes, turn and all.

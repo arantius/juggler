@@ -21,7 +21,8 @@
  *   5. The app-wide controls come in groups (network, view, app, panel) whose
  *      spacing grows with the header; with room, the network count is a label.
  *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
- *      with their shortcuts.
+ *      with their shortcuts. A Windows or Linux desktop window shows "…" at any
+ *      width: there it is the app menu, ending in Exit (Windows) or Quit (Linux).
  *   7. Tooltips name shortcuts, and never restore a title that changed under them.
  *   8. Under en-XA the network button's title and accessible name are translated.
  *   9. A window on a server the app did not start names that server's host
@@ -34,10 +35,11 @@ import { serverPath } from '../../js/utils/api-url.js';
 import { bindNetworkClients } from '../../js/utils/header-controls.js';
 import { externalServerHost } from '../../js/utils/project-open-mode.js';
 import { setupHeaderOverflowMenu } from '../../js/utils/header-overflow-menu.js';
+import { headerOverflowItems } from '../../js/utils/header-overflow-items.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import keyShortcutManager from '../../js/services/key-shortcut-manager.js';
 import tooltipManager from '../../js/services/tooltip-manager.js';
-import { underPseudoLocale } from '../utilities/pseudo-locale.js';
+import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 
 /**
@@ -424,6 +426,31 @@ export async function runTests() {
       }
     }
 
+    // A Windows or Linux desktop window has no menu bar, so the "…" menu is its
+    // app menu and is there at any width. A Mac window has the menu bar and a
+    // browser tab has the browser's, so both keep "…" for the narrow header.
+    for (const [platform, windowMode, shown] of /** @type {const} */ ([
+      ['windows', true, true], ['linux', true, true], ['mac', true, false], ['windows', false, false],
+    ])) {
+      const f = await framedHeader(served, 1200);
+      const where = `1200px, ${platform}${windowMode ? ' desktop window' : ', not a desktop window'}`;
+      try {
+        f.doc.documentElement.dataset.windowPlatform = platform;
+        if (windowMode) {
+          f.doc.documentElement.dataset.windowMode = '1';
+          f.doc.body.classList.add('window-mode');
+        }
+        const displayed = (/** @type {string} */ sel) => f.el(sel).getClientRects().length > 0;
+        assert(displayed('#header-overflow-button') === shown,
+          `${where}: the "…" button is ${shown ? 'shown' : 'not shown'}`);
+        for (const sel of folded) {
+          assert(displayed(sel), `${where}: ${sel} stays in the row`);
+        }
+      } finally {
+        f.frame.remove();
+      }
+    }
+
     // The menu offers exactly what the row gave up, each with its shortcut.
     const { root, get } = mountButtons(served, ['header-overflow-button']);
     const button = get('header-overflow-button');
@@ -467,6 +494,109 @@ export async function runTests() {
     }
     passed++;
   } catch (e) { failed++; errors.push(`overflow menu: ${msg(e)}`); }
+
+  // --- 6b: in a Windows or Linux desktop window "…" is the app menu ---
+  try {
+    const { root, get } = mountButtons(served, ['header-overflow-button']);
+    const button = get('header-overflow-button');
+    const surface = () => document.querySelector('.header-overflow-menu');
+    /**
+     * Open a menu of `items`, check its shape, and read it back: each item's
+     * label, each separator as '—'.
+     * @param {import('../../js/utils/header-overflow-menu.js').HeaderOverflowItem[]} items
+     * @param {string} where - Names the menu in a failure.
+     * @returns {{rows: string, menu: HTMLElement, dispose: () => void}} The rows
+     *   joined by '|', the open menu, and a way to close and unwire it.
+     */
+    const openMenu = (items, where) => {
+      const wired = setupHeaderOverflowMenu(button, items);
+      button.click();
+      const menu = assertMenuShape(surface(), where);
+      const rows = [...menu.children].map((child) => (child.getAttribute('role') === 'separator'
+        ? '—'
+        : child.querySelector('.menu-item-name')?.textContent)).join('|');
+      return { rows, menu, dispose: wired.dispose };
+    };
+    try {
+      // Separators belong between rows: one that leads, trails or doubles up
+      // once omitted rows are gone is dropped. A row needs no shortcut.
+      const sparse = openMenu([
+        { separator: true },
+        { label: 'A', run: () => {} },
+        { separator: true },
+        { label: 'B', run: () => {}, omit: () => true },
+        { separator: true },
+        { label: 'C', shortcutId: 'zoom-in', run: () => {} },
+        { separator: true },
+      ], 'sparse menu');
+      try {
+        assert(sparse.rows === 'A|—|C', `separators collapse around omitted rows, got ${sparse.rows}`);
+        assert(!sparse.menu.children[0].querySelector('.menu-item-shortcut'), 'a row with no shortcut shows none');
+      } finally {
+        sparse.dispose();
+      }
+
+      /** @type {string[]} */
+      const posted = [];
+      const compose = (/** @type {'windows'|'linux'|null} */ platform, folded = false, touch = false) =>
+        headerOverflowItems({ platform, folded: () => folded, touch: () => touch, post: (action) => posted.push(action) });
+      const head = 'New Tab|New Window|—|Open...|Connect to Server...';
+      const tail = 'Settings|About Juggler';
+      const foldedRows = 'Decrease font size|Increase font size|Tips & keyboard shortcuts';
+      for (const [platform, folded, touch, want] of /** @type {const} */ ([
+        ['windows', false, false, `${head}|—|${tail}|—|Exit`],
+        ['windows', true, false, `${head}|—|${foldedRows}|—|${tail}|—|Exit`],
+        ['windows', true, true, `${head}|—|Decrease font size|Increase font size|—|${tail}|—|Exit`],
+        ['linux', false, false, `${head}|—|${tail}|—|Quit`],
+        // Anywhere else "…" shows only on a narrow header, and offers back
+        // exactly what the row gave up.
+        [null, true, false, foldedRows],
+        [null, true, true, 'Decrease font size|Increase font size'],
+      ])) {
+        const where = `${platform ?? 'no app menu'}${folded ? ', folded' : ''}${touch ? ', touch' : ''}`;
+        const opened = openMenu(compose(platform, folded, touch), where);
+        try {
+          assert(opened.rows === want, `${where}: rows are ${opened.rows}, want ${want}`);
+        } finally {
+          opened.dispose();
+        }
+      }
+
+      const app = openMenu(compose('windows'), 'windows app menu');
+      try {
+        const named = (/** @type {string} */ label) => /** @type {HTMLElement} */ ([...app.menu.querySelectorAll('.menu-item')]
+          .find((row) => row.querySelector('.menu-item-name')?.textContent === label));
+        const keysOf = (/** @type {string} */ label) => named(label).querySelector('.menu-item-shortcut')?.textContent;
+        assert(keysOf('New Window') === keyShortcutManager.formatBinding('new-window') && !!keysOf('New Window'),
+          `New Window shows its shortcut, got "${keysOf('New Window')}"`);
+        assert(!keysOf('Open...'), 'Open... names no shortcut');
+        named('Exit').click();
+        assert(posted.join() === 'quit', `Exit asks the app to quit, posted [${posted}]`);
+        assert(!surface(), 'choosing Exit closes the menu');
+      } finally {
+        app.dispose();
+      }
+
+      // Under en-XA every row is translated, the Go menu's strings included.
+      await underPseudoLocale('test-header-app-menu', () => {
+        const opened = openMenu(compose('windows', true), 'en-XA app menu');
+        try {
+          assertPseudoLocalized(opened.menu, { skip: '.menu-item-shortcut', atLeast: 10, where: 'Windows app menu' });
+        } finally {
+          opened.dispose();
+        }
+        const linux = openMenu(compose('linux'), 'en-XA linux app menu');
+        try {
+          assertPseudoLocalized(linux.menu, { skip: '.menu-item-shortcut', atLeast: 7, where: 'Linux app menu' });
+        } finally {
+          linux.dispose();
+        }
+      });
+    } finally {
+      root.remove();
+    }
+    passed++;
+  } catch (e) { failed++; errors.push(`app menu: ${msg(e)}`); }
 
   // --- 7: tooltips carry shortcuts, and follow a title that changes under them ---
   try {

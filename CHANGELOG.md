@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Windows and Linux: the “…” menu has app commands and Exit, which restores all windows
+- Quitting, or signing out of Windows, reopens every window next launch, not just some
 - Auto-approve can judge tool calls with a decision model chosen in Settings
 - Extension op `decide` asks a decision model yes/no, choice and score questions
 - Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch

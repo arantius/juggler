@@ -57,6 +57,8 @@ import { toggleSound, isSoundEnabled, ATTENTION_PREFS_EVENT } from '../utils/att
 import { isToolGroupingEnabled, toggleToolGrouping, TOOL_GROUPING_EVENT } from '../utils/tool-grouping-pref.js';
 import { zoomIn, zoomOut } from '../utils/zoom-manager.js';
 import { setupHeaderOverflowMenu } from '../utils/header-overflow-menu.js';
+import { headerOverflowItems, appMenuPlatform } from '../utils/header-overflow-items.js';
+import { postWindowControl } from '../../sdk/lib/window-control.js';
 import { isAutoNameEnabled } from './auto-name-setting.js';
 import keyShortcutManager from './key-shortcut-manager.js';
 
@@ -98,6 +100,9 @@ class UIEventManager {
 
     /** @type {(() => void)|null} @private */
     this._unregisterToolGrouping = null;
+
+    /** @type {(() => void)|null} @private */
+    this._unregisterQuit = null;
 
     /** @type {{dispose: () => void}|null} @private */
     this._overflowMenu = null;
@@ -442,9 +447,10 @@ class UIEventManager {
   }
 
   /**
-   * Setup the "…" overflow button, which CSS shows only when the header is too
-   * narrow for every control. Its rows run the same actions as the buttons it
-   * stands in for (zoom −/+ and help).
+   * Setup the "…" overflow button, which CSS shows when the header is too
+   * narrow for every control, and always in a Windows or Linux desktop window,
+   * where it is the app menu. Its rows (utils/header-overflow-items.js) run the
+   * same actions as the buttons and menu commands they stand in for.
    * @private
    */
   _setupOverflowButton() {
@@ -453,18 +459,14 @@ class UIEventManager {
       console.error('[UIEventManager] Overflow button not found');
       return;
     }
-    this._overflowMenu = setupHeaderOverflowMenu(overflowButton, [
-      { label: markForTranslation('Decrease font size'), shortcutId: 'zoom-out', run: () => zoomOut() },
-      { label: markForTranslation('Increase font size'), shortcutId: 'zoom-in', run: () => zoomIn() },
-      {
-        label: markForTranslation('Tips & keyboard shortcuts'),
-        shortcutId: 'show-shortcuts',
-        run: () => openSettings('shortcuts'),
-        // The same reason the touch header drops the help button: a keyboard
-        // reference is a dead end on a device with no keyboard.
-        omit: () => window.matchMedia('(hover: none)').matches,
-      },
-    ]);
+    this._overflowMenu = setupHeaderOverflowMenu(overflowButton, headerOverflowItems());
+    // Ctrl+Shift+Q quits from a Windows or Linux desktop window, the keyboard
+    // half of the app menu's Exit. Anywhere else the chord is left alone.
+    this._unregisterQuit = keyShortcutManager.register('quit', () => {
+      if (!appMenuPlatform()) return false;
+      postWindowControl('quit');
+      return true;
+    });
   }
 
   /**
@@ -796,6 +798,7 @@ class UIEventManager {
     this._unregisterShowShortcuts?.();
     this._unregisterOpenSettings?.();
     this._unregisterToolGrouping?.();
+    this._unregisterQuit?.();
     this._overflowMenu?.dispose();
     this._overflowMenu = null;
     this._detachSidebarSwipe?.();

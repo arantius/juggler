@@ -315,6 +315,47 @@ export async function runTests(_ctx) {
       'Ctrl+, opens Settings in a browser tab off macOS');
   });
 
+  // A Windows or Linux desktop window has no menu bar to carry Exit, so
+  // Ctrl+Shift+Q quits there. ⌘⇧Q is macOS's Log Out, so the Mac never has it,
+  // and a browser tab off macOS leaves the chord to the browser.
+  await run('quit is Ctrl+Shift+Q in a Windows/Linux desktop window and nowhere else', () => {
+    const desktop = keyShortcutManager.getBindings('quit', false, true);
+    assert(desktop.length === 1 && formatBindingForPlatform(desktop[0], false) === 'Ctrl+Shift+Q',
+      `a Windows/Linux desktop window quits on Ctrl+Shift+Q, got [${desktop.map((b) => formatBindingForPlatform(b, false))}]`);
+    assert(eventMatchesBinding(desktop[0], evt({ ...modProp, shiftKey: true, key: 'Q' })), 'the chord matches');
+    assert(!eventMatchesBinding(desktop[0], evt({ ...modProp, key: 'q' })), 'without Shift it does not');
+    assert(keyShortcutManager.getBindings('quit', true, true).length === 0, 'a Mac window leaves ⌘⇧Q to Log Out');
+    assert(keyShortcutManager.getBindings('quit', true, false).length === 0, 'and so does a Mac browser tab');
+    assert(keyShortcutManager.getBindings('quit', false, false).length === 0,
+      'a browser tab off macOS leaves Ctrl+Shift+Q to the browser');
+
+    const idsIn = (groups) => groups.flatMap((g) => g.shortcuts.map((s) => s.id));
+    assert(idsIn(keyShortcutManager.byCategoryForPlatform(false, true)).includes('quit'),
+      'a Windows/Linux desktop window lists it');
+    assert(!idsIn(keyShortcutManager.byCategoryForPlatform(true, true)).includes('quit'), 'a Mac window does not');
+    assert(!idsIn(keyShortcutManager.byCategoryForPlatform(false, false)).includes('quit'),
+      'nor does a browser tab off macOS');
+    assert(!idsIn(shortcutModule.shortcutTableForPlatform(true)).includes('quit'), 'nor the macOS key table');
+  });
+
+  // This suite runs in a browser tab, which on every platform leaves the chord
+  // alone: the handler is never reached and the press is not taken.
+  await run('Ctrl+Shift+Q reaches no handler in a browser tab', () => {
+    const appHandler = keyShortcutManager._handlers.get('quit');
+    let count = 0;
+    const unregister = keyShortcutManager.register('quit', () => { count += 1; return true; });
+    try {
+      const e = new KeyboardEvent('keydown', {
+        key: 'Q', shiftKey: true, metaKey: true, ctrlKey: true, bubbles: true, cancelable: true,
+      });
+      document.body.dispatchEvent(e);
+      assert(count === 0 && !e.defaultPrevented, 'the browser keeps the chord');
+    } finally {
+      unregister();
+      if (appHandler) keyShortcutManager._handlers.set('quit', appHandler);
+    }
+  });
+
   await run('alt bindings match the macOS Option glyph via the code fallback', () => {
     const cycleModel = keyShortcutManager.getBinding('cycle-model');
     assert(cycleModel.mod && cycleModel.alt && cycleModel.key === 'm', 'cycle-model is Mod+Alt+M');

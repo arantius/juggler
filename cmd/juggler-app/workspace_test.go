@@ -46,6 +46,57 @@ func TestTheWorkspaceComesBackAsItWasSaved(t *testing.T) {
 	}
 }
 
+// A quit records the whole window set, and the teardown that follows closes the
+// windows one by one. Those closes must not record the shrinking set after it,
+// or the next launch restores only the windows that happened to close last.
+func TestQuittingKeepsTheWholeWindowSet(t *testing.T) {
+	path := workspacePath(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(path)
+	a.reg(func(st *regState) {
+		st.windows["w1"] = &winEntry{id: "w1", spec: windowSpec{project: "/a"}}
+		st.windows["w2"] = &winEntry{id: "w2", spec: windowSpec{project: "/b"}}
+	})
+	a.onShutdown()
+	a.reg(func(st *regState) { delete(st.windows, "w1") })
+	a.persistWorkspace()
+	a.workspace.flush(nil) // barrier: nil entries leave the set unchanged
+	got := readWorkspaceFile(path).Windows
+	want := []workspaceEntry{{Project: "/a"}, {Project: "/b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("after quitting, the workspace holds %+v, want %+v", got, want)
+	}
+}
+
+// Signing out of Windows or shutting it down ends the app through Wails' own
+// quit. Unauthorised, the busy guard vetoes that quit and Windows kills the
+// process before the window set is written. A shutdown that something else
+// cancelled must not quit the app at all.
+func TestWindowsEndSessionAuthorisesTheQuit(t *testing.T) {
+	a := newTestAppState(t)
+	quitting := func() bool {
+		var q bool
+		a.reg(func(st *regState) { q = st.quitting })
+		return q
+	}
+
+	if _, swallow := a.interceptWndProc(0, wmEndSession-1, 1, 0); swallow || quitting() {
+		t.Fatal("any other message passes through untouched")
+	}
+	if _, swallow := a.interceptWndProc(0, wmEndSession, 0, 0); !swallow {
+		t.Fatal("a cancelled end of session must be kept from Wails, which quits on any WM_ENDSESSION")
+	}
+	if quitting() {
+		t.Fatal("a cancelled end of session must not authorise a quit")
+	}
+	if _, swallow := a.interceptWndProc(0, wmEndSession, 1, 0); swallow {
+		t.Fatal("an ending session must reach Wails, whose quit runs the shutdown")
+	}
+	if !quitting() || !a.shouldQuit() {
+		t.Fatal("an ending session must authorise the quit, so the busy guard lets it through")
+	}
+}
+
 // Nothing saved yet is an empty workspace, not an error.
 func TestAMissingWorkspaceIsEmpty(t *testing.T) {
 	w := newWorkspaceStoreAt(workspacePath(t))

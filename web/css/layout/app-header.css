@@ -225,6 +225,14 @@ header-actions .btn-icon-header::before {
     display: none;
 }
 
+/* A Windows or Linux desktop window has no menu bar, so there the "…" menu is
+   the app menu too (utils/header-overflow-items.js) and is in the row at any
+   width. A Mac window has the menu bar and a browser tab the browser's. */
+:where(:root[data-window-platform="windows"] .window-mode) .header-overflow,
+:where(:root[data-window-platform="linux"] .window-mode) .header-overflow {
+    display: contents;
+}
+
 @container app-header (width < 900px) {
     .header-foldable {
         display: none;

@@ -58,7 +58,7 @@ func TestWindowControlActionTable(t *testing.T) {
 	want := []string{
 		"theme", "title", "locale", "folder-dropped", "control", "attention", "zoom",
 		"drafts-flushed", "pick-directory", "pick-file", "save-file", "updater",
-		"connect", "retry-server", "open-local",
+		"connect", "retry-server", "open-local", "quit",
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)
@@ -89,6 +89,34 @@ func TestWindowControlDraftsFlushedReleasesTheWaiter(t *testing.T) {
 	controlRequest(a, http.MethodPost, "/win/w1/drafts-flushed?token="+token)
 	if !closed(done) {
 		t.Fatal("a drafts-flushed reply quoting the current token must release the close")
+	}
+}
+
+// The in-page Exit takes the same path as the app's Quit command, answering at
+// once because the window that asked is about to close; a quit already under
+// way is not started twice.
+func TestWindowControlQuitStartsTheAppQuitOnce(t *testing.T) {
+	saved := startQuit
+	started := 0
+	startQuit = func(*appState) { started++ }
+	t.Cleanup(func() { startQuit = saved })
+
+	a := newTestAppState(t)
+	registerTestWindow(a, "w1")
+
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/quit"); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if started != 1 {
+		t.Fatalf("quit started %d times, want 1", started)
+	}
+
+	a.reg(func(st *regState) { st.quitting = true })
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/quit"); rec.Code != http.StatusNoContent {
+		t.Fatalf("status while quitting = %d, want 204", rec.Code)
+	}
+	if started != 1 {
+		t.Fatalf("a quit while already quitting started another (%d in all)", started)
 	}
 }
 

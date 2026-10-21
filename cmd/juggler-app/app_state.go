@@ -407,6 +407,9 @@ func (a *appState) initApplication() {
 		Linux: application.LinuxOptions{ProgramName: "Juggler"},
 		Windows: application.WindowsOptions{
 			AdditionalBrowserArgs: []string{"--disable-logging"},
+			// Signing out or shutting down quits through the same shutdown as
+			// Exit, so the whole window set is what comes back (busy_guard.go).
+			WndProcInterceptor: a.interceptWndProc,
 		},
 	})
 
@@ -1717,9 +1720,20 @@ func restorableSpecs(st *regState) []windowSpec {
 // as the workspace set. An empty set is never written — that keeps the last
 // non-empty set on disk so closing the final window (which quits the app) still
 // restores it next launch.
+//
+// Once a quit is authorised only the synchronous snapshot taken at quit writes.
+// Teardown closes every window one by one, and each close would otherwise queue
+// a save of a smaller set behind the whole one.
 func (a *appState) persistWorkspaceTo(sync bool) {
 	var specs []windowSpec
-	a.reg(func(st *regState) { specs = restorableSpecs(st) })
+	quitting := false
+	a.reg(func(st *regState) {
+		quitting = st.quitting
+		specs = restorableSpecs(st)
+	})
+	if quitting && !sync {
+		return
+	}
 	if len(specs) == 0 {
 		return
 	}

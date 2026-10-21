@@ -143,6 +143,7 @@ var windowActions = map[string]windowAction{
 	"connect":      (*appState).controlConnect,
 	"retry-server": (*appState).controlRetryServer,
 	"open-local":   (*appState).controlOpenLocal,
+	"quit":         (*appState).controlQuit,
 }
 
 // handleWindowControl dispatches /win/<id>/<action>, for a request
@@ -381,6 +382,25 @@ func (a *appState) controlZoom(w http.ResponseWriter, r *http.Request, _ *winEnt
 	a.setWindowZoom(zoom)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// controlQuit is the page's Exit/Quit command: the whole app, every window,
+// taken down by the same path as the app menu's Quit, so the full window set is
+// what the next launch restores. Windows and Linux windows show no native menu
+// to carry that command, so the page offers it. It answers at once — the busy
+// confirmation may still be on screen, and the window that asked is about to
+// close — and does nothing when a quit is already under way.
+func (a *appState) controlQuit(w http.ResponseWriter, _ *http.Request, _ *winEntry) {
+	var quitting bool
+	a.reg(func(st *regState) { quitting = st.quitting })
+	if !quitting {
+		startQuit(a)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// startQuit begins an app-wide quit off the caller's goroutine. A variable so a
+// test can see it was asked for without quitting anything.
+var startQuit = func(a *appState) { go a.confirmThenQuit() }
 
 // controlDraftsFlushed is the page's reply to a close-requested announcement:
 // its composer drafts are rescued and the affected conversations are on disk,
