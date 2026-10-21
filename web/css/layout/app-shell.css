@@ -154,26 +154,30 @@ app-container {
     background-color: var(--text-primary);
 }
 
-/* A window on a server the app did not start names it: the host as a label
+/* A window on a server the app did not start names it: the host as small print
    after the icon, and the button grows to hold it. `.is-remote` is set with
    the host by header-controls.js. The host never truncates — a clipped name
-   could read as another machine's. The count badge stays pinned over the
-   icon's corner rather than the end of the wider button. Pixel-sized like the
-   rest of the header's controls. */
+   could read as another machine's. The button stacks its text: where a wide
+   header spells out "N connected" (below), that is a second line under the
+   host, so the button is only ever as wide as its longer line. The count badge
+   stays pinned over the icon's corner rather than the end of the wider button.
+   Pixel-sized like the rest of the header's controls. */
 /* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
 .network-button.is-remote {
     width: auto;
-    gap: 8px;
-    padding: 0 10px 0 32px;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0 8px 0 30px;
 }
 
 .network-button.is-remote::before {
-    left: 16px;
+    left: 15px;
 }
 
 .network-button__host {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 10px;
+    line-height: 13px;
     white-space: nowrap;
 }
 
@@ -222,6 +226,21 @@ app-container {
 
     :where(.network-button.has-clients) .network-button__suffix {
         display: inline;
+    }
+
+    /* On a remote window the label is the host's second line, in its print.
+       After the rules above so the stacked layout wins. */
+    .network-button.is-remote.has-clients {
+        padding: 0 8px 0 30px;
+    }
+
+    .network-button.is-remote.has-clients::before {
+        left: 15px;
+    }
+
+    :where(.network-button.is-remote.has-clients) .network-button__clients {
+        font-size: 10px;
+        line-height: 13px;
     }
 }
 /* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */

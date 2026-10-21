@@ -593,6 +593,9 @@ export async function runTests() {
             `${width}px: the title and accessible name name the server, got "${button.title}"`);
           assert(b.right <= f.box('#tool-grouping-button').left,
             `${width}px: the network button leads the button row`);
+          // Small print, so a long host does not make the button a slab.
+          const hostSize = parseFloat(view.getComputedStyle(host).fontSize);
+          assert(hostSize < 12, `${width}px: the host is set smaller than the header's 12px labels, got ${hostSize}px`);
 
           clientsChanged(3);
           assert(button.title.includes('devbox:8080') && button.title.includes('2'),
@@ -610,9 +613,20 @@ export async function runTests() {
             assert(c.left < at.left + 32,
               `${width}px: the badge sits over the icon (badge at ${Math.round(c.left - at.left)}px into the button)`);
           } else {
+            // Wide, the "N connected" label is a second line under the host
+            // rather than a second run of text beside it, so the button only
+            // ever grows to its longer line, and the two lines fit the
+            // header's 32px row.
             const now = host.getBoundingClientRect();
-            assert(c.left >= now.right,
-              `${width}px: the "N connected" label follows the host, never overlaps it (count at ${Math.round(c.left - at.left)}px, host ends at ${Math.round(now.right - at.left)}px)`);
+            const label = f.el('.network-button__clients').getBoundingClientRect();
+            assert(label.top >= now.bottom - 0.5,
+              `${width}px: the label sits under the host (label top ${Math.round(label.top - at.top)}px, host bottom ${Math.round(now.bottom - at.top)}px)`);
+            assert(Math.abs(label.left - now.left) < 1,
+              `${width}px: the two lines share a left edge (${Math.round(label.left - at.left)} vs ${Math.round(now.left - at.left)}px)`);
+            assert(now.top >= at.top - 0.5 && label.bottom <= at.bottom + 0.5 && Math.round(at.height) === 32,
+              `${width}px: both lines fit a 32px button (button ${Math.round(at.height)}px, lines ${Math.round(now.top - at.top)}–${Math.round(label.bottom - at.top)}px)`);
+            assert(parseFloat(view.getComputedStyle(f.el('.network-button__clients')).fontSize) === hostSize,
+              `${width}px: both lines are set at one size`);
           }
         } finally {
           remote.dispose();

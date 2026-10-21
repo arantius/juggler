@@ -34,7 +34,8 @@ import { assert } from '../utilities/test-helpers.js';
  */
 const ALLOWED = [
   ['.network-button__clients', '12px'],
-  ['.network-button__host', '12px'],
+  ['.network-button__clients', '10px'],
+  ['.network-button__host', '10px'],
   ['update-button .update-btn', '13px'],
   ['header-actions .btn-icon-header', '14px'],
   ['.plugin-detail-name', '1.75rem'],
