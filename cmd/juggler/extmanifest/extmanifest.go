@@ -26,7 +26,7 @@ import (
 
 // DefaultEngineAPIVersion is the fallback host SDK version used when it cannot be
 // read from web/sdk/version.js. Keep in lockstep with ENGINE_API_VERSION there.
-const DefaultEngineAPIVersion = "1.1.0"
+const DefaultEngineAPIVersion = "1.2.0"
 
 // ManifestFileName is the well-known manifest filename at an extension root.
 const ManifestFileName = "juggler.extension.json"

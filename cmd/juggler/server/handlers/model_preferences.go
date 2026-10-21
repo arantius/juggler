@@ -85,6 +85,10 @@ func (api *ModelPreferencesAPI) HandleSetDefaultModel(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
+	if err := ChatOnlyError(req.Provider); err != nil {
+		WriteErr(w, r, http.StatusBadRequest, err)
+		return
+	}
 	if err := api.defaultModels.Save(req); err != nil {
 		WriteMessageError(w, r, http.StatusInternalServerError, msg.New("Couldn't save default model: {detail}", "detail", err.Error()))
 		return
@@ -106,6 +110,10 @@ func (api *ModelPreferencesAPI) HandleSetCheapModel(w http.ResponseWriter, r *ht
 	}
 	req, ok := DecodeJSON[core.CheapModelSetting](w, r)
 	if !ok {
+		return
+	}
+	if err := ChatOnlyError(req.Provider); err != nil {
+		WriteErr(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := api.cheapModels.Save(req); err != nil {

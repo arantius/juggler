@@ -244,7 +244,7 @@ class SettingsPanel extends JugglerElement {
 
                         <div class="settings-section-heading">${escapeHtml(t('Decision model'))}</div>
                         <p class="settings-description">
-                            ${escapeHtml(t('A model that answers yes/no and multiple-choice questions with probabilities instead of writing text, such as Jev. Auto-approve uses it to judge tool calls. Add one in Providers; without one, the cheap model does the job.'))}
+                            ${escapeHtml(t('A model that answers yes/no and multiple-choice questions with probabilities instead of writing text. Auto-approve uses it to judge tool calls. Add one in Providers; without one, the cheap model does the job.'))}
                         </p>
                         <div class="settings-form" id="decision-model-form">
                             <div class="settings-card">

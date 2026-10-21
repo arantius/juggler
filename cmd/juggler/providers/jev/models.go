@@ -26,6 +26,12 @@ var ModelContextWindows = map[string]int{
 // long-context header is sent, which this client never does.
 const DefaultContextWindow = 64000
 
+// QuestionContextWindow is the per-question limit every published model shares:
+// the state plus any one question must fit it, as well as the whole request
+// fitting the context window. Like the window, it is the figure without the
+// long-context header.
+const QuestionContextWindow = 32000
+
 // contextWindow returns a model's window and whether the number is a catalogued
 // figure rather than the fallback.
 func contextWindow(model string) (window int, catalogued bool) {
@@ -35,12 +41,13 @@ func contextWindow(model string) (window int, catalogued bool) {
 	return DefaultContextWindow, false
 }
 
-// resolveCapabilities supplies admission with the window of a catalogued model.
-// An unknown id reports false so it fails closed, the same as every provider's.
+// resolveCapabilities supplies admission with the window and per-question limit
+// of a catalogued model. An unknown id reports false so it fails closed, the
+// same as every provider's.
 func resolveCapabilities(model string) (provider.ModelCapabilities, bool) {
 	window, ok := ModelContextWindows[model]
 	if !ok {
 		return provider.ModelCapabilities{}, false
 	}
-	return provider.ModelCapabilities{ContextWindowTokens: int64(window)}, true
+	return provider.ModelCapabilities{ContextWindowTokens: int64(window), QuestionContextTokens: QuestionContextWindow}, true
 }

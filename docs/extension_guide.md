@@ -270,7 +270,7 @@ The full set of specifiers, and what each is for:
   | Shell | `shell`, `shellBackground`, `shellOutput`, `shellOutputDelta`, `shellKill`, `shellStreaming`, `cancelShellStreaming` |
   | Web | `httpRequest` (generic server-side HTTP), `webFetch`, `webSearch` |
   | Extension settings | `extensionConfigGet`, `extensionConfigSet`, `extensionConfigResolve` |
-  | LLM | `generateText` — one bounded, tool-less, unpersisted turn, for micro-tasks like titles and one-line labels; `decide` — ask the user's decision model yes/no, choice and score questions about some text and get probabilities back, for verdicts you would otherwise parse out of generated text |
+  | LLM | `generateText` — one bounded, tool-less, unpersisted turn, for micro-tasks like titles and one-line labels; `decide` — ask the user's decision model yes/no, choice and score questions about some text and get probabilities back, for verdicts you would otherwise parse out of generated text (needs `engineApi` `^1.2.0`) |
   | OS | `openPath`, `revealPath` |
   | MCP | `mcpListServers`, `mcpListTools`, `mcpCallTool`, … |
   | Types | `FileSystem`, `ReadOnlyFileSystem`, `OpsError` |

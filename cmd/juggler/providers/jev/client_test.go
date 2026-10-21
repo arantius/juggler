@@ -273,6 +273,11 @@ func TestCatalogueResolvesEveryListedModel(t *testing.T) {
 		if !ok || caps.ContextWindowTokens != int64(window) {
 			t.Errorf("%s: resolver gave %+v, %v for a catalogued window of %d", id, caps, ok, window)
 		}
+		// The API bounds the state plus any one question at 32k as well as the
+		// whole request at 64k; admission can only enforce what it is told.
+		if caps.QuestionContextTokens != QuestionContextWindow {
+			t.Errorf("%s: per-question limit %d, want %d", id, caps.QuestionContextTokens, QuestionContextWindow)
+		}
 	}
 	if _, ok := resolveCapabilities("jev-unknown"); ok {
 		t.Error("an uncatalogued model resolved capabilities, so admission would not fail closed")

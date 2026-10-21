@@ -28,6 +28,20 @@ func NewDecisionModelAPI(store *core.DecisionModelStore) *DecisionModelAPI {
 	return &DecisionModelAPI{store: store}
 }
 
+// ChatOnlyError reports why providerName cannot be chosen where a model has to
+// hold a conversation — a default or cheap model, a generateText call — or nil
+// when it can. The pickers already leave decision-only providers out; this is
+// the same rule for a caller that goes straight to the API, so a model that
+// cannot chat is refused at the choice rather than failing wherever it is next
+// used. An unknown provider is not refused here: whether it exists is a
+// different question with its own answer at each route.
+func ChatOnlyError(providerName string) error {
+	if info, found := provider.GetProviderInfo(providerName); found && !info.Chats() {
+		return msg.NewError("{provider} only answers decisions and cannot hold a conversation", "provider", providerName)
+	}
+	return nil
+}
+
 // HandleSet persists the decision model.
 // Body: {"provider": "...", "model": "..."}. An empty provider and model clears
 // the choice, so the cheap model is used again.

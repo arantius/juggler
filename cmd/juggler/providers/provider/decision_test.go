@@ -6,6 +6,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -27,6 +28,44 @@ func (d *deciderProvider) Decide(_ context.Context, req DecisionRequest) (Decisi
 
 func yesNo(id string) Question {
 	return Question{ID: id, Kind: QuestionYesNo, Instructions: "Is it safe?"}
+}
+
+// A zero is an answer: a certain "no", the bottom level of a scale, a model with
+// no confidence at all. Each must reach the JSON as 0, never be dropped, and an
+// answer must carry only the fields of its own kind.
+func TestAnswerJSONKeepsZeroesAndOnlyItsOwnFields(t *testing.T) {
+	cases := []struct {
+		answer     Answer
+		want, omit []string
+	}{
+		{Answer{Kind: QuestionYesNo}, []string{"kind", "probability"}, []string{"choice", "score", "confidence", "probabilities"}},
+		{Answer{Kind: QuestionChoice, Choice: "a", Probabilities: map[string]float64{"a": 1}}, []string{"kind", "choice", "confidence", "probabilities"}, []string{"probability", "score"}},
+		{Answer{Kind: QuestionScore, Probabilities: map[string]float64{"0": 1}}, []string{"kind", "score", "confidence", "probabilities"}, []string{"probability", "choice"}},
+	}
+	for _, c := range cases {
+		raw, err := json.Marshal(c.answer)
+		if err != nil {
+			t.Fatalf("%s: %v", c.answer.Kind, err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatalf("%s: %v", c.answer.Kind, err)
+		}
+		for _, k := range c.want {
+			if _, ok := fields[k]; !ok {
+				t.Errorf("%s answer %s is missing %q", c.answer.Kind, raw, k)
+			}
+		}
+		for _, k := range c.omit {
+			if _, ok := fields[k]; ok {
+				t.Errorf("%s answer %s carries %q, which belongs to another kind", c.answer.Kind, raw, k)
+			}
+		}
+		var back Answer
+		if err := json.Unmarshal(raw, &back); err != nil || back.Kind != c.answer.Kind {
+			t.Errorf("%s answer does not decode back: %+v, %v", c.answer.Kind, back, err)
+		}
+	}
 }
 
 func TestDecisionRequestValidate(t *testing.T) {
@@ -131,6 +170,41 @@ func TestAdmissionRefusesDecisionOverContextWindow(t *testing.T) {
 	}
 	if inner.calls != 0 {
 		t.Fatal("an oversized request reached the provider")
+	}
+}
+
+// A model can bound each question as well as the whole request (Jev: 64k per
+// request, 32k for the state plus any one question). A request that fits the
+// window but not the per-question bound must be refused here, not by the API.
+func TestAdmissionRefusesDecisionOverQuestionLimit(t *testing.T) {
+	inner := &deciderProvider{}
+	wrapped := &admissionProvider{Provider: inner, capabilities: ModelCapabilities{ContextWindowTokens: 64000, QuestionContextTokens: 100}}
+
+	_, err := Decide(context.Background(), wrapped, DecisionRequest{State: strings.Repeat("word ", 400), Questions: []Question{yesNo("ok"), yesNo("q")}})
+	var tooLarge *DecisionTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("err = %v, want DecisionTooLargeError", err)
+	}
+	if tooLarge.ContextWindowTokens != 100 || tooLarge.EstimatedInputTokens <= 100 || tooLarge.Question == "" {
+		t.Fatalf("error carries limit %d, estimate %d, question %q", tooLarge.ContextWindowTokens, tooLarge.EstimatedInputTokens, tooLarge.Question)
+	}
+	if !strings.Contains(tooLarge.Error(), "per-question") {
+		t.Fatalf("error %q does not say which limit was hit", tooLarge.Error())
+	}
+	if inner.calls != 0 {
+		t.Fatal("a request over the per-question limit reached the provider")
+	}
+}
+
+// The per-question bound is per question: several questions whose sum is over
+// it, each of which fits alongside the state, are fine.
+func TestAdmissionQuestionLimitIsNotARequestLimit(t *testing.T) {
+	q := yesNo("a")
+	one := EstimateDecisionRequestTokens(DecisionRequest{State: "short", Questions: []Question{q}}, 0)
+	req := DecisionRequest{State: "short", Questions: []Question{yesNo("a"), yesNo("b"), yesNo("c")}}
+	wrapped := &admissionProvider{Provider: &deciderProvider{}, capabilities: ModelCapabilities{ContextWindowTokens: 64000, QuestionContextTokens: one}}
+	if _, err := Decide(context.Background(), wrapped, req); err != nil {
+		t.Fatalf("questions that each fit were refused: %v", err)
 	}
 }
 

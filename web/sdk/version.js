@@ -34,7 +34,7 @@
  *   `juggler/registry` default export, core-only MANIFEST fields).
  * Reaching past the documented surface works today but can break at any release.
  */
-export const ENGINE_API_VERSION = '1.1.0';
+export const ENGINE_API_VERSION = '1.2.0';
 
 /**
  * Test whether `version` satisfies an `engineApi` range. Supports the small

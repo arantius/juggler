@@ -272,6 +272,52 @@ func TestDefaultModelNeverPicksADecisionOnlyProvider(t *testing.T) {
 	}
 }
 
+// The pickers leave decision-only providers out, but the routes behind them are
+// API too: a default or cheap model, or an explicit generateText model, that
+// cannot hold a conversation would be stored or run and then fail somewhere far
+// from the choice. Each route refuses it, and still takes a chat model.
+func TestChatModelRoutesRefuseADecisionOnlyProvider(t *testing.T) {
+	chat := ProviderStatus{Name: chatTestProvider, Available: true, ModelsWithContext: []ModelWithContext{{ID: "m"}}}
+	s := newDecisionServer(t, yesWith(1), decisionStatus(true, ModelWithContext{ID: "jev-test"}), chat)
+	defaults, _ := core.NewDefaultModelStore()
+	cheap, _ := core.NewCheapModelStore()
+	api := handlers.NewModelPreferencesAPI(defaults, cheap, nil, nil)
+
+	put := func(handle http.HandlerFunc, body string) int {
+		rec := httptest.NewRecorder()
+		handle(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(body)))
+		return rec.Code
+	}
+	decisionBody := `{"provider":"` + decisionTestProvider + `","model":"jev-test"}`
+	chatBody := `{"provider":"` + chatTestProvider + `","model":"m"}`
+
+	if code := put(api.HandleSetDefaultModel, decisionBody); code != http.StatusBadRequest {
+		t.Errorf("default model: PUT of a decision-only provider = %d, want 400", code)
+	}
+	if stored, _ := defaults.Load(); stored != (core.ModelRef{}) {
+		t.Errorf("a refused default was stored: %+v", stored)
+	}
+	if code := put(api.HandleSetCheapModel, decisionBody); code != http.StatusBadRequest {
+		t.Errorf("cheap model: PUT of a decision-only provider = %d, want 400", code)
+	}
+	if stored, _ := cheap.Load(); stored != (core.CheapModelSetting{}) {
+		t.Errorf("a refused cheap model was stored: %+v", stored)
+	}
+	if code := put(api.HandleSetDefaultModel, chatBody); code != http.StatusOK {
+		t.Errorf("default model: PUT of a chat provider = %d, want 200", code)
+	}
+	if code := put(api.HandleSetCheapModel, chatBody); code != http.StatusOK {
+		t.Errorf("cheap model: PUT of a chat provider = %d, want 200", code)
+	}
+
+	if _, err := s.resolveLLMCompleteModel(context.Background(), json.RawMessage(decisionBody)); err == nil {
+		t.Error("generateText accepted a decision-only model")
+	}
+	if ref, err := s.resolveLLMCompleteModel(context.Background(), json.RawMessage(chatBody)); err != nil || ref.Model != "m" {
+		t.Errorf("generateText refused a chat model: %+v, %v", ref, err)
+	}
+}
+
 func TestOnboardingDoesNotCountADecisionModelAsASetUpProvider(t *testing.T) {
 	s := newDecisionServer(t, yesWith(1), decisionStatus(true, ModelWithContext{ID: "jev-test"}))
 	if s.anyProviderAvailable() {

@@ -525,8 +525,10 @@ export async function runTests(_ctx) {
 
       h.tab.providers = providers();
       const without = h.tab._decisionModelStatusText({ explicit: false });
-      assert(/cheap model is used/.test(without) && /Jev/.test(without) && /Providers/.test(without),
+      assert(/cheap model is used/.test(without) && /Providers/.test(without),
         `with none available the row points at where to add one, got "${without}"`);
+      // Core UI names no vendor: the Providers tab is where the choices are.
+      assert(!/Jev/.test(without), `the hint must not advertise a provider, got "${without}"`);
 
       h.tab.providers = [...providers(), { ...decisionProvider(), available: false }];
       assert(/Providers/.test(h.tab._decisionModelStatusText({ explicit: false })),

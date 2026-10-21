@@ -6,6 +6,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -140,23 +141,55 @@ func (q Question) validateOptions() error {
 }
 
 // Answer is a decision model's reply to one Question. Which fields are set
-// follows Kind, and the rest are left at their zero value.
+// follows Kind, and the rest are left at their zero value. Its JSON carries
+// exactly the fields of its kind (see MarshalJSON).
 type Answer struct {
 	Kind QuestionKind `json:"kind"`
 	// Probability is the chance the statement holds, from 0 to 1. Set only for
 	// QuestionYesNo.
-	Probability float64 `json:"probability,omitempty"`
+	Probability float64 `json:"probability"`
 	// Choice is the option picked. Set only for QuestionChoice.
-	Choice string `json:"choice,omitempty"`
+	Choice string `json:"choice"`
 	// Score is the probability-weighted position on the scale. Set only for
 	// QuestionScore.
-	Score float64 `json:"score,omitempty"`
+	Score float64 `json:"score"`
 	// Confidence is how settled the model is on a choice or score, from 0 to 1.
 	// A yes-no answer carries none: its probability already is its confidence.
-	Confidence float64 `json:"confidence,omitempty"`
+	Confidence float64 `json:"confidence"`
 	// Probabilities gives the probability of each option, keyed by option name
 	// for a choice and by level position ("0", "1", ...) for a score.
-	Probabilities map[string]float64 `json:"probabilities,omitempty"`
+	Probabilities map[string]float64 `json:"probabilities"`
+}
+
+// MarshalJSON writes the fields of the answer's kind and no others. Kind decides
+// presence rather than omitempty, because a zero is a real answer here: a
+// certain "no", the bottom level of a scale, no confidence at all. Dropped, each
+// would read to a caller as a field the model never sent.
+func (a Answer) MarshalJSON() ([]byte, error) {
+	switch a.Kind {
+	case QuestionYesNo:
+		return json.Marshal(struct {
+			Kind        QuestionKind `json:"kind"`
+			Probability float64      `json:"probability"`
+		}{a.Kind, a.Probability})
+	case QuestionChoice:
+		return json.Marshal(struct {
+			Kind          QuestionKind       `json:"kind"`
+			Choice        string             `json:"choice"`
+			Confidence    float64            `json:"confidence"`
+			Probabilities map[string]float64 `json:"probabilities"`
+		}{a.Kind, a.Choice, a.Confidence, a.Probabilities})
+	case QuestionScore:
+		return json.Marshal(struct {
+			Kind          QuestionKind       `json:"kind"`
+			Score         float64            `json:"score"`
+			Confidence    float64            `json:"confidence"`
+			Probabilities map[string]float64 `json:"probabilities"`
+		}{a.Kind, a.Score, a.Confidence, a.Probabilities})
+	}
+	return json.Marshal(struct {
+		Kind QuestionKind `json:"kind"`
+	}{a.Kind})
 }
 
 // DecisionUsage is the billable size of a decision, in the same terms as the
@@ -203,12 +236,20 @@ func Decide(ctx context.Context, p Provider, req DecisionRequest) (DecisionResul
 // DecisionTooLargeError reports a decision request that cannot fit the model's
 // context window. A conversation can compact its history to make room; a
 // decision has nothing to drop, so the caller has to ask something smaller.
+//
+// Question is empty when the whole request is over ContextWindowTokens. When it
+// names a question, that question with the state is over the model's
+// per-question limit, and ContextWindowTokens holds that limit.
 type DecisionTooLargeError struct {
 	EstimatedInputTokens int64
 	ContextWindowTokens  int64
+	Question             string
 }
 
 func (e *DecisionTooLargeError) Error() string {
+	if e.Question != "" {
+		return fmt.Sprintf("decision question %q with the state is estimated at %d input tokens, over the model's %d-token per-question limit", e.Question, e.EstimatedInputTokens, e.ContextWindowTokens)
+	}
 	return fmt.Sprintf("the decision request is estimated at %d input tokens, over the model's %d-token context window", e.EstimatedInputTokens, e.ContextWindowTokens)
 }
 
@@ -230,7 +271,8 @@ func EstimateDecisionRequestTokens(req DecisionRequest, providerOverhead int64) 
 }
 
 // admissionDecider is the Decider admission control hands out: every request is
-// checked against the model's context window before it reaches the provider.
+// checked against the model's context window, and each question against its
+// per-question limit if it has one, before it reaches the provider.
 type admissionDecider struct {
 	inner        Decider
 	capabilities ModelCapabilities
@@ -240,6 +282,14 @@ type admissionDecider struct {
 func (d admissionDecider) Decide(ctx context.Context, req DecisionRequest) (DecisionResult, error) {
 	if err := req.Validate(); err != nil {
 		return DecisionResult{}, err
+	}
+	if limit := d.capabilities.QuestionContextTokens; limit > 0 {
+		for _, q := range req.Questions {
+			one := DecisionRequest{State: req.State, Questions: []Question{q}}
+			if estimated := EstimateDecisionRequestTokens(one, d.capabilities.ProviderOverheadTokens); estimated > limit {
+				return DecisionResult{}, &DecisionTooLargeError{EstimatedInputTokens: estimated, ContextWindowTokens: limit, Question: q.ID}
+			}
+		}
 	}
 	window := d.capabilities.ContextWindowTokens
 	if window <= 0 {

@@ -1034,7 +1034,7 @@ export class DefaultsTab {
     if (!ref || !ref.explicit) {
       return this._decisionProviders().some((/** @type {any} */ p) => p.available)
         ? t('Automatic — the cheap model is used.')
-        : t('Automatic — the cheap model is used. Add a decision model, such as Jev, in Providers.');
+        : t('Automatic — the cheap model is used. Add a decision model in Providers.');
     }
     return this._explicitModelStatusText(ref);
   }

@@ -762,6 +762,11 @@ type ModelCapabilities struct {
 	ContextWindowTokens    int64
 	MaxOutputTokens        int64
 	ProviderOverheadTokens int64
+	// QuestionContextTokens bounds a decision request per question: the state
+	// plus any one question must fit it, on top of the whole request fitting
+	// ContextWindowTokens. Zero means the model has no separate per-question
+	// limit. Only a Decider's admission reads it.
+	QuestionContextTokens int64
 }
 
 // BudgetContract defines how shared admission reserves room for a response.

@@ -193,6 +193,9 @@ func (s *Server) resolveLLMCompleteModel(ctx context.Context, raw json.RawMessag
 	if err := json.Unmarshal(raw, &obj); err != nil || obj.Provider == "" || obj.Model == "" {
 		return core.ModelRef{}, msg.NewError("invalid model: expected \"cheap\", \"default\", or '{provider, model}'")
 	}
+	if err := handlers.ChatOnlyError(obj.Provider); err != nil {
+		return core.ModelRef{}, err
+	}
 	concrete, ok := s.liveModelMatch(obj.Provider, obj.Model)
 	if !ok {
 		return core.ModelRef{}, msg.NewError("model not available: {provider}/{model}", "provider", obj.Provider, "model", obj.Model)
