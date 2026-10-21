@@ -10,6 +10,7 @@ import { dragGuard } from '../utils/drag-guard.js';
 import JugglerElement from './juggler-element.js';
 import { apiUrl } from '../utils/api-url.js';
 import { durationToken } from '../utils/modal-scrim.js';
+import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { t, markForTranslation, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { buildWordOfMouthAsk } from './word-of-mouth.js';
@@ -37,6 +38,8 @@ class AboutModal extends JugglerElement {
     this._version = '';
     /** @type {(() => void)|null} @private */
     this._releasePopupOpen = null;
+    /** @type {(() => void)|null} @private */
+    this._releaseTrap = null;
     /** @type {Animation[]} @private */
     this._clubAnimations = [];
     /** @type {ReturnType<typeof setTimeout>|null} @private - Ends the exit. */
@@ -52,6 +55,7 @@ class AboutModal extends JugglerElement {
     this._setupLogoClick();
     this.addCleanup(() => this._cancelClubThrows());
     this.addCleanup(() => this._cancelExit());
+    this.addCleanup(() => this._releaseFocusTrap());
     this.onWindow('juggler:open-about', () => { void this.open(); });
   }
 
@@ -100,6 +104,13 @@ class AboutModal extends JugglerElement {
     if (!this._releasePopupOpen) {
       this._releasePopupOpen = markPopupOpen(() => this._close());
     }
+    if (!this._releaseTrap) this._releaseTrap = trapFocus(this);
+  }
+
+  /** @private */
+  _releaseFocusTrap() {
+    this._releaseTrap?.();
+    this._releaseTrap = null;
   }
 
   /**
@@ -124,6 +135,7 @@ class AboutModal extends JugglerElement {
       this._releasePopupOpen();
       this._releasePopupOpen = null;
     }
+    this._releaseFocusTrap();
   }
 
   /** @private */
@@ -179,6 +191,9 @@ class AboutModal extends JugglerElement {
                 </footer>
             </modal-panel>
         `;
+
+    // The box's heading is the logo, so it is named in words.
+    markDialog(this.querySelector('.about-container'), t('About Juggler'));
 
     // The "spread the word" ask, kept here for good (components/word-of-mouth.js).
     this.querySelector('.about-content')?.appendChild(buildWordOfMouthAsk({ variant: 'about' }));

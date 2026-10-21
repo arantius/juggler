@@ -9,6 +9,7 @@ import noAbsoluteApiUrl from './eslint-rules/no-absolute-api-url.js';
 import noRawUiString from './eslint-rules/no-raw-ui-string.js';
 import testHooksInTestsOnly from './eslint-rules/test-hooks-in-tests-only.js';
 import sdkBoundary from './eslint-rules/sdk-boundary.js';
+import escapeHtmlInterpolation from './eslint-rules/escape-html-interpolation.js';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 
@@ -20,6 +21,7 @@ const jugglerPlugin = {
     'no-raw-ui-string': noRawUiString,
     'test-hooks-in-tests-only': testHooksInTestsOnly,
     'sdk-boundary': sdkBoundary,
+    'escape-html-interpolation': escapeHtmlInterpolation,
   },
 };
 
@@ -425,6 +427,20 @@ export default [
     plugins: { juggler: jugglerPlugin },
     rules: {
       'juggler/test-hooks-in-tests-only': 'error',
+    },
+  },
+  // ===================================================================
+  // Markup templates escape what they interpolate (juggler/escape-html-interpolation)
+  // ===================================================================
+  // Every `${}` in a template written to innerHTML / outerHTML /
+  // insertAdjacentHTML is escaped, or is named …HTML / …Html / …Svg because it
+  // is built markup. Tests build fixtures, not UI, and are exempt.
+  {
+    files: ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'],
+    ignores: ['web/extensions/**/_tests/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/escape-html-interpolation': 'error',
     },
   },
   // ===================================================================

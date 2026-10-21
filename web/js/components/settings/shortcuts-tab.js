@@ -39,6 +39,13 @@ export class ShortcutsTab {
   }
 
   /**
+   * Element disconnected: nothing to release. The rows are drawn once from the
+   * shortcut manager and take no listeners, timers or subscriptions of their
+   * own; the Escape row's controls are on elements inside `#shortcuts-form`.
+   */
+  dispose() {}
+
+  /**
    * Render the Keyboard shortcuts tab: every command from the KeyShortcutManager,
    * grouped by category, each showing its current binding for this platform. The
    * manager is the single source of truth, so this needs no server fetch. Rows are

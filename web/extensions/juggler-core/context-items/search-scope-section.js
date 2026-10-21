@@ -47,7 +47,7 @@ export function buildGitignoreSection(messageThread) {
     const respected = !conversationGitignoreDisabled(conversation);
     section.innerHTML = `
       <button class="search-scope-btn ${respected ? 'allowed' : 'ask'}"
-              role="switch" aria-checked="${respected}"
+              role="switch" aria-checked="${respected ? 'true' : 'false'}"
               title="${escapeHtml(t('When on, file search tools (grep, glob, tree) skip files matched by .gitignore.'))}">
         <span class="search-scope-icon">${respected ? TICK_SVG : CROSS_SVG}</span>
         <span class="search-scope-label">${escapeHtml(respected ? t('Respecting .gitignore in file searches') : t('Searching all files (.gitignore off)'))}</span>

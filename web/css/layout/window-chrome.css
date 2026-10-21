@@ -52,7 +52,7 @@
     right: 0;
     /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
     height: 6px;
-    z-index: 10000;
+    z-index: var(--z-modal);
 
     --wails-draggable: no-drag;
 }

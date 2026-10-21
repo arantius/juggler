@@ -20,7 +20,7 @@
  */
 
 import wsService from '../../services/websocket.js';
-import { fetchJson } from '../../services/http.js';
+import { setProviderEnabled } from '../../services/settings-api.js';
 import {
   mcpListServers,
   mcpGetConfig,
@@ -35,7 +35,6 @@ import {
 } from '../../services/ops-api.js';
 import { ConfigTabController, makeNameValidator } from '../config-tab.js';
 import { isMcpExtensionDisabled, MCP_DISABLED_NOTICE } from '../../services/mcp-availability.js';
-import { apiUrl } from '../../utils/api-url.js';
 import { t, markForTranslation, formatList } from '../../../sdk/lib/i18n.js';
 
 /** Polling interval (ms) for refreshing the MCP servers tab while it's open. */
@@ -401,10 +400,7 @@ export function acpDotClass(status) {
  */
 async function ensureAcpProviderEnabled() {
   try {
-    await fetchJson(apiUrl('/config/provider-enabled'), {
-      method: 'POST',
-      body: { provider: 'acp', enabled: true },
-    });
+    await setProviderEnabled('acp', true);
   } catch {
     // Non-fatal: the ACP provider can still be enabled manually.
   }

@@ -114,6 +114,34 @@ export async function runTests() {
     }
   });
 
+  await run('Enter that takes a completion takes only the completion', async () => {
+    // The field consumes an Enter that takes a highlighted path; the panel must
+    // not also read that same press as "open". A file taken from the menu
+    // closes the menu, so asking whether a menu is still showing gets it wrong.
+    const { element, promise, cancel } = buildPickerPanel({ dirsOnly: false });
+    document.body.appendChild(element);
+    const field = /** @type {any} */ (element.querySelector('path-input'));
+    try {
+      const input = /** @type {HTMLInputElement} */ (field.querySelector('input'));
+      field.value = '/work/a';
+      field.dispatchEvent(new CustomEvent('path-change', { detail: { value: '/work/a' } }));
+      field._openMenu(['/work/a.txt', '/work/b.txt']);
+      field._highlight(0);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      assert(field.value === '/work/a.txt', `the Enter must take the completion, got ${JSON.stringify(field.value)}`);
+      const got = await pendingAfter(promise, 200);
+      assert(got === 'pending', `the same Enter also opened ${JSON.stringify(got)}`);
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      const opened = await settleWithin(promise, 1000);
+      assert(opened === '/work/a.txt', `the next Enter opens what was taken, got ${JSON.stringify(opened)}`);
+    } finally {
+      field._closeMenu?.();
+      cancel();
+      element.remove();
+    }
+  });
+
   await run('a click on an invalid recent stays open and says why', async () => {
     const { element, promise, cancel } = buildPickerPanel({
       recents: ['/work/gone'],

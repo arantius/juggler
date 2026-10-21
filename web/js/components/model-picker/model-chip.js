@@ -506,7 +506,7 @@ class ModelChip extends JugglerElement {
     const contentHTML = this._contentHTML(state);
     this._renderedContentHTML = contentHTML;
     this.innerHTML = `
-            <button class="${classes.join(' ')}" id="model-button" type="button" title="${escapeHtml(this._buttonTitle)}" aria-haspopup="dialog" aria-expanded="${this._expanded}">
+            <button class="${/* eslint-disable-line juggler/escape-html-interpolation -- literal class names, left bare so css-markup-model reads them */ classes.join(' ')}" id="model-button" type="button" title="${escapeHtml(this._buttonTitle)}" aria-haspopup="dialog" aria-expanded="${this._expanded ? 'true' : 'false'}">
                 ${contentHTML}
             </button>
         `;

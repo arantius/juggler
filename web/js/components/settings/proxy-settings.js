@@ -10,8 +10,7 @@
 //   <https://www.gnu.org/licenses/agpl-3.0.html> for full terms.
 
 import { errorText } from '../../../sdk/lib/error-utils.js';
-import { fetchJson } from '../../services/http.js';
-import { apiUrl } from '../../utils/api-url.js';
+import { updateSettings } from '../../services/settings-api.js';
 import { t, markForTranslation } from '../../../sdk/lib/i18n.js';
 
 /**
@@ -157,6 +156,14 @@ export class ProxySettings {
   }
 
   /**
+   * Element disconnected: nothing to release. Every listener this box takes is
+   * on a control it drew into `#proxy-form`, which goes with the panel, and it
+   * arms no timer and subscribes to nothing outside it — the settings document
+   * reaches it through the owning tab's onSettingsChanged().
+   */
+  dispose() {}
+
+  /**
    * The settings document arrived — from the panel's fetch, or because it changed
    * here or in another window. Adopt the proxy section and show it, unless the
    * user is in the middle of one of these two controls: the URL field commits on
@@ -270,10 +277,7 @@ export class ProxySettings {
     this._mode = mode;
     this._url = url;
     try {
-      const data = await fetchJson(apiUrl('/settings'), {
-        method: 'PUT',
-        body: { network: { proxy: { mode, url } } },
-      });
+      const data = await updateSettings({ network: { proxy: { mode, url } } });
       const proxy = (data && data.network && data.network.proxy) || {};
       this._mode = proxy.mode || mode;
       this._url = proxy.url || '';

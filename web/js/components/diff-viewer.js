@@ -643,10 +643,12 @@ class DiffViewer extends JugglerElement {
     this.indexRows(model.hunks);
 
     const view = this.effectiveView();
-    const body = view === 'split'
+    const bodyHTML = view === 'split'
       ? this.renderSplitView(model.hunks, model.drawable)
       : this.renderInlineView(model.hunks, model.drawable);
-    const fileComments = this.renderFileComments();
+    const controlsHTML = this.renderControls(view);
+    const noticesHTML = model.notices.map((notice) => this.renderNotice(notice)).join('');
+    const fileCommentsHTML = this.renderFileComments();
     const label = this.diffLabel();
 
     // The layout in force is on the element itself, so the stylesheet reads the
@@ -658,15 +660,15 @@ class DiffViewer extends JugglerElement {
         <diff-header>
           ${escapeHtml(this.filePath || t('File diff'))}
         </diff-header>
-        ${this.renderControls(view)}
-        ${model.notices.map((notice) => this.renderNotice(notice)).join('')}
+        ${controlsHTML}
+        ${noticesHTML}
         <diff-body role="group" aria-label="${escapeAttr(label)}">
-          ${body}
+          ${bodyHTML}
         </diff-body>
-        ${fileComments}
+        ${fileCommentsHTML}
         <diff-stats>
-          <span class="add-count">+${formatNumber(model.added)}</span>
-          <span class="remove-count">-${formatNumber(model.removed)}</span>
+          <span class="add-count">+${escapeHtml(formatNumber(model.added))}</span>
+          <span class="remove-count">-${escapeHtml(formatNumber(model.removed))}</span>
         </diff-stats>
       </diff-content>
     `;

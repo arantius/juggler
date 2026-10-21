@@ -280,14 +280,18 @@ export function onOtherPopupOpened(ownPopupId, closeHandler) {
  * @param {string[]} [opts.insideSelectors] - CSS selectors whose subtree counts
  *   as "inside". A click matching none of them dismisses the popup. Pass
  *   selectors (not elements): the popup surface is often detached to <body>.
+ * @param {boolean} [opts.nested=false] - The popup opens from a control inside
+ *   another open popup (a field's completion list in the project picker): it
+ *   does not announce itself, so the popup it sits in stays open. It still
+ *   closes when another popup opens, and on Escape.
  * @returns {() => void} release - Removes every listener and the open-state.
  */
-export function registerOpenPopup({ id, onClose, insideSelectors }) {
+export function registerOpenPopup({ id, onClose, insideSelectors, nested = false }) {
   // Single-instance: close any popup already open under this id before this one
   // takes its place. Makes stacking structurally impossible for every caller —
   // the behaviour does not depend on each button guarding its own open-state.
   const releaseId = registerPopupId(id, onClose);
-  notifyPopupOpen(id);
+  if (!nested) notifyPopupOpen(id);
   const releaseSubscription = onOtherPopupOpened(id, onClose);
   const releaseCore = () => {
     releaseSubscription();

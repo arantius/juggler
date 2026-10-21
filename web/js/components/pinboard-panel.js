@@ -28,7 +28,7 @@ import pinboardStore from '../services/pinboard-store.js';
 import pinboardView from '../services/pinboard-view.js';
 import pinboardItemRegistry from '../registries/pinboard-item-registry.js';
 import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
-import { THREAD_FOCUS_CHANGED } from './conversation-tab.js';
+import { THREAD_FOCUS_CHANGED, CONVERSATION_TAB_SHOWN } from './conversation-tab.js';
 import { isEditableTarget } from '../services/key-shortcut-manager.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -61,30 +61,34 @@ function baseName(path) {
 
 /**
  * Wait until a conversation's column is the one on screen, so a reveal aimed at
- * it has something to aim at. Switching mounts the tab and marks it active, but
- * not in the same turn — and a reveal that arrives before that has no columns to
- * scroll.
+ * it has something to aim at. Switching mounts the tab and shows it, but not
+ * necessarily in the same turn — a first showing syncs its columns a task later
+ * — and a reveal that arrives before that has no columns to scroll. The tab
+ * says when it is ready with CONVERSATION_TAB_SHOWN.
  *
  * It resolves on the deadline rather than hanging: a tab that never arrives is a
  * reveal that lands nowhere, which is a better outcome than a promise nothing
- * settles. Timers rather than frames, because the window may still be behind
+ * settles. A timer rather than a frame, because the window may still be behind
  * another when this runs, and a hidden window paints none.
  * @param {string} conversationId - The conversation whose column to wait for.
  * @param {number} [timeoutMs] - How long to wait before giving up.
  * @returns {Promise<void>} Resolves when the column is up, or on the deadline.
  */
 function waitForTab(conversationId, timeoutMs = 1000) {
+  const tab = /** @type {any} */ (document.getElementById(`conversation-tab-${conversationId}`));
+  if (tab?.shown) return Promise.resolve();
   return new Promise((resolve) => {
-    const deadline = Date.now() + timeoutMs;
-    const check = () => {
-      const tab = document.getElementById(`conversation-tab-${conversationId}`);
-      if (tab?.classList.contains('active') || Date.now() >= deadline) {
-        resolve();
-        return;
-      }
-      setTimeout(check, 16);
+    /** @param {Event} e */
+    const onShown = (e) => {
+      if (/** @type {CustomEvent} */ (e).detail?.conversationId === conversationId) done();
     };
-    check();
+    const done = () => {
+      clearTimeout(deadline);
+      document.removeEventListener(CONVERSATION_TAB_SHOWN, onShown);
+      resolve();
+    };
+    const deadline = setTimeout(done, timeoutMs);
+    document.addEventListener(CONVERSATION_TAB_SHOWN, onShown);
   });
 }
 
@@ -555,6 +559,7 @@ class PinboardPanel extends JugglerElement {
     popOut.className = 'btn-ghost pinboard-toolbar__popout';
     popOut.title = t('Open this board in its own window');
     popOut.setAttribute('aria-label', t('Pop out Pinboard'));
+    // eslint-disable-next-line juggler/escape-html-interpolation -- POPOUT_ICON_PATH is this module's constant path data
     popOut.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="${POPOUT_ICON_PATH}"/></svg><span>${escapeHtml(t('Pop-out'))}</span>`;
     popOut.hidden = !canLinkBoards();
     this.on(popOut, 'click', () => { void this._popOut(); });

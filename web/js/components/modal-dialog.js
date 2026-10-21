@@ -58,6 +58,7 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { createButton as makeButton, escapeHtml } from '../../sdk/lib/html.js';
 import { focusWhenShown } from '../utils/focus.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
+import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { registerUiPort } from '../services/ui-port.js';
 
@@ -87,6 +88,33 @@ class ModalDialog extends JugglerElement {
      * @type {HTMLElement|null} @private
      */
     this._returnFocusEl = null;
+    /** @type {(() => void)|null} @private - Releases the Tab trap of an open dialog. */
+    this._releaseTrap = null;
+  }
+
+  /**
+   * Announce the panel for this show. A dialog is a modal dialog named by its
+   * title and holds Tab; a notice has no title, no controls and no answer to
+   * wait for, and leaves the page usable behind it, so it is a polite status
+   * message instead — announced, never trapping the keyboard.
+   * @param {boolean} isNotice - Whether this show is a notice.
+   * @private
+   */
+  _announce(isNotice) {
+    const panel = this.querySelector('.modal-container');
+    if (!panel) return;
+    if (isNotice) {
+      panel.setAttribute('role', 'status');
+      for (const attr of ['aria-modal', 'aria-labelledby', 'aria-label']) panel.removeAttribute(attr);
+    } else {
+      markDialog(panel, this.querySelector('.modal-title'));
+    }
+  }
+
+  /** @private */
+  _releaseFocusTrap() {
+    this._releaseTrap?.();
+    this._releaseTrap = null;
   }
 
   /**
@@ -113,6 +141,7 @@ class ModalDialog extends JugglerElement {
     // it must not come back showing the empty panel the next connect builds.
     this.classList.remove('show', 'is-notice');
     this._runShowCleanups();
+    this._releaseFocusTrap();
     if (this.handleKeydown) {
       document.removeEventListener('keydown', this.handleKeydown);
       this.handleKeydown = null;
@@ -217,6 +246,7 @@ class ModalDialog extends JugglerElement {
 
     const isNotice = type === 'notice';
     this.classList.toggle('is-notice', isNotice);
+    this._announce(isNotice);
 
     // Set title and message
     const titleEl = this.querySelector('.modal-title');
@@ -294,6 +324,8 @@ class ModalDialog extends JugglerElement {
 
     // Show modal
     this.classList.add('show');
+    this._releaseFocusTrap();
+    if (!isNotice) this._releaseTrap = trapFocus(this);
     if (this.handleKeydown) {
       document.addEventListener('keydown', this.handleKeydown);
     }
@@ -447,6 +479,7 @@ class ModalDialog extends JugglerElement {
     fadeOutScrims(this);
     this.classList.remove('show', 'is-notice');
     this._runShowCleanups();
+    this._releaseFocusTrap();
     if (this.handleKeydown) {
       document.removeEventListener('keydown', this.handleKeydown);
     }

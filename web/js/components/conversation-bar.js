@@ -34,6 +34,7 @@ import { CLOCK_SVG, ALERT_SVG, ADD_SVG, BIN_SVG, UNDO_SVG, withAttrs } from '../
 import { TYPE_ICONS } from '../utils/icon-message-renderer.js';
 import { isPinboardView } from '../utils/view-mode.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
+import { setTabListFocus } from '../services/tab-list-focus.js';
 import { isAutoNameEnabled, refreshAutoNameSetting } from '../services/auto-name-setting.js';
 import {
   workspaceGroups,
@@ -472,6 +473,7 @@ class ConversationBar extends JugglerElement {
    */
   _enterTabListFocus({ ring = false } = {}) {
     this.classList.add('tab-list-focused');
+    setTabListFocus(this, true);
     this.classList.toggle('tab-list-ring', ring);
     this.setAttribute('tabindex', '-1');
     this.focus({ preventScroll: true });
@@ -481,6 +483,7 @@ class ConversationBar extends JugglerElement {
   /** @private */
   _exitTabListFocus() {
     this.classList.remove('tab-list-focused', 'tab-list-ring');
+    setTabListFocus(this, false);
     if (document.activeElement === this) this.blur();
   }
 
@@ -1747,9 +1750,10 @@ class ConversationBar extends JugglerElement {
       // on or nothing has been said yet; a "!" when the last turn failed; a
       // clock while a send is scheduled. The glyphs are the app's own: the
       // panel's assistant icon, the ask item's question, the scheduler's clock.
+      const assistantSvg = TYPE_ICONS.assistant;
       tab.innerHTML = `
         <span class="item-circle conversation-tab-status color-meta" aria-hidden="true">
-          <span class="conversation-tab-glyph conversation-tab-glyph-assistant">${TYPE_ICONS.assistant}</span>
+          <span class="conversation-tab-glyph conversation-tab-glyph-assistant">${assistantSvg}</span>
           <span class="conversation-tab-glyph conversation-tab-glyph-question icon-question"></span>
           <span class="conversation-tab-glyph conversation-tab-glyph-clock">${CLOCK_SVG}</span>
           <span class="conversation-tab-glyph conversation-tab-glyph-alert">${ALERT_SVG}</span>
@@ -2284,7 +2288,7 @@ class ConversationBar extends JugglerElement {
     tabEl.style.height = `${from.height}px`;
     tabEl.style.margin = '0';
     tabEl.style.pointerEvents = 'none';
-    tabEl.style.zIndex = '1000';
+    tabEl.style.zIndex = 'var(--z-dropdown)';
     this.appendChild(tabEl);
     const origin = tabEl.getBoundingClientRect();
     tabEl.style.left = `${from.left - origin.left}px`;

@@ -312,8 +312,8 @@ export function buildPickerPanel({
   if (newWindowBtn) newWindowBtn.addEventListener('click', doNewWindow);
   pathInputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !openBtn.disabled) {
-      // Only trigger the confirm action when the completion dropdown is hidden.
-      if (!document.querySelector('.completions-menu')) confirmAction();
+      // An Enter the field consumed took a completion; it is not also a confirm.
+      if (!e.defaultPrevented) confirmAction();
     }
   });
 
@@ -671,8 +671,8 @@ export function openNewProjectPanel(recents = []) {
     if (e.key === 'Enter' && !createBtn.disabled) void create();
   });
   pathInputEl.addEventListener('keydown', (e) => {
-    // Only when the completion dropdown is closed, which owns Enter while open.
-    if (e.key === 'Enter' && !document.querySelector('.completions-menu')) nameEl.focus();
+    // Not for an Enter the field consumed taking a completion.
+    if (e.key === 'Enter' && !e.defaultPrevented) nameEl.focus();
   });
 
   focusWhenShown(nameEl, { delay: 50 });

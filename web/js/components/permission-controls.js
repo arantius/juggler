@@ -297,7 +297,7 @@ class PermissionControls extends JugglerElement {
     const includePopupHtml = this.popupOpen && !existingPopup;
 
     this.innerHTML = `
-            <button class="permission-btn input-ctrl-btn ${this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}" title="${escapeHtml(t('Manage auto-approval permissions'))}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen}">
+            <button class="permission-btn input-ctrl-btn ${/* eslint-disable-line juggler/escape-html-interpolation -- 'allowed' or 'ask', left bare so css-markup-model reads them */ this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}" title="${escapeHtml(t('Manage auto-approval permissions'))}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen ? 'true' : 'false'}">
                   ${this._buttonInnerHTML()}
               </button>
             ${includePopupHtml ? `<div class="dropdown-menu permissions-popup show" role="dialog" aria-label="${escapeHtml(t('Permissions'))}"></div>` : ''}
@@ -542,30 +542,30 @@ class PermissionControls extends JugglerElement {
     row.dataset.key = d.key;
     row.dataset.mode = d.mode;
     const p = d.path || '';
-    const save = escapeHtml(t('Save'));
-    const cancel = escapeHtml(t('Cancel'));
+    const saveHtml = escapeHtml(t('Save'));
+    const cancelHtml = escapeHtml(t('Cancel'));
     if (d.mode === 'implicit') {
       // The implicit project root is shown but cannot be edited, re-scoped, or
       // removed — it applies to every conversation and never changes.
-      const rootTitle = escapeHtml(t('Project root — available in every conversation'));
+      const rootTitleHtml = escapeHtml(t('Project root — available in every conversation'));
       row.className = 'pattern-row pattern-row-implicit';
       row.innerHTML = `
-        <span class="pattern-text" data-path="${escapeHtml(p)}" title="${rootTitle}">${escapeHtml(p)}</span>
-        <span class="permission-scope-label" title="${rootTitle}">${escapeHtml(t('All conversations'))}</span>`;
+        <span class="pattern-text" data-path="${escapeHtml(p)}" title="${rootTitleHtml}">${escapeHtml(p)}</span>
+        <span class="permission-scope-label" title="${rootTitleHtml}">${escapeHtml(t('All conversations'))}</span>`;
     } else if (d.mode === 'edit') {
       row.className = 'pattern-row editing';
       row.innerHTML = `
         <path-input dirs-only class="path-edit-input" value="${escapeHtml(p)}" data-old-path="${escapeHtml(d.key)}" placeholder="${escapeHtml(p)}"></path-input>
-        <button class="pattern-save-btn path-save-btn" data-old-path="${escapeHtml(d.key)}" title="${save}">${save}</button>
-        <button class="pattern-cancel-btn path-cancel-btn" title="${cancel}">${cancel}</button>`;
+        <button class="pattern-save-btn path-save-btn" data-old-path="${escapeHtml(d.key)}" title="${saveHtml}">${saveHtml}</button>
+        <button class="pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
     } else if (d.mode === 'new') {
       // i18n-ignore: an example path, not words
       const example = '~/code/juggler';
       row.className = 'pattern-row editing';
       row.innerHTML = `
         <path-input dirs-only class="path-edit-input" placeholder="${escapeHtml(t('e.g., {example}', { example }))}" data-old-path=""></path-input>
-        <button class="pattern-save-btn path-save-btn" data-old-path="" title="${save}">${save}</button>
-        <button class="pattern-cancel-btn path-cancel-btn" title="${cancel}">${cancel}</button>`;
+        <button class="pattern-save-btn path-save-btn" data-old-path="" title="${saveHtml}">${saveHtml}</button>
+        <button class="pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
     } else {
       row.className = 'pattern-row';
       row.innerHTML = `

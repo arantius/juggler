@@ -224,15 +224,15 @@ class NoProjectOverlay extends JugglerElement {
     // only the desktop app can open (see connect-server-panel.js).
     const canConnect = canConnectToServer();
     const product = 'Juggler'; // i18n-ignore: the product name, which the logo spells out
-    const welcome = escapeHtml(t('Welcome to Juggler'));
+    const welcomeHtml = escapeHtml(t('Welcome to Juggler'));
     const footnoteMarkup = {
       shortcuts: `<button type="button" class="onboarding-link np-shortcuts">${escapeHtml(t('keyboard shortcuts'))}</button>`,
     };
 
     this.innerHTML = `
-      <section class="onboarding-panel" aria-label="${welcome}">
-        <div class="onboarding-logo" role="img" aria-label="${product}"></div>
-        <h1 class="np-heading">${welcome}</h1>
+      <section class="onboarding-panel" aria-label="${welcomeHtml}">
+        <div class="onboarding-logo" role="img" aria-label="${escapeHtml(product)}"></div>
+        <h1 class="np-heading">${welcomeHtml}</h1>
         <p class="np-lead">${escapeHtml(t('Juggler is an AI coding agent designed around transparency, control, and fast iteration. It works inside one project folder at a time.'))}</p>
 
         <div class="np-actions">

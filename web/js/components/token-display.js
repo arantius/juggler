@@ -159,7 +159,7 @@ class TokenDisplay extends JugglerElement {
     // space, and the denominator to its slash: a narrow column wraps this text,
     // and a count marooned from its unit ("/" alone at the end of a line, or
     // "cached" starting the next) is a worse read than a longer line.
-    let leftText = `${this.approximate ? '~' : ''}${fmtTokens(this.total)}`;
+    let leftHTML = `${this.approximate ? '~' : ''}${fmtTokens(this.total)}`;
     if (cached !== null && cached > 0) {
       const cachedCount = fmtTokens(cached);
       let cachedHTML;
@@ -171,7 +171,7 @@ class TokenDisplay extends JugglerElement {
       } else {
         cachedHTML = escapeHtml(t('({count}\u00A0cached)', { count: cachedCount }));
       }
-      leftText += ` <span class="token-cached">${cachedHTML}</span>`;
+      leftHTML += ` <span class="token-cached">${cachedHTML}</span>`;
     }
 
     const meterHTML = hasBudget
@@ -198,7 +198,7 @@ class TokenDisplay extends JugglerElement {
       this.removeAttribute('title');
     }
 
-    this.innerHTML = `<span class="token-text">${leftText}</span>${meterHTML}`;
+    this.innerHTML = `<span class="token-text">${leftHTML}</span>${meterHTML}`;
   }
 }
 

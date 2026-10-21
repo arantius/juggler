@@ -1548,8 +1548,11 @@ settings-panel .chime-rotary-input {
     pointer-events: none;
 }
 
-settings-panel .chime-rotary:focus-within .chime-rotary-knob {
-    outline: none;
+/* The input is the focus target but is invisible, so the ring it earns from the
+   keyboard is drawn on the knob, which is round and is the thing being turned. */
+settings-panel .chime-rotary:has(.chime-rotary-input:focus-visible) .chime-rotary-knob {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
 }
 
 settings-panel .chime-rotary-label {

@@ -77,6 +77,16 @@ export const POPUP_REVEALED_EVENT = 'popup-revealed';
  * @param {boolean} [opts.modal=true] - Sheet flavour on narrow screens: modal
  *   (scrim + grabber, scrim-tap dismisses) or non-modal (docked, no scrim,
  *   does not steal focus). Ignored while anchored.
+ * @param {boolean} [opts.nested=false] - Opened from a control inside another
+ *   open popup: it does not announce itself, so that popup stays open (see
+ *   `registerOpenPopup`).
+ * @param {boolean} [opts.restoreFocus=true] - On release, return focus to the
+ *   control focused before opening when focus is on <body> or inside the
+ *   surface. Off for a surface that never takes focus and is closed because
+ *   its field was left: refocusing the field would only reopen it.
+ * @param {boolean} [opts.followAnchor=false] - Re-place the surface while
+ *   anchored whenever anything scrolls or the window resizes, for an anchor
+ *   that sits inside a scrolling box and moves while the surface is open.
  * @returns {() => void} release - Tears down surface, scrim, observer, media
  *   listener and dismissal wiring. Idempotent.
  */
@@ -90,6 +100,9 @@ export function presentPopup({
   insideSelectors,
   reposition = true,
   modal = true,
+  nested = false,
+  restoreFocus: restoreFocusOnRelease = true,
+  followAnchor = false,
 }) {
   const focusedBeforeOpen = document.activeElement;
   const returnFocus = focusedBeforeOpen instanceof HTMLElement
@@ -108,7 +121,7 @@ export function presentPopup({
   // Mutual exclusion + Escape + open-state (+ optional outside-click). In sheet
   // mode the scrim is the visible outside target, but the same selector-based
   // handler still resolves taps on it to "outside", so one path serves both.
-  const releaseDismiss = registerOpenPopup({ id, onClose, insideSelectors });
+  const releaseDismiss = registerOpenPopup({ id, onClose, insideSelectors, nested });
 
   /** @type {HTMLElement|null} */
   let scrim = null;
@@ -215,6 +228,14 @@ export function presentPopup({
   const mql = window.matchMedia(SHEET_QUERY);
   mql.addEventListener('change', apply);
 
+  // A sheet ignores its anchor, so only an anchored surface follows it.
+  // `scroll` is captured at the window to hear a scroll in any ancestor box.
+  const follow = () => { if (!mql.matches) reposToAnchor(); };
+  if (followAnchor) {
+    window.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+  }
+
   // Position after layout so the surface has measurable dimensions. The handle
   // is kept so a release arriving before that frame runs can cancel it —
   // otherwise the placement would fire against a surface already torn down and,
@@ -224,12 +245,16 @@ export function presentPopup({
 
   return () => {
     const focused = document.activeElement;
-    const restoreFocus = focused === null
+    const restoreFocus = restoreFocusOnRelease && (focused === null
       || focused === document.body
-      || (focused instanceof Node && surface.contains(focused));
+      || (focused instanceof Node && surface.contains(focused)));
 
     cancelAnimationFrame(placementFrame);
     mql.removeEventListener('change', apply);
+    if (followAnchor) {
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
+    }
     if (observer) observer.disconnect();
     if (scrim) scrim.remove();
     // Detach before the surface goes: a sheet dismissed by its own drag is torn

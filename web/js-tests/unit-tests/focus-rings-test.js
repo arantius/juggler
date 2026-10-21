@@ -151,6 +151,28 @@ export async function runTests() {
     assert(own.length === 0, `these draw their own focus look:\n  ${own.join('\n  ')}`);
   });
 
+  // Suppressing the ring outside a focus state switches it off for good: the
+  // base rule is at zero specificity, so it never comes back on :focus-visible.
+  // That is right for a text field, which shows focus through the field look,
+  // and for nothing else.
+  check('only a text field suppresses the ring outside a focus state', () => {
+    const field = /(^|[\s>])(input|textarea)$|-(input|field|textarea)$/;
+    const offenders = rules
+      .filter(rule => rule.style.getPropertyValue('outline-style') === 'none')
+      .flatMap(rule => rule.selectorText.split(/,\s*/))
+      .filter(part => !/:focus|:has\(|\.focused\b/.test(part) && !field.test(part));
+    assert(offenders.length === 0, `these switch the ring off for good: ${offenders.join(' | ')}`);
+  });
+
+  // The rotary's focus target is a hidden range input, so the ring it would get
+  // is invisible: the knob has to wear it instead.
+  check('the chime rotary rings its knob while its hidden input has keyboard focus', () => {
+    const ring = rules.filter(rule => /\.chime-rotary-input:focus-visible\).*\.chime-rotary-knob$/.test(rule.selectorText));
+    assert(ring.length === 1, `expected one rule ringing the knob, found ${ring.length}`);
+    assert(ring[0].style.getPropertyValue('outline') === 'var(--focus-ring)',
+      `outline is "${ring[0].style.getPropertyValue('outline')}"`);
+  });
+
   check('no field draws its own chrome or focus look', () => {
     const own = rules
       .filter(rule => rule.selectorText.split(/,\s*/).some(part =>

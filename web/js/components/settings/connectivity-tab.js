@@ -13,8 +13,8 @@ import { formatTimeAgo } from '../../utils/format.js';
 import { createCopyButton } from '../../../sdk/lib/copy-button.js';
 import wsService from '../../services/websocket.js';
 import { ProxySettings } from './proxy-settings.js';
-import { fetchJson, httpErrorText } from '../../services/http.js';
-import { apiUrl } from '../../utils/api-url.js';
+import { httpErrorText } from '../../services/http.js';
+import * as settingsApi from '../../services/settings-api.js';
 import { t, serverText } from '../../../sdk/lib/i18n.js';
 
 /** Polling interval (ms) for refreshing the Connectivity tab while it's open. */
@@ -99,13 +99,9 @@ function clientDeviceLabel(ua) {
  * @param {string} url
  */
 async function loadQRCodeSVG(host, url) {
-  try {
-    const res = await fetch(apiUrl(`/connectivity/qr?url=${encodeURIComponent(url)}`));
-    if (!res.ok) return;
-    host.innerHTML = await res.text();
-  } catch {
-    // Network failure: leave the host empty rather than throwing.
-  }
+  // A refusal or a network failure leaves the host empty rather than throwing.
+  const svg = await settingsApi.getConnectivityQRSvg(url);
+  if (svg !== null) host.innerHTML = svg;
 }
 
 /**
@@ -189,6 +185,15 @@ export class ConnectivityTab {
     if (renderFields) this.renderConnectivityFields();
   }
 
+  /**
+   * The connectivity state this tab holds — what the panel's config load keeps
+   * when its re-read fails, rather than blanking the form already drawn.
+   * @returns {object} The current state.
+   */
+  currentConnectivity() {
+    return this.connectivity;
+  }
+
   /** Tab became visible: refresh and arm the background poll (once loaded). */
   show() {
     this._visible = true;
@@ -245,11 +250,12 @@ export class ConnectivityTab {
     this.hide();
   }
 
-  /** Element disconnected: drop the clients-changed subscription. */
+  /** Element disconnected: drop the clients-changed subscription, stop the poll, release the proxy box. */
   dispose() {
     this._clientsChangedOff?.();
     this._clientsChangedOff = null;
     this.hide();
+    this._proxy.dispose();
   }
 
   /**
@@ -262,7 +268,7 @@ export class ConnectivityTab {
    */
   async refreshConnectivity(force = false) {
     try {
-      const next = await fetchJson(apiUrl('/connectivity'));
+      const next = await settingsApi.getConnectivity();
       if (!next) return;
       const prev = this.connectivity;
       this.connectivity = next;
@@ -556,7 +562,7 @@ export class ConnectivityTab {
    */
   async _putLaunchPrefs(connectivity) {
     try {
-      await fetchJson(apiUrl('/settings'), { method: 'PUT', body: { connectivity } });
+      await settingsApi.updateSettings({ connectivity });
       return true;
     } catch {
       return false;
@@ -570,7 +576,7 @@ export class ConnectivityTab {
    */
   async _setLAN(enabled) {
     try {
-      await fetchJson(apiUrl('/connectivity/lan'), { method: 'POST', body: { enabled } });
+      await settingsApi.setLANEnabled(enabled);
     } catch (e) {
       console.error('Failed to set LAN access:', e);
     }
@@ -754,10 +760,7 @@ export class ConnectivityTab {
   async _startTunnel(mode) {
     this._wanError = '';
     try {
-      const data = await fetchJson(apiUrl('/connectivity/tunnel'), {
-        method: 'POST',
-        body: { enabled: true, mode },
-      });
+      const data = await settingsApi.setTunnel({ enabled: true, mode });
       if (!data?.success) this._wanError = data?.error || t('Failed to start tunnel');
     } catch (e) {
       this._wanError = httpErrorText(e, t('Failed to start tunnel'));
@@ -772,10 +775,7 @@ export class ConnectivityTab {
   async _stopTunnel() {
     this._wanError = '';
     try {
-      const data = await fetchJson(apiUrl('/connectivity/tunnel'), {
-        method: 'POST',
-        body: { enabled: false },
-      });
+      const data = await settingsApi.setTunnel({ enabled: false });
       if (!data?.success) this._wanError = data?.error || t('Failed to stop tunnel');
     } catch (e) {
       this._wanError = httpErrorText(e, t('Failed to stop tunnel'));

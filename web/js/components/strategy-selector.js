@@ -862,8 +862,8 @@ class StrategySelector extends JugglerElement {
     const dropdownContent = this.generateDropdownContent();
 
     // Build style attribute for color if defined
-    const colorStyle = strategyColor ? `style="--strategy-color: ${escapeHtml(strategyColor)}"` : '';
-    const hasColorAttr = strategyColor ? 'data-has-color="true"' : '';
+    const colorStyleHTML = strategyColor ? `style="--strategy-color: ${escapeHtml(strategyColor)}"` : '';
+    const hasColorAttrHTML = strategyColor ? 'data-has-color="true"' : '';
 
     // While open, the dropdown has been relocated out of this element to
     // <body> (see toggleDropdown) and positioned against our button. A
@@ -903,7 +903,7 @@ class StrategySelector extends JugglerElement {
       : '';
 
     this.innerHTML = `
-            <button class="strategy-selector-button input-ctrl-btn ${this._dropdownOpen ? 'open' : ''}" id="strategy-button" tabindex="-1" title="${escapeHtml(t('Select Strategy'))}" aria-haspopup="menu" aria-expanded="${this._dropdownOpen}" ${colorStyle} ${hasColorAttr}>
+            <button class="strategy-selector-button input-ctrl-btn ${this._dropdownOpen ? 'open' : ''}" id="strategy-button" tabindex="-1" title="${escapeHtml(t('Select Strategy'))}" aria-haspopup="menu" aria-expanded="${this._dropdownOpen ? 'true' : 'false'}" ${colorStyleHTML} ${hasColorAttrHTML}>
                 ${buttonIconHtml}
                 <span class="strategy-name">${escapeHtml(strategyName)}</span>
             </button>

@@ -30,6 +30,7 @@ import { __resetPopupManagerForTests, isAnyPopupOpen } from '../../js/utils/popu
 import PinboardItemType from 'juggler/pinboard-item-type';
 import '../../js/components/pinboard-shell.js';
 import { composeForThread } from '../../js/components/pinboard-content.js';
+import { CONVERSATION_TAB_SHOWN } from '../../js/components/conversation-tab.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { t, isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -1398,6 +1399,46 @@ export async function runTests(_ctx) {
         assert(bodyText(shell) === 'probe:alpha', 'and the revealed pin is mounted');
       } finally {
         teardown();
+      }
+    });
+
+    await run("a reveal waits for the conversation's tab to be shown, and no longer", async () => {
+      const Panel = /** @type {any} */ (customElements.get('pinboard-panel'));
+      assert(!!Panel, 'pinboard-panel is not defined');
+      const tab = /** @type {any} */ (document.createElement('div'));
+      tab.id = 'conversation-tab-board-wait';
+      document.body.appendChild(tab);
+      const stand = {
+        _session: {
+          getConversation: () => ({}),
+          getVisibleConversation: () => ({ id: 'somewhere-else' }),
+          ensureConversationLoaded: async () => {},
+          switchConversation: () => true,
+        },
+      };
+      try {
+        let settled = false;
+        const shown = Panel.prototype._showConversationForBoard.call(stand, 'board-wait')
+          .then(() => { settled = true; });
+        await new Promise((r) => setTimeout(r, 50));
+        assert(!settled, 'before the tab is shown there are no columns to point into');
+        tab.dispatchEvent(new CustomEvent(CONVERSATION_TAB_SHOWN, {
+          bubbles: true, detail: { conversationId: 'board-wait' },
+        }));
+        await new Promise((r) => setTimeout(r, 0));
+        assert(settled, 'the tab saying it is shown is the moment to point, not a deadline later');
+        await shown;
+
+        // Already shown when asked: nothing to wait for.
+        tab.shown = true;
+        let again = false;
+        const second = Panel.prototype._showConversationForBoard.call(stand, 'board-wait')
+          .then(() => { again = true; });
+        await new Promise((r) => setTimeout(r, 0));
+        assert(again, 'a tab already shown is not waited on');
+        await second;
+      } finally {
+        tab.remove();
       }
     });
 

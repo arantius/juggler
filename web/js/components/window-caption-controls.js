@@ -51,7 +51,7 @@ const GLYPH = {
  * @param {string} inner - SVG path/rect markup for the glyph.
  * @returns {string} the full `<svg>` element markup.
  */
-function svg(inner) {
+function glyphSvg(inner) {
   return `<svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"`
         + ` fill="none" stroke="currentColor" stroke-width="1">${inner}</svg>`;
 }
@@ -72,16 +72,16 @@ class WindowCaptionControls extends JugglerElement {
     const wails = /** @type {any} */ (window).wails || {};
 
     if (this.childElementCount === 0) {
-      const minimise = escapeHtml(t('Minimise'));
-      const maximise = escapeHtml(t('Maximise'));
-      const close = escapeHtml(t('Close'));
+      const minimiseHtml = escapeHtml(t('Minimise'));
+      const maximiseHtml = escapeHtml(t('Maximise'));
+      const closeHtml = escapeHtml(t('Close'));
       this.innerHTML = `
                 <button type="button" class="window-caption-btn" data-action="minimise"
-                        aria-label="${minimise}" title="${minimise}">${svg(GLYPH.minimise)}</button>
+                        aria-label="${minimiseHtml}" title="${minimiseHtml}">${glyphSvg(GLYPH.minimise)}</button>
                 <button type="button" class="window-caption-btn" data-action="maximise"
-                        aria-label="${maximise}" title="${maximise}">${svg(GLYPH.maximise)}</button>
+                        aria-label="${maximiseHtml}" title="${maximiseHtml}">${glyphSvg(GLYPH.maximise)}</button>
                 <button type="button" class="window-caption-btn window-caption-btn--close" data-action="close"
-                        aria-label="${close}" title="${close}">${svg(GLYPH.close)}</button>
+                        aria-label="${closeHtml}" title="${closeHtml}">${glyphSvg(GLYPH.close)}</button>
             `;
     }
 
@@ -127,7 +127,7 @@ class WindowCaptionControls extends JugglerElement {
   /** @param {boolean} maximised */
   _renderMaxGlyph(maximised) {
     if (!this._maxBtn) return;
-    this._maxBtn.innerHTML = svg(maximised ? GLYPH.restore : GLYPH.maximise);
+    this._maxBtn.innerHTML = glyphSvg(maximised ? GLYPH.restore : GLYPH.maximise);
     const label = maximised ? t('Restore') : t('Maximise');
     this._maxBtn.setAttribute('aria-label', label);
     this._maxBtn.setAttribute('title', label);

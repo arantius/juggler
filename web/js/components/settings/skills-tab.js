@@ -15,8 +15,9 @@ import { renderMarkdown } from '../../../sdk/lib/markdown.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
 import { formatBytes } from '../../utils/format.js';
 import { CHECK_SVG, GITHUB_ICON_SVG, DROPDOWN_ARROW_SVG, REFRESH_SVG } from '../../utils/icons.js';
-import { markPopupOpen } from '../../utils/popup-manager.js';
+import { markPopupOpen, closePopupById } from '../../utils/popup-manager.js';
 import { presentModal } from '../../utils/modal-surface.js';
+import { markDialog, trapFocus } from '../../utils/dialog-a11y.js';
 import { showAlert, showConfirm, showPrompt } from '../modal-dialog.js';
 import { presentPopup } from '../../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../../utils/menu-roles.js';
@@ -174,7 +175,13 @@ export class SkillsTab {
   }
 
   /** Element disconnected: no global listeners to remove. */
-  dispose() {}
+  dispose() {
+    // The preview holds a popup-manager token and a focus trap, both global;
+    // the add-source menu is drawn into <body>. Everything else this tab takes
+    // is a listener on its own root.
+    this._closePreview();
+    closePopupById('skills-add-source-menu');
+  }
 
   /**
    * Refresh the active view in the way appropriate to it: Discover re-fetches the
@@ -646,7 +653,7 @@ export class SkillsTab {
         onClose: (value) => resolve(value ?? null),
       });
       const host = modal.root;
-      const options = SCOPE_OPTIONS.map(
+      const optionsHTML = SCOPE_OPTIONS.map(
         (o) => `
           <button class="skills-scope-action" data-scope="${escapeHtml(o.value)}">
             <span class="skills-scope-action-label">${escapeHtml(t(o.label))}</span>
@@ -660,12 +667,13 @@ export class SkillsTab {
             <h2 class="skills-scope-dialog-title">${escapeHtml(t('Install “{name}”', { name: entry.name || t('skill') }))}</h2>
           </header>
           <p class="skills-scope-dialog-sub">${escapeHtml(t('Choose where to install this skill:'))}</p>
-          <div class="skills-scope-actions">${options}</div>
+          <div class="skills-scope-actions">${optionsHTML}</div>
           <div class="skills-scope-dialog-footer">
             <button class="skills-btn" data-scope-cancel>${escapeHtml(t('Cancel'))}</button>
           </div>
         </modal-panel>
       `;
+      markDialog(host.querySelector('modal-panel'), host.querySelector('.skills-scope-dialog-title'));
       host.addEventListener('click', (e) => {
         const pick = /** @type {HTMLElement} */ (e.target).closest('[data-scope]');
         if (pick) modal.close(/** @type {HTMLElement} */ (pick).dataset.scope || null);
@@ -740,9 +748,12 @@ export class SkillsTab {
     if (!drawer) return;
     drawer.removeAttribute('hidden');
     // Escape and the browser/mobile Back button dismiss via popup-manager,
-    // matching every other app modal.
+    // matching every other app modal, and the open drawer holds Tab; one
+    // release ends both.
     if (!this._releasePreviewPopup) {
-      this._releasePreviewPopup = markPopupOpen(() => this._closePreview());
+      const releasePopup = markPopupOpen(() => this._closePreview());
+      const releaseTrap = trapFocus(drawer);
+      this._releasePreviewPopup = () => { releasePopup(); releaseTrap(); };
     }
     const title = escapeHtml(entry.name || t('Skill'));
     drawer.innerHTML = this._previewShell(

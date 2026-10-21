@@ -501,7 +501,6 @@ action-confirmation:focus {
     font-weight: 500;
     cursor: pointer;
     transition: background var(--transition-base);
-    outline: none;
     text-align: left;
     background: var(--bg-secondary);
     color: var(--text-primary);

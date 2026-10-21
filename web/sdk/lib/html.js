@@ -83,12 +83,18 @@ export function escapeJsonContent(str) {
 
 /**
  * Escape a string for safe use in HTML attributes.
- * Only escapes quote characters needed for attribute values.
+ *
+ * Takes plain text, never already-escaped text: the ampersand is escaped first,
+ * so an entity in the input survives as the literal entity text, not as the
+ * character it names. `<` is escaped too, which an attribute does not strictly
+ * need, so the value is safe even where a caller's attribute quoting slips.
  * @param {string} text - Text to escape
  * @returns {string} Escaped string safe for HTML attributes
  */
 export function escapeAttr(text) {
   return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }

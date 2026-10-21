@@ -66,14 +66,14 @@ class CodeBlock extends JugglerElement {
   }
 
   render() {
-    const highlightedCode = highlightCode(this.code, this.language);
+    const highlightedHTML = highlightCode(this.code, this.language);
 
     this.innerHTML = `
             <header class="code-header">
                 <span class="language">${escapeHtml(this.language)}</span>
                 <button class="copy-btn" type="button">${escapeHtml(t('Copy'))}</button>
             </header>
-            <pre><code class="syntax-highlight language-${escapeHtml(this.language)}">${highlightedCode}</code></pre>
+            <pre><code class="syntax-highlight language-${escapeHtml(this.language)}">${highlightedHTML}</code></pre>
         `;
     const copyBtn = this.querySelector('.copy-btn');
     if (copyBtn) {

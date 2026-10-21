@@ -96,6 +96,7 @@ class PinboardTabbar extends JugglerElement {
     add.setAttribute('aria-label', t('Add pin'));
     add.setAttribute('aria-haspopup', 'menu');
     add.setAttribute('aria-expanded', 'false');
+    // eslint-disable-next-line juggler/escape-html-interpolation -- ADD_ICON_PATH is this module's constant path data
     add.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="${ADD_ICON_PATH}"/></svg>`;
     this.on(add, 'click', () => this._emit('pinboard-add', {}));
 

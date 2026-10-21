@@ -32,6 +32,7 @@ import { renderMarkdown } from '../../../sdk/lib/markdown.js';
 import { httpErrorText } from '../../services/http.js';
 import { formatBytes } from '../../utils/format.js';
 import { presentModal } from '../../utils/modal-surface.js';
+import { dialogAttributes, newDialogTitleId } from '../../utils/dialog-a11y.js';
 import { addFilePath } from '../../utils/properties-panel-helpers.js';
 import { fetchSkillBody } from '../../services/skills.js';
 
@@ -45,11 +46,12 @@ import { fetchSkillBody } from '../../services/skills.js';
  * @returns {string} The modal HTML.
  */
 export function skillPreviewShell(title, bodyHtml, footerHtml = '') {
+  const titleId = newDialogTitleId();
   return `
     <modal-backdrop class="skills-preview-backdrop" data-action="drawer-close"></modal-backdrop>
-    <modal-panel class="skills-preview-panel">
+    <modal-panel class="skills-preview-panel" ${dialogAttributes(titleId)}>
       <header class="skills-preview-header">
-        <h2 class="skills-preview-title">${title}</h2>
+        <h2 class="skills-preview-title" id="${titleId}">${title}</h2>
         <button class="close-button skills-preview-close" data-action="drawer-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
       </header>
       <div class="skills-preview-body">${bodyHtml}</div>

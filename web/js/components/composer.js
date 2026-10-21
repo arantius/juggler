@@ -11,6 +11,7 @@ import slashCommandHandler from '../services/slash-command-handler.js';
 import { menuOrderedCommands, buildCommandRow, buildManageCommandsRow, buildBrowseCommandsRow } from '../services/command-manager-entry.js';
 import { openCommandManager } from './command-editor-dialog.js';
 import { isAnyPopupOpen } from '../utils/popup-manager.js';
+import { isTabListFocused } from '../services/tab-list-focus.js';
 import { handleEscapeKey } from '../services/escape-behaviour.js';
 import { COARSE_POINTER_QUERY } from '../utils/popup-surface.js';
 import { applyMenuRoles } from '../utils/menu-roles.js';
@@ -330,7 +331,7 @@ class Composer extends JugglerElement {
     // landing on a thread tile would otherwise pull the keyboard out of the list.
     if (document.activeElement === document.body
       && !this.closest('.thread-column')
-      && !document.querySelector('conversation-bar.tab-list-focused')) {
+      && !isTabListFocused()) {
       this.querySelector('textarea')?.focus();
     }
   }

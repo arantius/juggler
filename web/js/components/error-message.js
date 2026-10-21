@@ -29,10 +29,10 @@ const UNREACHABLE_LEAD = markForTranslation('Couldn’t reach the model. Could b
 // Settings icon (Material "settings") — the same gear the header's Settings
 // button and the model menu's settings items use, so the destination is
 // recognisable before the label is read.
-const SETTINGS_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5v-27q0-6.5 1-13.5L78-585l110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5v27q0 6.5-2 13.5l103 78-110 190-118-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Z"/></svg>';
+const SETTINGS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5v-27q0-6.5 1-13.5L78-585l110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5v27q0 6.5-2 13.5l103 78-110 190-118-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Z"/></svg>';
 
 // Swap icon (Material "swap_horiz") — exchanging one model for another.
-const SWAP_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M280-160 80-360l200-200 56 57-103 103h287v80H233l103 103-56 57Zm400-240-56-57 103-103H440v-80h287L624-743l56-57 200 200-200 200Z"/></svg>';
+const SWAP_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M280-160 80-360l200-200 56 57-103 103h287v80H233l103 103-56 57Zm400-240-56-57 103-103H440v-80h287L624-743l56-57 200 200-200 200Z"/></svg>';
 
 // The failure the worker classified as "the provider isn't authenticated", whose
 // fix is never in this window.
@@ -107,7 +107,7 @@ class ErrorMessage extends BaseMessage {
         modelBtn.type = 'button';
         modelBtn.className = 'message-action-btn error-model-btn';
         modelBtn.title = t('Pick a model from another provider');
-        modelBtn.innerHTML = `${SWAP_ICON}${escapeHtml(t('Choose another model'))}`;
+        modelBtn.innerHTML = `${SWAP_SVG}${escapeHtml(t('Choose another model'))}`;
         modelBtn.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -123,7 +123,7 @@ class ErrorMessage extends BaseMessage {
         settingsBtn.type = 'button';
         settingsBtn.className = 'message-action-btn error-settings-btn';
         settingsBtn.title = t('Open provider settings');
-        settingsBtn.innerHTML = `${SETTINGS_ICON}${escapeHtml(t('Provider settings'))}`;
+        settingsBtn.innerHTML = `${SETTINGS_SVG}${escapeHtml(t('Provider settings'))}`;
         settingsBtn.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -156,19 +156,19 @@ class ErrorMessage extends BaseMessage {
   /**
    * The model selector that drives the thread this error belongs to: the
    * nearest one sharing an ancestor with this row, so an error in a sub-thread
-   * column opens that column's picker rather than the root's. Falls back to the
-   * active tab's, then any — a row has no focus to go by, since pressing its
-   * button moved focus onto the button.
+   * column opens that column's picker rather than the root's. The search ends
+   * at the row's own conversation tab, and never reaches <body>: any selector
+   * beyond either drives some other conversation's model.
    * @returns {any} The model-selector element, or null.
    * @private
    */
   _columnModelSelector() {
-    for (let el = this.parentElement; el; el = el.parentElement) {
+    for (let el = this.parentElement; el && el !== document.body; el = el.parentElement) {
       const selector = el.querySelector('model-selector');
       if (selector) return selector;
+      if (el.localName === 'conversation-tab') return null;
     }
-    return document.querySelector('conversation-tab.active model-selector')
-      || document.querySelector('model-selector');
+    return null;
   }
 
   /**

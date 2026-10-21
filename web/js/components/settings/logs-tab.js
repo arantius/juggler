@@ -11,8 +11,7 @@
 
 import { formatBytes } from '../../utils/format.js';
 import { addFilePath } from '../../utils/properties-panel-helpers.js';
-import { fetchJson } from '../../services/http.js';
-import { apiUrl } from '../../utils/api-url.js';
+import { listLogs, getLogContent } from '../../services/settings-api.js';
 import { t } from '../../../sdk/lib/i18n.js';
 
 /** Polling interval (ms) for tailing the selected log while the Logs tab is open. */
@@ -115,6 +114,15 @@ export class LogsTab {
   }
 
   /**
+   * Element disconnected: stop the tail poll. A panel removed while this tab
+   * was the visible one never hears hide() or close(), and the poll would go
+   * on fetching into a detached viewer.
+   */
+  dispose() {
+    this.hide();
+  }
+
+  /**
    * Open (or re-open) the Logs tab: fetch the current session's log list,
    * populate the picker, and load the selected file's tail. Safe to call
    * repeatedly — it preserves the current selection across refreshes. Shares the
@@ -142,7 +150,7 @@ export class LogsTab {
     /** @type {any[]} */
     let files = [];
     // Treat a failed fetch as "no logs" and fall through to the empty state.
-    const data = await fetchJson(apiUrl('/logs'), { fallback: null });
+    const data = await listLogs({ fallback: null });
     if (data) files = data.files || [];
     this._logFiles = files;
 
@@ -260,8 +268,7 @@ export class LogsTab {
 
     const offset = reset ? 0 : this._logOffset;
     // A failure is transient; the next poll retries.
-    const data = await fetchJson(apiUrl(`/logs/content?path=${encodeURIComponent(path)}&offset=${offset}`),
-      { fallback: null });
+    const data = await getLogContent(path, offset, { fallback: null });
     if (!data) return;
     // Drop a stale response for a file the user has since switched away from.
     if (path !== this._selectedLogPath) return;

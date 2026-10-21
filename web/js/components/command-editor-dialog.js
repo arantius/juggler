@@ -552,28 +552,47 @@ function segmentedHTML(id, ariaLabel, attr, options, current) {
   const segments = Object.entries(options).map(([value, label]) => {
     const active = value === current;
     return `<button type="button" class="command-editor-seg${active ? ' active' : ''}" role="radio"`
-      + ` aria-checked="${active}" data-${attr}="${value}">${escapeHtml(t(label))}</button>`;
+      + ` aria-checked="${active}" tabindex="${active ? 0 : -1}" data-${attr}="${value}">${escapeHtml(t(label))}</button>`;
   }).join('');
   return `<div id="${id}" class="command-editor-segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}">${segments}</div>`;
 }
 
+/** Arrow keys that move a radiogroup's choice, and which way. */
+const SEGMENT_STEPS = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+
 /**
- * Wire a segmented control: a press moves the active state across the group and
- * reports the new value.
+ * Wire a segmented control as a radiogroup: one tab stop, the checked segment.
+ * A press, or an arrow key (wrapping at either end), moves the choice across the
+ * group, carries focus with it from the keyboard, and reports the new value.
  * @param {HTMLElement} group - The radiogroup element
  * @param {string} attr - Data attribute holding each option's value
  * @param {(value: string) => void} onChange - Called with the newly selected value
  */
 function wireSegmented(group, attr, onChange) {
+  const segments = /** @type {HTMLElement[]} */ (Array.from(group.querySelectorAll('.command-editor-seg')));
+  /** @param {HTMLElement} chosen */
+  const choose = (chosen) => {
+    for (const seg of segments) {
+      const active = seg === chosen;
+      seg.classList.toggle('active', active);
+      seg.setAttribute('aria-checked', String(active));
+      seg.tabIndex = active ? 0 : -1;
+    }
+    onChange(chosen.dataset[attr] || '');
+  };
   group.addEventListener('click', (e) => {
     const pressed = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('.command-editor-seg'));
     if (!pressed || !group.contains(pressed)) return;
-    group.querySelectorAll('.command-editor-seg').forEach((seg) => {
-      const active = seg === pressed;
-      seg.classList.toggle('active', active);
-      seg.setAttribute('aria-checked', String(active));
-    });
-    onChange(pressed.dataset[attr] || '');
+    choose(pressed);
+  });
+  group.addEventListener('keydown', (e) => {
+    const step = SEGMENT_STEPS[/** @type {keyof typeof SEGMENT_STEPS} */ (e.key)];
+    const from = segments.indexOf(/** @type {HTMLElement} */ (e.target));
+    if (!step || from < 0) return;
+    e.preventDefault();
+    const next = /** @type {HTMLElement} */ (segments[(from + step + segments.length) % segments.length]);
+    choose(next);
+    next.focus();
   });
 }
 

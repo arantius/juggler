@@ -93,21 +93,21 @@ export function renderExecutePermissionSection(messageThread) {
     const row = document.createElement('div');
     row.dataset.key = d.key;
     row.dataset.mode = d.mode;
-    const save = escapeHtml(t('Save'));
-    const cancel = escapeHtml(t('Cancel'));
+    const saveHtml = escapeHtml(t('Save'));
+    const cancelHtml = escapeHtml(t('Cancel'));
     if (d.mode === 'display') {
       row.className = 'pattern-row';
       row.innerHTML = `
-        <span class="pattern-text" data-rule-id="${d.key}"></span>
-        <button class="permission-scope-btn rule-scope-btn" data-rule-id="${d.key}" data-scope=""></button>
-        <button class="pattern-delete-btn icon-btn" data-rule-id="${d.key}" title="${escapeHtml(t('Delete'))}"><span class="icon-trashcan"></span></button>`;
+        <span class="pattern-text" data-rule-id="${escapeHtml(d.key)}"></span>
+        <button class="permission-scope-btn rule-scope-btn" data-rule-id="${escapeHtml(d.key)}" data-scope=""></button>
+        <button class="pattern-delete-btn icon-btn" data-rule-id="${escapeHtml(d.key)}" title="${escapeHtml(t('Delete'))}"><span class="icon-trashcan"></span></button>`;
       updateRow(row, d);
     } else if (d.mode === 'edit') {
       row.className = 'pattern-row editing';
       row.innerHTML = `
-        <input type="text" class="pattern-edit-input" data-rule-id="${d.key}" autocorrect="off" autocapitalize="off" spellcheck="false">
-        <button class="pattern-save-btn" data-rule-id="${d.key}" title="${save}">${save}</button>
-        <button class="pattern-cancel-btn" title="${cancel}">${cancel}</button>`;
+        <input type="text" class="pattern-edit-input" data-rule-id="${escapeHtml(d.key)}" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <button class="pattern-save-btn" data-rule-id="${escapeHtml(d.key)}" title="${saveHtml}">${saveHtml}</button>
+        <button class="pattern-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
       /** @type {HTMLInputElement} */ (row.querySelector('.pattern-edit-input')).value = d.value || '';
     } else {
       // i18n-ignore: an example command pattern, not words
@@ -115,8 +115,8 @@ export function renderExecutePermissionSection(messageThread) {
       row.className = 'pattern-row editing';
       row.innerHTML = `
         <input type="text" class="pattern-edit-input" placeholder="${escapeHtml(t('e.g., {example}', { example }))}" data-rule-id="" autocorrect="off" autocapitalize="off" spellcheck="false">
-        <button class="pattern-save-btn" data-rule-id="" title="${save}">${save}</button>
-        <button class="pattern-cancel-btn" title="${cancel}">${cancel}</button>`;
+        <button class="pattern-save-btn" data-rule-id="" title="${saveHtml}">${saveHtml}</button>
+        <button class="pattern-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
     }
     return row;
   }

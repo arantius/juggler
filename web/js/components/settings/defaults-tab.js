@@ -27,9 +27,8 @@ import {
   CONTEXT_CHOICES, contextLabel, defaultDiffView, setDefaultDiffView,
   defaultDiffContext, setDefaultDiffContext,
 } from '../../utils/diff-view-prefs.js';
-import { fetchJson } from '../../services/http.js';
+import * as settingsApi from '../../services/settings-api.js';
 import { showAlert } from '../modal-dialog.js';
-import { apiUrl } from '../../utils/api-url.js';
 import { getAppSession } from '../../utils/app-session.js';
 import { t } from '../../../sdk/lib/i18n.js';
 import { providerAuthHint } from '../../utils/provider-text.js';
@@ -75,9 +74,27 @@ export class DefaultsTab {
   }
 
   /**
+   * Element disconnected: close the model picker if one is open. It is drawn
+   * into <body>, not this tab's section, so it would outlive the panel; every
+   * other listener this tab takes is on a control inside its own section.
+   */
+  dispose() {
+    closePopupById(MODEL_PICKER_POPUP_ID);
+  }
+
+  /**
+   * The three model choices this tab holds — what the panel's config load keeps
+   * when a re-read of one fails, rather than blanking a picker already drawn.
+   * @returns {{defaultModel: import('../../services/settings-api.js').ModelChoice, cheapModel: import('../../services/settings-api.js').ModelChoice, decisionModel: import('../../services/settings-api.js').ModelChoice}} The current choices.
+   */
+  currentModelChoices() {
+    return { defaultModel: this.defaultModel, cheapModel: this.cheapModel, decisionModel: this.decisionModel };
+  }
+
+  /**
    * Receive the shared loadConfig() payload: store config/providers/defaultModel
    * and (on a full render) build the fields.
-   * @param {{config: object, providers: any[], defaultModel: {provider: string, model: string, thinking?: string, serviceTier?: string, explicit?: boolean}, cheapModel?: {provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}, decisionModel?: {provider?: string, model?: string, explicit?: boolean, available?: boolean}}} data
+   * @param {{config: object, providers: any[], defaultModel: {provider: string, model: string, thinking?: string, serviceTier?: string, explicit?: boolean}, cheapModel?: {provider?: string, model?: string, thinking?: string, serviceTier?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}|null, decisionModel?: {provider?: string, model?: string, explicit?: boolean, available?: boolean}|null}} data
    * @param {boolean} renderFields
    */
   onConfigLoaded(data, renderFields) {
@@ -166,7 +183,7 @@ export class DefaultsTab {
       async (on) => {
         const previous = toggleInput.checked;
         try {
-          await fetchJson(apiUrl('/config'), { method: 'PUT', body: { auto_name_disabled: !on } });
+          await settingsApi.setConfig('auto_name_disabled', !on);
           /** @type {any} */ (this.config).autoNameDisabled = !on;
           setAutoNameEnabledCached(on);
           // The instruction only shapes an auto-derived title, so hide it while
@@ -211,7 +228,7 @@ export class DefaultsTab {
       async (on) => {
         const previous = toggleInput.checked;
         try {
-          await fetchJson(apiUrl('/config'), { method: 'PUT', body: { reply_suggestions_disabled: !on } });
+          await settingsApi.setConfig('reply_suggestions_disabled', !on);
           /** @type {any} */ (this.config).replySuggestionsDisabled = !on;
           setReplySuggestionsEnabledCached(on);
         } catch (e) {
@@ -273,7 +290,7 @@ export class DefaultsTab {
       if (value === (/** @type {any} */ (this.config).autoNameInstruction || '')) return;
       status.textContent = t('Saving…');
       try {
-        await fetchJson(apiUrl('/config'), { method: 'PUT', body: { auto_name_instruction: value } });
+        await settingsApi.setConfig('auto_name_instruction', value);
         /** @type {any} */ (this.config).autoNameInstruction = value;
         status.textContent = value ? t('Saved custom instruction.') : t('Saved. Using the built-in prompt.');
       } catch (e) {
@@ -410,7 +427,7 @@ export class DefaultsTab {
       async (on) => {
         const previous = autoCompactInput.checked;
         try {
-          await fetchJson(apiUrl('/config'), { method: 'PUT', body: { auto_compact_disabled: !on } });
+          await settingsApi.setConfig('auto_compact_disabled', !on);
           /** @type {any} */ (this.config).autoCompactDisabled = !on;
         } catch (e) {
           console.error('[SettingsPanel] Failed to save automatic compaction setting:', e);
@@ -432,7 +449,7 @@ export class DefaultsTab {
       current: () => /** @type {any} */ (this.config).streamIdleTimeout || '',
       validate: (value) => (parseInt(value, 10) <= 0 ? t('Must be greater than zero.') : ''),
       save: async (value) => {
-        await fetchJson(apiUrl('/config'), { method: 'PUT', body: { stream_idle_timeout: value } });
+        await settingsApi.setConfig('stream_idle_timeout', value);
         /** @type {any} */ (this.config).streamIdleTimeout = value;
         return value ? t('Saved. Waiting up to {value}s.', { value }) : t('Saved. Using default (180s).');
       },
@@ -520,7 +537,7 @@ export class DefaultsTab {
         ? t('Must be 0 or at least 0.001.') : ''),
       save: async (value) => {
         const tokens = value === '' ? '' : String(Math.round(Number(value) * 1_000_000));
-        await fetchJson(apiUrl('/config'), { method: 'PUT', body: { [opts.requestKey]: tokens } });
+        await settingsApi.setConfig(opts.requestKey, tokens);
         config[opts.configKey] = tokens;
         if (value === '') return opts.defaultText();
         return opts.savedText(tokens === '0' ? '0' : String(Number(value)));
@@ -973,12 +990,12 @@ export class DefaultsTab {
     };
     this.renderCheapModelField();
     try {
-      await fetchJson(apiUrl('/cheap-model'), { method: 'PUT', body });
+      await settingsApi.setCheapModel(body);
       // Cleared to Automatic: re-fetch so the auto-derived name in the status
       // line is the one the server actually resolved. Off needs no such trip —
       // there is nothing for the server to have derived.
       if (!off && (!body.provider || !body.model)) {
-        this.cheapModel = await fetchJson(apiUrl('/cheap-model'), { fallback: null }) || { explicit: false };
+        this.cheapModel = await settingsApi.getCheapModel({ fallback: null }) || { explicit: false };
         this.renderCheapModelField();
       }
     } catch (err) {
@@ -1009,10 +1026,10 @@ export class DefaultsTab {
     this.renderDecisionModelField();
     try {
       // A decision model has no reasoning level or serving tier to send.
-      await fetchJson(apiUrl('/decision-model'), { method: 'PUT', body: { provider: body.provider, model: body.model } });
+      await settingsApi.setDecisionModel({ provider: body.provider, model: body.model });
       // Re-read so the row reflects whether the server can actually serve the
       // pick, which only it knows.
-      this.decisionModel = await fetchJson(apiUrl('/decision-model'), { fallback: this.decisionModel }) || { explicit: false };
+      this.decisionModel = await settingsApi.getDecisionModel({ fallback: this.decisionModel }) || { explicit: false };
       this.renderDecisionModelField();
     } catch (err) {
       console.error('[SettingsPanel] Failed to save decision model:', err);
@@ -1117,7 +1134,7 @@ export class DefaultsTab {
     };
     this.renderDefaultModelField();
     try {
-      await fetchJson(apiUrl('/default-model'), { method: 'PUT', body });
+      await settingsApi.setDefaultModel(body);
       // Displays that fall back to the default (the sidebar's Usage card, when
       // no conversation is on screen) read a cached copy of the server's answer.
       defaultModelCache.invalidate();

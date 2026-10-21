@@ -45,14 +45,20 @@
        keyframes are in patterns/item-badge.css. */
     --item-badge-pulse: icon-pulse 0.8s ease-in-out infinite;
 
-    /* Z-Index Scale - use these instead of arbitrary values */
+    /* Z-Index Scale - use these instead of arbitrary values. Each rung is
+       strictly above the one before it; a tie would leave DOM order to decide.
+       The top three, bottom to top: a modal; a dropdown opened from inside one
+       (path completions, the model picker, the Empty Bin menu) and the window
+       caption controls that must never be covered; then the transient layer —
+       tooltips, the right-click menu, the Escape cue — which has to clear
+       anything it can be summoned over, an above-modal dropdown included. */
     --z-base: 1;           /* Default stacking */
     --z-raised: 10;        /* Slightly elevated elements */
     --z-controls: 100;     /* Fixed controls, headers */
     --z-dropdown: 1000;    /* Dropdowns, popovers */
     --z-modal: 10000;      /* Modals, dialogs */
     --z-above-modal: 10001; /* Dropdowns that must appear above modals (e.g. path completions) */
-    --z-toast: 10001;      /* Toast notifications (above modals) */
+    --z-toast: 10002;      /* Tooltips, context menu, cues: above everything */
 
     /* ANSI background palette (utils/ansi.js) — theme-independent and vivid so
        an author's paired foreground (e.g. black on a yellow highlight) reads on

@@ -30,6 +30,7 @@
 
 import { markPopupOpen } from './popup-manager.js';
 import { durationToken, fadeOutScrims } from './modal-scrim.js';
+import { trapFocus } from './dialog-a11y.js';
 
 /**
  * A presented modal overlay.
@@ -71,11 +72,16 @@ export function presentModal({ className, dismissSelectors = [], onClose }) {
   let closed = false;
   /** @type {(() => void)|null} */
   let release = null;
+  // Tab and Shift+Tab stay inside the overlay while it is the topmost dialog.
+  // The caller still marks its own panel as a dialog (utils/dialog-a11y.js):
+  // only it knows which element is the title.
+  const releaseTrap = trapFocus(root);
 
   const close = (/** @type {any} */ result) => {
     if (closed) return;
     closed = true;
     clearTimeout(settleScrim);
+    releaseTrap();
     if (release) {
       release();
       release = null;

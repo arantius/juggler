@@ -10,9 +10,8 @@
 //   <https://www.gnu.org/licenses/agpl-3.0.html> for full terms.
 
 import { getUpdaterState, startCheck } from '../../services/updater-control.js';
-import { fetchJson } from '../../services/http.js';
+import * as settingsApi from '../../services/settings-api.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
-import { apiUrl } from '../../utils/api-url.js';
 import { t, markForTranslation } from '../../../sdk/lib/i18n.js';
 
 /**
@@ -166,6 +165,15 @@ export class UpdatesTab {
   }
 
   /**
+   * Element disconnected: nothing to release. Its listeners are on the radios
+   * and button it drew into `#updates-form`, which go with the panel; it arms
+   * no timer and subscribes to nothing — the settings document reaches it
+   * through onSettingsChanged(), and a check in flight only writes into that
+   * same DOM when it lands.
+   */
+  dispose() {}
+
+  /**
    * Fetch version info from /api/update-status (and the in-app updater snapshot,
    * when present) and render it into the version line.
    * @private
@@ -173,7 +181,7 @@ export class UpdatesTab {
   async _loadVersion() {
     // Offline — show what little we have.
     /** @type {any} */
-    const status = await fetchJson(apiUrl('/update-status'), { fallback: {} });
+    const status = await settingsApi.getUpdateStatus({ fallback: {} });
     const updater = await getUpdaterState();
     this._updaterPresent = !!updater.present;
     this._applyManaged(status);
@@ -302,7 +310,7 @@ export class UpdatesTab {
     const prev = this._mode;
     this._mode = mode;
     try {
-      const data = await fetchJson(apiUrl('/settings'), { method: 'PUT', body: { updates: { mode } } });
+      const data = await settingsApi.updateSettings({ updates: { mode } });
       const saved = (data && data.updates && data.updates.mode) || mode;
       this._mode = saved;
       this._reflectMode(saved);
@@ -330,7 +338,7 @@ export class UpdatesTab {
       // result arrives via the pushed snapshot the header button consumes).
       if (this._updaterPresent && !this._managedBy) void startCheck();
 
-      const status = await fetchJson(apiUrl('/update-status/check'), { method: 'POST' });
+      const status = await settingsApi.checkForUpdate();
       if (!status.error) this._applyManaged(status);
       if (status.error) {
         this._setStatus(t('Couldn’t reach the update server. Try again later.'));

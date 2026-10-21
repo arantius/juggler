@@ -6,6 +6,7 @@ import { formatRelativeDateTime, formatBytes } from '../utils/format.js';
 import { BIN_LARGE_BYTES } from '../utils/constants.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
+import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../utils/menu-roles.js';
 import { showAlert, showConfirm } from './modal-dialog.js';
@@ -56,6 +57,8 @@ class BinModal extends JugglerElement {
     this._session = null;
     /** @type {(() => void)|null} @private */
     this._releasePopupOpen = null;
+    /** @type {(() => void)|null} @private */
+    this._releaseTrap = null;
     // The rows the last refresh returned, so the Empty Bin menu can size each
     // cutoff without a second request.
     /** @type {BinnedConvRow[]} @private */
@@ -68,6 +71,10 @@ class BinModal extends JugglerElement {
 
   connectedCallback() {
     this.classList.add('modal-shell');
+    this.addCleanup(() => {
+      this._releaseTrap?.();
+      this._releaseTrap = null;
+    });
   }
 
   /**
@@ -82,6 +89,7 @@ class BinModal extends JugglerElement {
     if (!this._releasePopupOpen) {
       this._releasePopupOpen = markPopupOpen(() => this.close());
     }
+    if (!this._releaseTrap) this._releaseTrap = trapFocus(this);
     await this._refreshList({ onOpen: true });
   }
 
@@ -93,6 +101,8 @@ class BinModal extends JugglerElement {
       this._releasePopupOpen();
       this._releasePopupOpen = null;
     }
+    this._releaseTrap?.();
+    this._releaseTrap = null;
   }
 
   render() {
@@ -113,6 +123,7 @@ class BinModal extends JugglerElement {
         </div>
       </modal-panel>
     `;
+    markDialog(this.querySelector('.bin-panel'), this.querySelector('.modal-title'));
     const backdrop = this.querySelector('.bin-backdrop');
     if (backdrop) {
       backdrop.addEventListener('click', () => this.close());

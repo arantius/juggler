@@ -120,6 +120,7 @@ import { runTests as runHandoffPromotionTests } from '../unit-tests/handoff-prom
 import { runTests as runReadFileActionTests } from '../unit-tests/read-file-action-test.js';
 import { runTests as runReadTruncationTests } from '../unit-tests/read-truncation-test.js';
 import { runTests as runPathInputQuotesTests } from '../unit-tests/path-input-quotes-test.js';
+import { runTests as runPathInputMenuTests } from '../unit-tests/path-input-menu-test.js';
 import { runTests as runPathContainmentTests } from '../unit-tests/path-containment-test.js';
 import { runTests as runSearchActionTests } from '../unit-tests/search-action-test.js';
 import { runTests as runToolCancellationTests } from '../unit-tests/tool-cancellation-test.js';
@@ -203,6 +204,7 @@ import { runTests as runColumnWidthTests } from '../unit-tests/column-width-test
 import { runTests as runColumnFitTests } from '../unit-tests/column-fit-test.js';
 import { runTests as runColumnEdgeTests } from '../unit-tests/column-edge-test.js';
 import { runTests as runTabListEdgeTests } from '../unit-tests/tab-list-edge-test.js';
+import { runTests as runTabListFocusTests } from '../unit-tests/tab-list-focus-test.js';
 import { runTests as runThinScrollbarTests } from '../unit-tests/thin-scrollbar-test.js';
 import { runTests as runContextPreviewAbsentTests } from '../unit-tests/context-preview-absent-test.js';
 import { runTests as runModalShellTests } from '../unit-tests/modal-shell-test.js';
@@ -214,6 +216,7 @@ import { runTests as runWarningTextTests } from '../unit-tests/warning-text-test
 import { runTests as runSurfacesTests } from '../unit-tests/surfaces-test.js';
 import { runTests as runLabelStylesTests } from '../unit-tests/label-styles-test.js';
 import { runTests as runFocusRingsTests } from '../unit-tests/focus-rings-test.js';
+import { runTests as runZIndexScaleTests } from '../unit-tests/z-index-scale-test.js';
 import { runTests as runFocusModalityTests } from '../unit-tests/focus-modality-test.js';
 import { runTests as runThemeToggleTests } from '../unit-tests/theme-toggle-test.js';
 import { runTests as runAppearancePrefsTests } from '../unit-tests/appearance-prefs-test.js';
@@ -277,6 +280,7 @@ import { runTests as runReorderDragTests } from '../unit-tests/reorder-drag-test
 import { runTests as runSlashCompletionTests } from '../unit-tests/slash-completion-test.js';
 import { runTests as runSkillCompletionTests } from '../unit-tests/skill-completion-test.js';
 import { runTests as runComposerMenuAriaTests } from '../unit-tests/composer-menu-aria-test.js';
+import { runTests as runDialogAriaTests } from '../unit-tests/dialog-aria-test.js';
 import { runTests as runSkillsAddSourceMenuAriaTests } from '../unit-tests/skills-add-source-menu-aria-test.js';
 import { runTests as runMenuKeyboardTests } from '../unit-tests/menu-keyboard-test.js';
 import { runTests as runPresetBrowserAriaTests } from '../unit-tests/preset-browser-aria-test.js';
@@ -385,6 +389,8 @@ import { runTests as runAppearanceTabTests } from '../unit-tests/appearance-tab-
 import { runTests as runUILocaleReloaderTests } from '../unit-tests/ui-locale-reloader-test.js';
 import { runTests as runNotificationsTabTests } from '../unit-tests/notifications-tab-test.js';
 import { runTests as runSettingsPanelTests } from '../unit-tests/settings-panel-test.js';
+import { runTests as runSettingsApiTests } from '../unit-tests/settings-api-test.js';
+import { runTests as runSettingsTabsTests } from '../unit-tests/settings-tabs-test.js';
 import { runTests as runExtensionCatalogsTests } from '../unit-tests/extension-catalogs-test.js';
 import { runTests as runSdkManifestValidationTests } from '../unit-tests/sdk-manifest-validation-test.js';
 import { runTests as runExtensionCollisionTests } from '../unit-tests/extension-collision-test.js';
@@ -640,6 +646,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:read-file-action', run: runReadFileActionTests },
   { name: 'unit:read-truncation', run: runReadTruncationTests },
   { name: 'unit:path-input-quotes', run: runPathInputQuotesTests },
+  { name: 'unit:path-input-menu', run: runPathInputMenuTests, needsExclusiveRun: true },
   { name: 'unit:path-containment', run: runPathContainmentTests },
   { name: 'unit:mobile-composer', run: runMobileComposerTests },
   { name: 'unit:composer-send-latch', run: runComposerSendLatchTests },
@@ -659,6 +666,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:slash-completion', run: runSlashCompletionTests },
   { name: 'unit:skill-completion', run: runSkillCompletionTests },
   { name: 'unit:composer-menu-aria', run: runComposerMenuAriaTests },
+  { name: 'unit:dialog-aria', run: runDialogAriaTests, needsExclusiveRun: true },
   { name: 'unit:skills-add-source-menu-aria', run: runSkillsAddSourceMenuAriaTests },
   { name: 'unit:menu-keyboard', run: runMenuKeyboardTests, needsExclusiveRun: true },
   { name: 'unit:preset-browser-aria', run: runPresetBrowserAriaTests },
@@ -749,6 +757,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:column-fit', run: runColumnFitTests },
   { name: 'unit:column-edge', run: runColumnEdgeTests },
   { name: 'unit:tab-list-edge', run: runTabListEdgeTests },
+  { name: 'unit:tab-list-focus', run: runTabListFocusTests, needsExclusiveRun: true },
   { name: 'unit:thin-scrollbar', run: runThinScrollbarTests },
   { name: 'unit:context-preview-absent', run: runContextPreviewAbsentTests },
   { name: 'unit:modal-shell', run: runModalShellTests },
@@ -760,6 +769,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:surfaces', run: runSurfacesTests },
   { name: 'unit:label-styles', run: runLabelStylesTests },
   { name: 'unit:focus-rings', run: runFocusRingsTests },
+  { name: 'unit:z-index-scale', run: runZIndexScaleTests },
   { name: 'unit:focus-modality', run: runFocusModalityTests },
   // Exclusive: it repaints data-theme and stubs matchMedia for the length of a
   // case, both of which are document-wide.
@@ -907,6 +917,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:ui-locale-reloader', run: runUILocaleReloaderTests },
   { name: 'unit:notifications-tab', run: runNotificationsTabTests },
   { name: 'unit:settings-panel', run: runSettingsPanelTests },
+  { name: 'unit:settings-api', run: runSettingsApiTests },
+  { name: 'unit:settings-tabs', run: runSettingsTabsTests },
   { name: 'unit:extension-catalogs', run: runExtensionCatalogsTests },
   { name: 'unit:sdk-manifest-validation', run: runSdkManifestValidationTests },
   { name: 'unit:extension-collision', run: runExtensionCollisionTests },

@@ -291,6 +291,31 @@ export async function runTests() {
     }
   });
 
+  test('choosing another model never reaches for a picker outside the error\'s own tab', () => {
+    // A row whose column has no selector of its own must not go looking through
+    // the whole document: whichever picker it found there drives some other
+    // conversation's model.
+    const elsewhere = document.createElement('div');
+    const otherSelector = fakeSelector();
+    elsewhere.appendChild(otherSelector);
+    document.body.appendChild(elsewhere);
+
+    const column = document.createElement('div');
+    const { list, render, teardown } = mountList(column);
+    try {
+      render([errorItem('ERR_SETUP', SETUP_DATA)]);
+      const btn = actionButton(list, 'ERR_SETUP', 'error-model-btn');
+      assert(!!btn, 'precondition: the action is present');
+      btn.click();
+      assert(otherSelector.opened === 0,
+        `a picker outside the row's own conversation must stay shut, got ${otherSelector.opened}`);
+    } finally {
+      teardown();
+      column.remove();
+      elsewhere.remove();
+    }
+  });
+
   // Under en-XA everything the row adds to the provider's text is translated:
   // the unreachable lead and every action. The provider's text is data.
   try {

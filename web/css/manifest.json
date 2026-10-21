@@ -686,6 +686,7 @@
 		"--workspace-tint",
 		"--dropdown-x",
 		"--dropdown-y",
+		"--path-input-width",
 		"--popup-origin",
 		"--pinboard-width",
 		"--update-pct",

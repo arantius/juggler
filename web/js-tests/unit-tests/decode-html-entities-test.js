@@ -8,11 +8,12 @@
  * Model-authored strings that are displayed as text (a conversation name, a
  * thread goal) sometimes arrive HTML-escaped. `decodeHtmlEntities`
  * (web/sdk/lib/html.js) undoes exactly the entity set `escapeHtml` produces,
- * in one pass so an escaped entity survives as an entity.
+ * in one pass so an escaped entity survives as an entity. The file also holds
+ * the cases for its sibling `escapeAttr`.
  * @module unit-tests/decode-html-entities-test
  */
 
-import { decodeHtmlEntities, escapeHtml } from '../../sdk/lib/html.js';
+import { decodeHtmlEntities, escapeAttr, escapeHtml } from '../../sdk/lib/html.js';
 import { assert } from '../utilities/test-helpers.js';
 
 /**
@@ -66,6 +67,23 @@ export async function runTests(_ctx) {
   } catch (/** @type {any} */ e) {
     failed++;
     errors.push(`decode-html-entities: ${e?.message ?? e}`);
+  }
+
+  // escapeAttr: an attribute value is markup too, so an ampersand or a `<` in
+  // it is escaped along with the quotes — ampersand first, so the entities
+  // the other replacements add are not themselves re-escaped.
+  for (const c of [
+    { in: `a&b<c"d'e`, want: 'a&amp;b&lt;c&quot;d&#39;e' },
+    { in: 'Tom & Jerry.txt', want: 'Tom &amp; Jerry.txt' },
+    { in: '&lt;', want: '&amp;lt;' },
+  ]) {
+    const got = escapeAttr(c.in);
+    if (got === c.want) {
+      passed++;
+    } else {
+      failed++;
+      errors.push(`escapeAttr(${JSON.stringify(c.in)}) = ${JSON.stringify(got)}, want ${JSON.stringify(c.want)}`);
+    }
   }
 
   return { passed, failed, errors };

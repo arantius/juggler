@@ -12,12 +12,12 @@
 import { openExternalURL } from '../../../sdk/lib/window-control.js';
 import wsService from '../../services/websocket.js';
 import providersCache from '../../services/providers-cache.js';
-import { fetchJson, httpErrorText } from '../../services/http.js';
+import { httpErrorText } from '../../services/http.js';
+import * as settingsApi from '../../services/settings-api.js';
 import { customProvidersList } from '../../services/ops-api.js';
 import { showAlert, showConfirm } from '../modal-dialog.js';
 import { sortModelsByVersion } from '../../utils/model-filter.js';
 import { buildEndpointCard, buildAddEndpointForm } from './custom-endpoint-card.js';
-import { apiUrl } from '../../utils/api-url.js';
 import { formatTokens } from '../../utils/format.js';
 import { CHECK_SVG, REFRESH_SVG } from '../../utils/icons.js';
 import { escapeHtml } from '../../../sdk/lib/html.js';
@@ -464,7 +464,6 @@ export class ProvidersTab {
     const status = document.createElement('div');
     status.className = 'key-source-hint';
     status.id = `${provider.name}-oauth-status`;
-    status.style.display = 'block';
     // The hint is the server's own wording, translated where it sent a message.
     status.textContent = provider.available
       ? (providerAuthHint(provider) || t('Signed in'))
@@ -680,7 +679,7 @@ export class ProvidersTab {
 
     // Prefill with the saved host; the default above shows until this resolves.
     // Best-effort prefill — a failure just keeps the default host.
-    fetchJson(apiUrl('/providers/copilot/host'), { fallback: null })
+    settingsApi.getCopilotHost({ fallback: null })
       .then((d) => { if (d && d.success && d.host) input.value = d.host; });
 
     input.addEventListener('change', () => this._copilotSetHost(provider, input));
@@ -700,7 +699,7 @@ export class ProvidersTab {
   async _copilotSetHost(provider, input) {
     const host = input.value.trim() || 'github.com';
     try {
-      const data = await fetchJson(apiUrl('/providers/copilot/host'), { method: 'POST', body: { host } });
+      const data = await settingsApi.setCopilotHost(host);
       if (!data?.success) throw new Error(data?.error || t('Failed to set host'));
       // Re-check against the new host (rebuilds this field with the saved value).
       await this._refreshOAuthProvider(provider, this._buildOAuthRefreshButton(provider));
@@ -727,7 +726,7 @@ export class ProvidersTab {
     button.disabled = true;
     button.textContent = t('Starting\u2026');
     try {
-      const data = await fetchJson(apiUrl('/providers/copilot/device/start'), { method: 'POST', body: { host } });
+      const data = await settingsApi.startCopilotDeviceLogin(host);
       if (!data?.success) throw new Error(data?.error || t('Failed to start sign-in'));
 
       const { userCode, verificationUri, deviceCode, interval } = data;
@@ -762,10 +761,7 @@ export class ProvidersTab {
     const deadline = Date.now() + 15 * 60 * 1000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, delayMs));
-      const data = await fetchJson(apiUrl('/providers/copilot/device/poll'), {
-        method: 'POST',
-        body: { deviceCode, host },
-      });
+      const data = await settingsApi.pollCopilotDeviceLogin(deviceCode, host);
       if (!data?.success) throw new Error(data?.error || t('Sign-in check failed'));
       switch (data.status) {
         case 'authorized': return;
@@ -793,7 +789,7 @@ export class ProvidersTab {
     if (!ok) return;
     button.disabled = true;
     try {
-      const data = await fetchJson(apiUrl('/providers/copilot/signout'), { method: 'POST' });
+      const data = await settingsApi.signOutCopilot();
       if (!data?.success) throw new Error(data?.error || t('Sign out failed'));
       await this._refreshAfterAuthChange(provider, false);
     } catch (err) {
@@ -872,7 +868,6 @@ export class ProvidersTab {
       const status = document.createElement('div');
       status.className = 'key-source-hint';
       status.id = `${provider.name}-oauth-status`;
-      status.style.display = 'block';
       status.textContent = authHint;
       controlColumn.appendChild(status);
 
@@ -1074,7 +1069,7 @@ export class ProvidersTab {
     const activeBadge = document.createElement('span');
     activeBadge.id = `${provider.name}-active-badge`;
     activeBadge.className = 'provider-active-badge';
-    activeBadge.style.display = 'none';
+    activeBadge.hidden = true;
     activeBadge.innerHTML = `${CHECK_SVG}<span>${escapeHtml(t('key is active'))}</span>`;
 
     const buttonGroup = document.createElement('div');
@@ -1085,14 +1080,14 @@ export class ProvidersTab {
     saveButton.id = saveButtonId;
     saveButton.className = 'settings-btn btn-primary small';
     saveButton.textContent = t('Save');
-    saveButton.style.display = 'none';
+    saveButton.hidden = true;
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.id = deleteButtonId;
     deleteButton.className = 'settings-btn btn-danger small';
     deleteButton.textContent = t('Delete');
-    deleteButton.style.display = 'none';
+    deleteButton.hidden = true;
 
     // Add input event listener to update buttons
     input.addEventListener('input', () => {
@@ -1119,7 +1114,7 @@ export class ProvidersTab {
     const sourceHint = document.createElement('div');
     sourceHint.id = `${provider.name}-source`;
     sourceHint.className = 'key-source-hint';
-    sourceHint.style.display = 'none';
+    sourceHint.hidden = true;
 
     controlColumn.appendChild(inputWrapper);
     controlColumn.appendChild(sourceHint);
@@ -1213,7 +1208,7 @@ export class ProvidersTab {
 
     const status = document.createElement('div');
     status.className = 'model-visibility-status';
-    status.style.display = 'none';
+    status.hidden = true;
 
     const filter = document.createElement('input');
     filter.type = 'text';
@@ -1246,7 +1241,7 @@ export class ProvidersTab {
     const empty = document.createElement('div');
     empty.className = 'model-visibility-empty';
     empty.textContent = t('Nothing.');
-    empty.style.display = 'none';
+    empty.hidden = true;
 
     // The overrides this provider currently has, seeded from the catalogue: the
     // server publishes the provider's own number beside the effective one for
@@ -1274,10 +1269,7 @@ export class ProvidersTab {
      * silently delete the models it left out.
      * @returns {Promise<any>} The settings PUT.
      */
-    const saveLimits = () => fetchJson(apiUrl('/settings'), {
-      method: 'PUT',
-      body: { models: { limits: { [provider.name]: limits } } },
-    });
+    const saveLimits = () => settingsApi.updateSettings({ models: { limits: { [provider.name]: limits } } });
 
     /**
      * One token-limit field: blank means "use whatever the provider reports",
@@ -1348,13 +1340,13 @@ export class ProvidersTab {
         else delete limits[model.id];
         try {
           await saveLimits();
-          status.style.display = 'none';
+          status.hidden = true;
         } catch (err) {
           // Nothing was stored, so leaving the number on screen would misreport
           // the window every later turn is admitted against.
           restore();
           status.textContent = t("Couldn't save the token limits. {error}", { error: httpErrorText(err) });
-          status.style.display = '';
+          status.hidden = false;
         }
       });
       return input;
@@ -1398,11 +1390,8 @@ export class ProvidersTab {
           // Always send this provider's COMPLETE list. The server merges the
           // hidden map key by key, so an omitted provider keeps whatever it had
           // and re-showing the last hidden model has to be an explicit [].
-          await fetchJson(apiUrl('/settings'), {
-            method: 'PUT',
-            body: { models: { hidden: { [provider.name]: [...hidden] } } },
-          });
-          status.style.display = 'none';
+          await settingsApi.updateSettings({ models: { hidden: { [provider.name]: [...hidden] } } });
+          status.hidden = true;
         } catch (err) {
           // Put the checkbox back where it was: the stored list is unchanged, so
           // leaving it flipped would misreport what the model menu will do.
@@ -1412,7 +1401,7 @@ export class ProvidersTab {
           updateSummary();
           applyRowState();
           status.textContent = t("Couldn't save which models to show. {error}", { error: httpErrorText(err) });
-          status.style.display = '';
+          status.hidden = false;
         }
       });
 
@@ -1463,10 +1452,10 @@ export class ProvidersTab {
       let matches = 0;
       for (const { row, haystack } of rows) {
         const hit = query === '' || haystack.includes(query);
-        row.style.display = hit ? '' : 'none';
+        row.hidden = !hit;
         if (hit) matches++;
       }
-      empty.style.display = matches === 0 ? '' : 'none';
+      empty.hidden = matches !== 0;
     });
 
     // Write a freshly published catalogue onto these controls, in place.
@@ -1575,7 +1564,7 @@ export class ProvidersTab {
       if (value === (/** @type {any} */ (this.config)[configField] || '')) return;
       status.textContent = t('Saving…');
       try {
-        await fetchJson(apiUrl('/config'), { method: 'PUT', body: { [configKey]: value } });
+        await settingsApi.setConfig(configKey, value);
         /** @type {any} */ (this.config)[configField] = value;
         status.textContent = value
           ? t('Saved. Pointing at {address}.', { address: value })
@@ -1640,7 +1629,7 @@ export class ProvidersTab {
       if (value === (/** @type {any} */ (this.config).claudecodeBinaryPath || '')) return;
       status.textContent = t('Saving…');
       try {
-        await fetchJson(apiUrl('/config'), { method: 'PUT', body: { claudecode_binary_path: value } });
+        await settingsApi.setConfig('claudecode_binary_path', value);
         /** @type {any} */ (this.config).claudecodeBinaryPath = value;
         if (value) {
           // A user pointing us at a binary means "use Claude Code" — enable it
@@ -1680,11 +1669,7 @@ export class ProvidersTab {
    */
   async toggleProviderEnabled(provider, enabled) {
     try {
-      await fetchJson(apiUrl('/config/provider-enabled'), {
-        method: 'POST',
-        body: { provider: provider.name, enabled },
-        errorPrefix: t("Couldn't update provider"),
-      });
+      await settingsApi.setProviderEnabled(provider.name, enabled, { errorPrefix: t("Couldn't update provider") });
       // The handler queues a provider recompute; the resulting providers-update
       // is what refreshes every model selector.
     } catch (error) {
@@ -1699,8 +1684,8 @@ export class ProvidersTab {
   }
 
   /**
-   * Update all provider buttons and placeholders based on current state
-   * @private
+   * Update all provider buttons and placeholders based on current state. The
+   * panel calls it on close, after clearing the unsaved key fields.
    */
   updateAllButtons() {
     const configObj = /** @type {any} */ (this.config);
@@ -1733,29 +1718,29 @@ export class ProvidersTab {
       // input is empty (i.e. user isn't currently typing a replacement).
       if (activeBadge) {
         const showBadge = hasKey && provider.keySource !== 'env' && !inputHasValue;
-        activeBadge.style.display = showBadge ? 'inline-flex' : 'none';
+        activeBadge.hidden = !showBadge;
       }
 
       // Update source hint
       if (sourceHint) {
         if (provider.keySource === 'env') {
           sourceHint.textContent = t('Using environment variable ${name}', { name: provider.envVarName });
-          sourceHint.style.display = 'block';
+          sourceHint.hidden = false;
         } else {
           sourceHint.textContent = '';
-          sourceHint.style.display = 'none';
+          sourceHint.hidden = true;
         }
       }
 
       // Show save button only if input has value and key is not from env var
       if (saveButton) {
         const hasInputValue = input && input.value.trim() !== '';
-        saveButton.style.display = (hasInputValue && provider.keySource !== 'env') ? 'block' : 'none';
+        saveButton.hidden = !(hasInputValue && provider.keySource !== 'env');
       }
 
       // Show delete button only if key exists in credentials file (not env var)
       if (deleteButton) {
-        deleteButton.style.display = (hasKey && provider.keySource !== 'env') ? 'block' : 'none';
+        deleteButton.hidden = !(hasKey && provider.keySource !== 'env');
       }
     }
   }
@@ -1771,11 +1756,7 @@ export class ProvidersTab {
     if (!apiKey) return;
 
     try {
-      await fetchJson(apiUrl('/config'), {
-        method: 'PUT',
-        body: { [provider.configKeyName]: apiKey },
-        errorPrefix: t('Failed to save API key'),
-      });
+      await settingsApi.setConfig(provider.configKeyName, apiKey, { errorPrefix: t('Failed to save API key') });
 
       // Clear the input so the UI returns to the "key is active" state
       const input = /** @type {HTMLInputElement|null} */ (this.host.querySelector(`#${provider.name}-key`));
@@ -1799,11 +1780,7 @@ export class ProvidersTab {
   async deleteProviderKey(provider) {
     try {
       // Send empty string to delete the key
-      await fetchJson(apiUrl('/config'), {
-        method: 'PUT',
-        body: { [provider.configKeyName]: '' },
-        errorPrefix: t('Failed to delete API key'),
-      });
+      await settingsApi.setConfig(provider.configKeyName, '', { errorPrefix: t('Failed to delete API key') });
 
       // Reload config from server to get actual state (don't re-render fields)
       await this.host.loadConfig(false);

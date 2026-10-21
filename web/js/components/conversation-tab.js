@@ -21,6 +21,7 @@ import { isItemSelectable } from '../services/context-item-utilities.js';
 import { recordTape } from '../utils/event-tape.js';
 import { SHEET_QUERY } from '../utils/popup-surface.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
+import { isTabListFocused } from '../services/tab-list-focus.js';
 import JugglerElement from './juggler-element.js';
 import { handleEscapeKey } from '../services/escape-behaviour.js';
 import { ColumnBuilder, asArea, asPanel } from './column-builder.js';
@@ -29,6 +30,15 @@ import { THREAD_FOCUS_CHANGED } from '../services/nearest-context-item.js';
 // Dispatched from here, defined beside the other questions about the reader's
 // thread so a surface can follow it without importing this component.
 export { THREAD_FOCUS_CHANGED };
+
+/**
+ * Dispatched (bubbling) by a conversation tab once it is the one on screen with
+ * its columns synced — the earliest moment a reveal aimed into it has something
+ * to aim at. `detail.conversationId` names the conversation. A tab for which it
+ * has fired, and that has not been hidden since, reads `shown` as true.
+ * @type {string}
+ */
+export const CONVERSATION_TAB_SHOWN = 'juggler:conversation-tab-shown';
 
 /**
  * How much of the column it moved past a column-level scroll leaves showing, in
@@ -126,6 +136,13 @@ class ConversationTab extends JugglerElement {
 
     /** @type {boolean} @private - Tripwire: detects re-entrant _rebuildColumns (Yjs mutation during render) */
     this._isRebuilding = false;
+
+    /**
+     * Whether this tab is on screen with its columns synced: set as it
+     * dispatches CONVERSATION_TAB_SHOWN, cleared when it is hidden.
+     * @type {boolean}
+     */
+    this.shown = false;
 
     /**
      * The thread id last announced as focused, so THREAD_FOCUS_CHANGED fires on
@@ -868,7 +885,7 @@ class ConversationTab extends JugglerElement {
       root.conversation = this._conversation;
     }
 
-    const suppressActivationFocus = !!document.querySelector('conversation-bar.tab-list-focused');
+    const suppressActivationFocus = isTabListFocused();
     const runWithoutAutofocus = (/** @type {() => void} */ fn) => {
       const wasKeyboardNavigating = this._isKeyboardNavigating;
       if (suppressActivationFocus) this._isKeyboardNavigating = true;
@@ -893,6 +910,7 @@ class ConversationTab extends JugglerElement {
       // A cheap activation need not have rebuilt anything, and the tab being
       // switched away from cleared what was last announced.
       this._announceThreadFocus();
+      this._announceShown();
       return;
     }
     this._needsResync = false;
@@ -904,7 +922,21 @@ class ConversationTab extends JugglerElement {
         this._flushDeferredInsertions();
         this._ensureThreadColumnSelections();
       });
+      this._announceShown();
     }, 0);
+  }
+
+  /**
+   * Mark this tab shown and say so with {@link CONVERSATION_TAB_SHOWN}: it is
+   * on screen and its columns are synced.
+   * @private
+   */
+  _announceShown() {
+    this.shown = true;
+    this.dispatchEvent(new CustomEvent(CONVERSATION_TAB_SHOWN, {
+      bubbles: true,
+      detail: { conversationId: this._conversation?.id ?? null },
+    }));
   }
 
   /**
@@ -1066,6 +1098,7 @@ class ConversationTab extends JugglerElement {
     this.classList.remove('active');
     this.classList.add('hidden');
     this._isHidden = true;
+    this.shown = false;
     // Whatever this tab last announced is no longer what anyone is reading, so
     // its next activation must announce again even if the thread is the same.
     this._announcedThreadItemId = undefined;
@@ -1199,7 +1232,7 @@ class ConversationTab extends JugglerElement {
     if (keyShortcutManager.backgroundNavStandsDown(e)) return;
 
     // Tab-list focus mode owns arrow keys until the user re-enters the tab.
-    if (e.key.startsWith('Arrow') && document.querySelector('conversation-bar.tab-list-focused')) return;
+    if (e.key.startsWith('Arrow') && isTabListFocused()) return;
 
     const activeCol = this._columns[this._selection.activeColumnIndex];
     if (!activeCol) return;

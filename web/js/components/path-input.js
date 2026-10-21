@@ -25,6 +25,7 @@
 import JugglerElement from './juggler-element.js';
 import { fetchPathCompletions, fetchFileCompletions } from '../services/completions-api.js';
 import { applyListboxRoles, linkListbox, setActiveOption } from '../utils/listbox-roles.js';
+import { presentPopup } from '../utils/popup-surface.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /**
@@ -72,13 +73,15 @@ class PathInput extends JugglerElement {
     this._index = -1;
     /** @type {ReturnType<typeof setTimeout>|null} @private */
     this._debounce = null;
-    /** @type {(() => void)|null} @private */
-    this._reposition = null;
+    /**
+     * Tears down the presented menu.
+     * @type {(() => void)|null} @private
+     */
+    this._release = null;
     /**
      * Bumped by every close. A completion fetch notes it before awaiting and
-     * opens nothing if it moved: the menu is portaled to <body> with window
-     * listeners of its own, and one opened for a field already closed or gone
-     * would never be closed.
+     * opens nothing if it moved: the menu is presented on <body> as a popup,
+     * and one opened for a field already closed or gone would never be closed.
      * @type {number} @private
      */
     this._closes = 0;
@@ -264,67 +267,40 @@ class PathInput extends JugglerElement {
     applyListboxRoles(menu, t('Path suggestions'));
     if (this._input) linkListbox(this._input, menu);
 
-    // Portal to <body> with fixed positioning so the menu escapes every
-    // ancestor `overflow: hidden|auto|scroll` clipping context (the
-    // permissions popup wraps the input in `overflow-y: auto` scroll
-    // containers). Position is computed from the input's viewport rect and
-    // refreshed on scroll/resize so the menu tracks the input.
-    document.body.appendChild(menu);
-    menu.classList.add('path-input-menu--portaled');
     this._menu = menu;
-
-    if (!this._input) return;
-
-    this._positionMenu();
-
-    // Track viewport changes while open. `scroll` with capture catches
-    // scrolling in any ancestor (including the popup body); `resize` catches
-    // window changes. Listeners are removed in `_closeMenuDOM`.
-    this._reposition = () => this._positionMenu();
-    window.addEventListener('scroll', this._reposition, true);
-    window.addEventListener('resize', this._reposition);
-  }
-
-  /**
-   * Place the portaled menu under (or above) the input using fixed
-   * coordinates derived from the input's viewport rect.
-   * @private
-   */
-  _positionMenu() {
-    if (!this._menu || !this._input) return;
-    const rect = this._input.getBoundingClientRect();
-    const gap = 4;
-    const spaceBelow = window.innerHeight - rect.bottom - gap;
-    const spaceAbove = rect.top - gap;
-    const openAbove = !(spaceBelow >= spaceAbove || spaceBelow >= 120);
-
-    this._menu.style.position = 'fixed';
-    this._menu.style.left = `${Math.round(rect.left)}px`;
-    this._menu.style.minWidth = `${Math.round(rect.width)}px`;
-    // The entrance grows from the edge that faces the input.
-    this._menu.style.setProperty('--popup-origin', openAbove ? 'left bottom' : 'left top');
-    if (openAbove) {
-      this._menu.classList.add('path-input-menu--above');
-      this._menu.style.top = 'auto';
-      this._menu.style.bottom = `${Math.round(window.innerHeight - rect.top + gap)}px`;
-      this._menu.style.maxHeight = `${Math.max(spaceAbove, 80)}px`;
-    } else {
-      this._menu.classList.remove('path-input-menu--above');
-      this._menu.style.bottom = 'auto';
-      this._menu.style.top = `${Math.round(rect.bottom + gap)}px`;
-      this._menu.style.maxHeight = `${Math.max(spaceBelow, 80)}px`;
+    if (!this._input) {
+      document.body.appendChild(menu);
+      return;
     }
+
+    // Presented on <body>, so the menu escapes every ancestor `overflow`
+    // clipping context (the permissions popup wraps the field in scrolling
+    // boxes), and followed as those boxes scroll. It never takes focus: the
+    // field keeps it and drives the list. Nested, because the field usually
+    // sits inside a popup of its own (the project picker), which must stay
+    // open. No focus is restored on close: the menu closes when the field is
+    // left, and refocusing the field would reopen it.
+    menu.style.setProperty('--path-input-width', `${Math.round(this._input.getBoundingClientRect().width)}px`);
+    this._release = presentPopup({
+      surface: menu,
+      anchor: this._input,
+      id: 'path-input',
+      onClose: () => this._closeMenu(),
+      gap: 4,
+      modal: false,
+      nested: true,
+      restoreFocus: false,
+      followAnchor: true,
+    });
   }
 
   /**
    * Remove the dropdown from the DOM without touching the debounce timer.
    * @private */
   _closeMenuDOM() {
-    if (this._reposition) {
-      window.removeEventListener('scroll', this._reposition, true);
-      window.removeEventListener('resize', this._reposition);
-      this._reposition = null;
-    }
+    const release = this._release;
+    this._release = null;
+    if (release) release();
     if (this._menu) {
       this._menu.remove();
       this._menu = null;

@@ -169,41 +169,43 @@ class ActionConfirmation extends JugglerElement {
 
     const { options } = this._options;
 
+    const optionsHTML = options.map((opt, index) => {
+      const patternHtml = this._renderPatterns(opt);
+      const descriptorHTML = patternHtml
+        ? `<span class="option-descriptor">${patternHtml}</span>`
+        : '';
+      const editable = this._isEditable(opt);
+      // The pencil lives INSIDE the button, pinned to its right edge — a
+      // subtle span, not its own row, so an editable option is the same
+      // height as any other. A span (not a nested <button>, which is invalid
+      // HTML) that the delegated click handler routes to edit mode.
+      const pencilHTML = editable
+        ? `<span class="pattern-edit-btn" data-edit-index="${index}" role="button" title="${escapeHtml(t('Edit pattern'))}" aria-label="${escapeHtml(t('Edit pattern'))}">${PENCIL_ICON_SVG}</span>`
+        : '';
+      // The editor occupies the SAME slot as the button (only one is shown
+      // at a time — see the `.editing` CSS), so entering edit mode swaps the
+      // button for the input in place without changing the dialog's height.
+      const editFieldHTML = editable
+        ? `<div class="pattern-edit-field" hidden>
+             <input type="text" class="pattern-edit-input" data-edit-index="${index}" value="${escapeHtml(this._currentPattern(opt))}" aria-label="${escapeHtml(t('Edit approval pattern'))}" />
+             <div class="pattern-edit-notice" hidden></div>
+           </div>`
+        : '';
+      return `
+        <div class="action-approval-option${editable ? ' editable' : ''}" data-index="${index}">
+          <button
+            class="action-confirmation-button ${escapeHtml(opt.style)}"
+            data-value="${escapeHtml(opt.value)}"
+            data-index="${index}"
+          >${escapeHtml(t(opt.label))}${descriptorHTML}${pencilHTML}</button>
+          ${editFieldHTML}
+        </div>
+      `;
+    }).join('');
+
     this.innerHTML = `
       <div class="action-approval-buttons">
-        ${options.map((opt, index) => {
-          const patternHtml = this._renderPatterns(opt);
-          const descriptor = patternHtml
-            ? `<span class="option-descriptor">${patternHtml}</span>`
-            : '';
-          const editable = this._isEditable(opt);
-          // The pencil lives INSIDE the button, pinned to its right edge — a
-          // subtle span, not its own row, so an editable option is the same
-          // height as any other. A span (not a nested <button>, which is invalid
-          // HTML) that the delegated click handler routes to edit mode.
-          const pencil = editable
-            ? `<span class="pattern-edit-btn" data-edit-index="${index}" role="button" title="${escapeHtml(t('Edit pattern'))}" aria-label="${escapeHtml(t('Edit pattern'))}">${PENCIL_ICON_SVG}</span>`
-            : '';
-          // The editor occupies the SAME slot as the button (only one is shown
-          // at a time — see the `.editing` CSS), so entering edit mode swaps the
-          // button for the input in place without changing the dialog's height.
-          const editField = editable
-            ? `<div class="pattern-edit-field" hidden>
-                 <input type="text" class="pattern-edit-input" data-edit-index="${index}" value="${escapeHtml(this._currentPattern(opt))}" aria-label="${escapeHtml(t('Edit approval pattern'))}" />
-                 <div class="pattern-edit-notice" hidden></div>
-               </div>`
-            : '';
-          return `
-          <div class="action-approval-option${editable ? ' editable' : ''}" data-index="${index}">
-            <button
-              class="action-confirmation-button ${opt.style}"
-              data-value="${opt.value}"
-              data-index="${index}"
-            >${escapeHtml(t(opt.label))}${descriptor}${pencil}</button>
-            ${editField}
-          </div>
-        `;
-        }).join('')}
+        ${optionsHTML}
       </div>
     `;
 

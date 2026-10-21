@@ -393,6 +393,33 @@ export async function runTests(_ctx) {
     assert(body.goal === '' && body.strategy === '', `goal/strategy = ${body.goal}/${body.strategy}`);
   });
 
+  // A radiogroup is one tab stop, and the arrows move the choice within it —
+  // the keys a native radio set answers to.
+  await run('the run mode is a radiogroup the arrow keys drive', async (calls) => {
+    const { done, overlay, save } = openEditor();
+    const group = /** @type {HTMLElement} */ (overlay.querySelector('#cmd-run'));
+    const seg = (/** @type {string} */ v) => /** @type {HTMLElement} */ (group.querySelector(`[data-run="${v}"]`));
+    const stops = () => ['send', 'draft', 'subthread'].map(v => seg(v).tabIndex).join(',');
+    assert(stops() === '-1,-1,0', `only the checked segment is a tab stop, got ${stops()}`);
+
+    const key = (/** @type {string} */ k) => /** @type {HTMLElement} */ (document.activeElement)
+      .dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    seg('subthread').focus();
+    key('ArrowRight');
+    assert(seg('send').getAttribute('aria-checked') === 'true', 'ArrowRight from the last segment wraps to the first');
+    assert(document.activeElement === seg('send'), 'the arrow moves focus with the choice');
+    assert(stops() === '0,-1,-1', `the tab stop follows the choice, got ${stops()}`);
+    assert(overlay.querySelector('#cmd-subthread-fields')?.classList.contains('hidden'),
+      'a choice made from the keyboard reports like a click');
+    key('ArrowLeft');
+    assert(seg('subthread').getAttribute('aria-checked') === 'true', 'ArrowLeft from the first segment wraps to the last');
+
+    key('ArrowUp');
+    /** @type {any} */ (save).click();
+    await done;
+    assert(putBody(calls).run === 'draft', `run = ${putBody(calls).run}`);
+  });
+
   // A save resets the catalog cache and starts a registry rebuild that outlives
   // it, so a catalog fetch can be in flight across the next reset. Landing after
   // that reset, it must not cache the list it read before it: the next reader —

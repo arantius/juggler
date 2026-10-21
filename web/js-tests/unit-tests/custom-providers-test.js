@@ -1283,7 +1283,7 @@ export async function runTests(_ctx) {
         limit.value = '2000';
         limit.dispatchEvent(new Event('change'));
         const status = /** @type {HTMLElement} */ (list.querySelector('.model-visibility-status'));
-        await waitFor(() => status.style.display !== 'none', { timeoutMs: budgetFor(2000), description: 'the limit save to fail' });
+        await waitFor(() => !status.hidden, { timeoutMs: budgetFor(2000), description: 'the limit save to fail' });
         const limitError = status.textContent;
         assert(isPseudoLocalized(limitError || ''), `the limit failure is plain English: ${JSON.stringify(limitError)}`);
         const box2 = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="2"] .model-visibility-check'));

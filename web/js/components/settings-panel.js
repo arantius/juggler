@@ -12,7 +12,8 @@
 import JugglerElement from './juggler-element.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
-import { fetchJson } from '../services/http.js';
+import { trapFocus } from '../utils/dialog-a11y.js';
+import * as settingsApi from '../services/settings-api.js';
 import { getGlobalSettings, onGlobalSettings, offGlobalSettings } from '../services/prefs.js';
 import { registerSettingsOpener } from '../services/settings-launcher.js';
 import { showAlert } from './modal-dialog.js';
@@ -27,7 +28,6 @@ import { LogsTab } from './settings/logs-tab.js';
 import { McpTab, AcpTab } from './settings/subprocess-tabs.js';
 import { SkillsTab } from './settings/skills-tab.js';
 import { UpdatesTab } from './settings/updates-tab.js';
-import { apiUrl } from '../utils/api-url.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { t, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
@@ -45,16 +45,18 @@ const PROVIDERS_READY_TIMEOUT_MS = 5000;
  * @typedef {object} LoadedSettings
  * @property {object} config - The /api/config result.
  * @property {any[]} providers - The sorted /api/providers list.
- * @property {{provider: string, model: string, explicit?: boolean}} defaultModel - The /api/default-model result.
- * @property {{provider?: string, model?: string, explicit?: boolean, disabled?: boolean, autoResolved?: {provider: string, model: string}}} [cheapModel] - The /api/cheap-model result.
- * @property {{provider?: string, model?: string, explicit?: boolean, available?: boolean}} [decisionModel] - The /api/decision-model result.
+ * @property {import('../services/settings-api.js').DefaultModelChoice} defaultModel - The /api/default-model result.
+ * @property {import('../services/settings-api.js').ModelChoice|null} [cheapModel] - The /api/cheap-model result.
+ * @property {import('../services/settings-api.js').ModelChoice|null} [decisionModel] - The /api/decision-model result.
  * @property {object} connectivity - The /api/connectivity result.
  */
 
 /**
- * The interface each settings tab implements. Every method is optional; the shell
- * dispatches through the tab registry generically, so a tab only implements what
- * it needs. DOM queries are scoped to the tab's own `#tab-<name>` section.
+ * The interface each settings tab implements. Every method but dispose() is
+ * optional; the shell dispatches through the tab registry generically, so a tab
+ * only implements what it needs. dispose() is required so that a tab holding
+ * nothing outside its own section has to say so, rather than leave it unasked.
+ * DOM queries are scoped to the tab's own `#tab-<name>` section.
  * @typedef {object} SettingsTabController
  * @property {() => void} [render] - Build static DOM / wire persistent listeners (called once, from the shell's render()).
  * @property {(data: LoadedSettings, renderFields: boolean) => void} [onConfigLoaded] - Receive the shared loadConfig() payload.
@@ -63,8 +65,9 @@ const PROVIDERS_READY_TIMEOUT_MS = 5000;
  * @property {() => void} [close] - Panel closed: stop pollers, drop transient form state.
  * @property {() => void} [connect] - Element connected: take global/ws listeners. Idempotent, since a
  *   tab may take them at construction or render.
- * @property {() => void} [dispose] - Element disconnected: remove global/ws listeners. The next
- *   connect() takes them again.
+ * @property {() => void} dispose - Element disconnected: release everything held outside the
+ *   tab's own section — global/ws listeners, pollers, popups drawn into <body>. The next
+ *   connect() takes the listeners again.
  * @property {(settings: any) => void} [onSettingsChanged] - The global settings document changed (here or in another window): adopt the sections this tab owns.
  */
 
@@ -116,11 +119,17 @@ class SettingsPanel extends JugglerElement {
     // The tab registry: one controller per tab (Extensions gets none — its
     // section just hosts <plugin-catalog>). switchTab / loadConfig / close /
     // connect and disconnect dispatch through this generically.
+    /** @type {ProvidersTab} @private */
+    this._providersTab = new ProvidersTab(this);
+    /** @type {DefaultsTab} @private */
+    this._defaultsTab = new DefaultsTab(this);
+    /** @type {ConnectivityTab} @private */
+    this._connectivityTab = new ConnectivityTab(this);
     /** @type {Record<string, SettingsTabController>} @private */
     this._tabs = {
-      providers: new ProvidersTab(this),
-      defaults: new DefaultsTab(this),
-      connectivity: new ConnectivityTab(this),
+      providers: this._providersTab,
+      defaults: this._defaultsTab,
+      connectivity: this._connectivityTab,
       mcp: new McpTab(this),
       acp: new AcpTab(this),
       skills: new SkillsTab(this),
@@ -147,9 +156,7 @@ class SettingsPanel extends JugglerElement {
       if (tab.connect) tab.connect();
     }
     this.addCleanup(() => {
-      for (const tab of tabs) {
-        if (tab.dispose) tab.dispose();
-      }
+      for (const tab of tabs) tab.dispose();
     });
     this.addCleanup(() => {
       this._releasePopupOpen?.();
@@ -186,7 +193,7 @@ class SettingsPanel extends JugglerElement {
     const credentials = { path: '<code id="credentials-path">~/.juggler/credentials.json</code>' };
     this.innerHTML = `
             <modal-backdrop class="settings-backdrop" id="settings-backdrop"></modal-backdrop>
-            <modal-panel class="settings-container">
+            <modal-panel class="settings-container" role="dialog" aria-modal="true" aria-label="${escapeHtml(t('Settings'))}">
                 <button class="close-button" id="settings-close" title="${escapeHtml(t('Close'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
                 <nav class="settings-tabs">
                     <div class="settings-tabs-scroll">
@@ -474,9 +481,12 @@ class SettingsPanel extends JugglerElement {
       this.classList.remove('loaded');
     }
 
-    // Escape and the browser/mobile Back button dismiss via popup-manager.
+    // Escape and the browser/mobile Back button dismiss via popup-manager, and
+    // the open panel holds Tab; one release ends both.
     if (!this._releasePopupOpen) {
-      this._releasePopupOpen = markPopupOpen(() => this.close());
+      const releasePopup = markPopupOpen(() => this.close());
+      const releaseTrap = trapFocus(this);
+      this._releasePopupOpen = () => { releasePopup(); releaseTrap(); };
     }
 
     // Switch to specified tab if provided (before loading so tab is ready)
@@ -592,7 +602,7 @@ class SettingsPanel extends JugglerElement {
     inputs.forEach(input => {
       /** @type {HTMLInputElement} */ (input).value = '';
     });
-    /** @type {any} */ (this._tabs.providers).updateAllButtons();
+    this._providersTab.updateAllButtons();
   }
 
   /**
@@ -643,14 +653,15 @@ class SettingsPanel extends JugglerElement {
       // Config and providers are required — a failure aborts the whole load;
       // the other three fall back to the tab's current value, so a blip leaves
       // the already-rendered picker alone rather than blanking it.
+      const held = this._defaultsTab.currentModelChoices();
       const [config, providersData, defaultModel, cheapModel, decisionModel, connectivity] = await Promise.all([
         // Both prefixes reach only the console: the catch below shows its own message.
-        fetchJson(apiUrl('/config'), { errorPrefix: markUntranslated("Couldn't load config") }),
-        fetchJson(apiUrl('/providers'), { errorPrefix: markUntranslated('Failed to load providers') }),
-        fetchJson(apiUrl('/default-model'), { fallback: /** @type {any} */ (this._tabs.defaults).defaultModel }),
-        fetchJson(apiUrl('/cheap-model'), { fallback: /** @type {any} */ (this._tabs.defaults).cheapModel }),
-        fetchJson(apiUrl('/decision-model'), { fallback: /** @type {any} */ (this._tabs.defaults).decisionModel }),
-        fetchJson(apiUrl('/connectivity'), { fallback: /** @type {any} */ (this._tabs.connectivity).connectivity }),
+        settingsApi.getConfig({ errorPrefix: markUntranslated("Couldn't load config") }),
+        settingsApi.getProviders({ errorPrefix: markUntranslated('Failed to load providers') }),
+        settingsApi.getDefaultModel({ fallback: held.defaultModel }),
+        settingsApi.getCheapModel({ fallback: held.cheapModel }),
+        settingsApi.getDecisionModel({ fallback: held.decisionModel }),
+        settingsApi.getConnectivity({ fallback: this._connectivityTab.currentConnectivity() }),
       ]);
 
       // Show the platform-correct credentials location (XDG on Linux,

@@ -111,7 +111,7 @@ class NoConversationsOverlay extends JugglerElement {
     const product = 'Juggler'; // i18n-ignore: the product name, which the logo spells out
     this.innerHTML = `
       <section class="onboarding-panel" aria-label="${escapeHtml(t('No conversations'))}">
-        <div class="onboarding-logo" role="img" aria-label="${product}"></div>
+        <div class="onboarding-logo" role="img" aria-label="${escapeHtml(product)}"></div>
         <p>${escapeHtml(t('Click \'+ New conversation\' in the sidebar to start one.'))}</p>
       </section>
     `;

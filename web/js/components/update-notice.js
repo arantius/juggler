@@ -7,6 +7,7 @@ import { openExternalURL } from '../../sdk/lib/window-control.js';
 import { createButton } from '../../sdk/lib/html.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
+import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { startInstall, requestRestart } from '../services/updater-control.js';
 import { showConfirm } from './modal-dialog.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
@@ -189,6 +190,8 @@ class UpdateNotice extends JugglerElement {
     this._renderKey = null;
     /** @type {(() => void)|null} @private */
     this._releasePopupOpen = null;
+    /** @type {(() => void)|null} @private — releases the Tab trap while open */
+    this._releaseTrap = null;
     /** @type {boolean} @private — a restart is being requested */
     this._restarting = false;
     /** @type {boolean} @private — install requested; show in-flight shape optimistically until a real snapshot reacts */
@@ -229,13 +232,15 @@ class UpdateNotice extends JugglerElement {
    * Register the open dialog with popup-manager, replacing any registration it
    * already holds. Dismissible dialogs close via Escape and the browser/mobile
    * Back button (routed through popup-manager); a required notice registers no
-   * close handler, so neither gesture can dismiss it.
+   * close handler, so neither gesture can dismiss it. Either way the open
+   * dialog holds Tab.
    * @private
    * @param {UpdateViewModel} vm
    */
   _registerDismissal(vm) {
     this._teardownDismissal();
     this._releasePopupOpen = markPopupOpen(this._dismissible(vm) ? () => this._dismiss() : undefined);
+    this._releaseTrap = trapFocus(this);
   }
 
   /**
@@ -336,6 +341,7 @@ class UpdateNotice extends JugglerElement {
     heading.className = 'update-notice__title';
     heading.textContent = this._title(vm);
     panel.appendChild(heading);
+    markDialog(panel, heading);
 
     panel.appendChild(this._buildBody(vm));
 
@@ -653,6 +659,8 @@ class UpdateNotice extends JugglerElement {
       this._releasePopupOpen();
       this._releasePopupOpen = null;
     }
+    this._releaseTrap?.();
+    this._releaseTrap = null;
   }
 }
 

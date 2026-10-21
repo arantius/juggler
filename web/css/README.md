@@ -25,12 +25,23 @@ in [Where a rule goes](#where-a-rule-goes).
 
 ## Layers
 
-Every sheet declares its layer, and the layer order is declared once in the
-HTML:
+A sheet's layer is its directory, recorded against it in `manifest.json`, whose
+`layers` list is the order. **They are not cascade layers yet.** No sheet
+contains `@layer` and the HTML declares no layer order, so today a layer is a
+filing convention: the `<link>` lists run in layer order, which makes a later
+layer win a *tie* on specificity, but a more specific rule in a lower layer
+still wins, exactly as unlayered CSS always has.
+
+The plan is to wrap each sheet in its layer, with the order declared once:
 
 ```css
 @layer tokens, base, layout, patterns, components, vendor, utilities;
 ```
+
+That wrap waits on the [inversion check](#the-inversion-check): every rule
+that wins today by out-ranking a rule in a higher layer is a rule the wrap would
+switch off, and `.lint-css-allowlist` counts them per file pair. When its
+`layer-inversion` block is empty, the wrap changes nothing anyone can see.
 
 | Layer | Holds |
 |---|---|
@@ -42,9 +53,10 @@ HTML:
 | `vendor` | Third-party themes — **the colours only**. Above `components` because a syntax theme has to beat the text colour a feature group applies to the block around it. The geometry PrismJS ships with (padding, `white-space`, `font-size`) is not here: it is in `patterns/code.css`, below the components that host a code block, because a panel knows how it wraps and a theme does not. |
 | `utilities` | Single-purpose `u-*` helpers, for styling that every element carrying it wants unconditionally. Last, so they win — and so nothing can override them. Shared chrome a component refines is not a utility: that is what `patterns` is for. |
 
-Layers mean **source order between files no longer decides who wins**, which is
-what makes it safe to have twenty component files instead of one enormous one.
-Two consequences worth knowing:
+Wrapped, layers mean **source order between files no longer decides who wins**,
+which is what makes it safe to have twenty component files instead of one
+enormous one. Write every rule for that cascade now — the inversion check holds
+new CSS to it already. The consequences worth knowing:
 
 - **Specificity does not cross a layer boundary.** Within a layer it decides as
   it always did; between layers the higher layer wins at *any* specificity. A
@@ -61,8 +73,10 @@ Two consequences worth knowing:
   utility, or the shared part moves to `patterns`, or the utility loses the
   declaration being fought over.
 - **Unlayered CSS beats every layer.** Extension stylesheets are unlayered, so
-  an extension can override host styling without `!important`. That is the
-  supported mechanism; do not use `!important` to achieve it.
+  once the wrap lands an extension can override host styling without
+  `!important`. Until then an extension rule wins where it out-ranks the host's,
+  or ties it — `injectStylesOnce()` appends to `<head>`, after the host's links.
+  Either way, do not use `!important` to win.
 
 ## Where a rule goes
 
@@ -155,8 +169,9 @@ Extension CSS ships as a `.css` file beside the extension and is linted like
 everything else. `injectStylesOnce()` remains for styles that genuinely can't be
 static.
 
-Extension sheets are unlayered, so they win against host CSS by default. With
-that comes the obligation not to break the app:
+Extension sheets are unlayered, so once the host's sheets are wrapped in layers
+they win against host CSS by default (until then, see the last bullet under
+[Layers](#layers)). With that comes the obligation not to break the app:
 
 - **Scope to something you own.** Context item content renders inside
   `.context-item-expanded-content` / `.context-item-collapsed-content` — the
@@ -189,7 +204,7 @@ it comes back with a use.
 | dead selectors | A class in the CSS that appears in no JS, HTML or extension, and matches no `dynamicClasses` pattern. |
 | token parity | A colour token defined for one theme only without the fallback idiom; a `var()` that resolves to nothing; a fallback on a token that is always defined; a fallback on a property nothing defines and JS does not set. |
 | link parity | `index.html` and `headless-test.html` disagreeing on the sheet list. |
-| layer order | A sheet whose declared layer is not its directory, or one listed out of layer order. |
+| layer order | A sheet whose layer in `manifest.json` is not its directory, or one listed out of layer order. |
 | asset url | A relative `url()` that resolves to no file. |
 | layer inversion | A rule filed below a rule it overrides. |
 
