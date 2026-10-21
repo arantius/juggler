@@ -216,6 +216,7 @@ import { runTests as runLabelStylesTests } from '../unit-tests/label-styles-test
 import { runTests as runFocusRingsTests } from '../unit-tests/focus-rings-test.js';
 import { runTests as runFocusModalityTests } from '../unit-tests/focus-modality-test.js';
 import { runTests as runThemeToggleTests } from '../unit-tests/theme-toggle-test.js';
+import { runTests as runAppearancePrefsTests } from '../unit-tests/appearance-prefs-test.js';
 import { runTests as runToolNameResolutionTests } from '../unit-tests/tool-name-resolution-test.js';
 import { runTests as runNewTabUxTests } from '../unit-tests/new-tab-ux-test.js';
 import { runTests as runConversationWorkspaceTests } from '../unit-tests/conversation-workspace-test.js';
@@ -763,6 +764,9 @@ const UNIT_TEST_SUITES = [
   // Exclusive: it repaints data-theme and stubs matchMedia for the length of a
   // case, both of which are document-wide.
   { name: 'unit:theme-toggle', run: runThemeToggleTests, needsExclusiveRun: true },
+  // Exclusive: it stubs window.fetch, repaints the document and writes the
+  // machine's theme and zoom cells, which are not scoped to anything.
+  { name: 'unit:appearance-prefs', run: runAppearancePrefsTests, needsExclusiveRun: true },
   { name: 'unit:tool-name-resolution', run: runToolNameResolutionTests },
   { name: 'unit:new-tab-ux', run: runNewTabUxTests },
   // Exclusive: it builds real git repositories in the shared fixture root and

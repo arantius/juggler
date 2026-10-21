@@ -175,14 +175,8 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// internal/apipaths rather than here (as is the board delete below).
 	api.HandleFunc(apiRoute(apipaths.SessionWindowState), sessionAPI.HandleGetWindowState).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.SessionWindowState), sessionAPI.HandleSetWindowState).Methods("PUT")
-	// UI zoom (root font-size) also lives with the session (per project), so a
-	// reopened project window paints at the size the user left it. Unlike
-	// geometry it is applied by the web viewer, which reads the server-injected
-	// value at load and PUTs changes here. The write is local-only: a remote
-	// viewer starts from this value but keeps its own in localStorage, so one
-	// device can't resize another's window (see localViewerOnly).
 	// The pinboard is shared project state, not a per-device preference, so
-	// unlike ui-zoom/ui-theme it is not gated to the local viewer.
+	// unlike the UI preference routes below it is not gated to the local viewer.
 	// Which board a request is about is a `?board=` query parameter, defaulting
 	// to the docked panel — so a project's boards are one resource with several
 	// names rather than several routes.
@@ -217,19 +211,13 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	api.HandleFunc("/session/workspaces/{workspaceId}", sessionAPI.HandleUpdateWorkspace).Methods("PATCH")
 	api.HandleFunc("/session/workspaces/{workspaceId}", sessionAPI.HandleUnregisterWorkspace).Methods("DELETE")
 	api.HandleFunc("/session/workspaces/{workspaceId}/close", sessionAPI.HandleCloseWorkspace).Methods("POST")
-	api.HandleFunc("/session/ui-zoom", sessionAPI.HandleGetUIZoom).Methods("GET")
-	api.Handle("/session/ui-zoom", localViewerOnly(sessionAPI.HandleSetUIZoom)).Methods("PUT")
-	// UI theme (light/dark/system mode) also lives with the session (per
-	// project), so a reopened project window paints in the theme the user left
-	// it rather than whichever theme another project last wrote to the origin-
-	// shared localStorage. Applied by the web viewer, which reads the server-
-	// injected value at load and PUTs changes here — local-only, as for zoom.
-	api.HandleFunc("/session/ui-theme", sessionAPI.HandleGetUITheme).Methods("GET")
-	api.Handle("/session/ui-theme", localViewerOnly(sessionAPI.HandleSetUITheme)).Methods("PUT")
-	// The rest of the viewer's UI preferences — hidden info cards, dragged
-	// column widths — for the same reason and behind the same gate, but as one
-	// opaque map per realm (this window's, or the whole project's with
-	// ?scope=project) rather than a route per preference. Nothing in Go reads
+	// The viewer's UI preferences — hidden info cards, dragged column widths —
+	// live with the session too, so a reopened project window keeps them however
+	// its port (and so its localStorage) changed: one opaque map per realm (this
+	// window's, or the whole project's with ?scope=project) rather than a route
+	// per preference. The write is local-only: a remote viewer starts from these
+	// values but keeps its own in localStorage, so one device can't rearrange
+	// another's window (see localViewerOnly). Nothing in Go reads
 	// them; the client owns the keys and the shapes. PUT merges: an omitted key
 	// is unchanged, a null one is deleted.
 	api.HandleFunc("/session/ui-prefs", sessionAPI.HandleGetUIPrefs).Methods("GET")

@@ -35,7 +35,7 @@
  * the window a different — and usually empty — localStorage, and every
  * preference kept there appears to have reverted. Namespacing the KEY cannot
  * help with that; it is the whole STORE that was swapped. Storing server-side
- * can, which is why zoom and theme already do.
+ * can.
  *
  * **What makes an asynchronous store usable at render time.** Every `set` writes
  * the localStorage mirror synchronously as well, and every read of the realm
@@ -46,15 +46,18 @@
  * lost. (services/recent-models.js is the same shape: a synchronous cached read
  * with a refresh behind it.)
  *
- * **Who wins when the two disagree.** In a desktop window the realm does: it is
- * the store, and the mirror is only a cache of it. In a remote browser — a phone
- * or laptop over the LAN or a tunnel — the device does, and the realm's value is
- * merely where a device that has never chosen one starts. What a remote viewer
- * must never do is write back: one pinch on a phone would otherwise resize the
- * desktop window it dialled into, and a second remote device would fight the
- * first over one shared value. The server refuses those writes too (see
- * localViewerOnly in cmd/juggler/server/network.go), and a refusal here is
- * swallowed — the mirror is that device's store, and it keeps its own copy.
+ * **Who wins when the two disagree.** In the server's own desktop window (see
+ * {@link ownsServerPrefs}) the realm does: it is the store, and the mirror is
+ * only a cache of it. In any other viewer the device does, and the realm's value
+ * is merely where a device that has never chosen one starts. That covers a phone
+ * or laptop over the LAN or a tunnel, and equally the desktop app's own window
+ * when the server it is viewing runs on another machine: native or not, what it
+ * changes belongs to the computer in front of the user. A remote viewer never
+ * writes back: one pinch on a phone would otherwise resize the desktop window it
+ * dialled into, and a second remote device would fight the first over one shared
+ * value. It sends nothing at all, and the server refuses the session realms'
+ * writes anyway (see localViewerOnly in cmd/juggler/server/network.go) — the
+ * mirror is that device's store, and it keeps its own copy.
  *
  * The `User` realm is the exception to the paragraph above: settings.json is one
  * document for everyone who can reach the server, its route takes a remote write,
@@ -66,10 +69,11 @@
  * kept under a key of its own, so the user realm's mirror writes do not
  * overwrite it.
  *
- * Theme and zoom do NOT go through here. They are injected into the page before
- * it paints (index.html, filled by serveIndex) because a late correction to a
- * root font size reflows everything visibly; they use {@link scopedKey} and
- * {@link resolvePref} directly and own their own persistence.
+ * Theme and zoom are machine preferences too, with one difference: they are
+ * applied before the page paints (index.html, with the machine's values
+ * injected by serveIndex), because a late correction to a root font size
+ * reflows everything visibly. So they start from {@link startingMachinePref}
+ * rather than waiting for {@link getMachinePref}, and reconcile afterwards.
  * @module services/prefs
  */
 
@@ -118,9 +122,25 @@ const REALMS = {
   },
   machine: {
     url: () => apiUrl('/settings'),
-    key: (name) => (isDesktopWindow() ? name : `${name}@viewer`),
+    key: (name) => (ownsServerPrefs() ? name : `${name}@viewer`),
   },
 };
+
+/**
+ * Whether this page is the server's own desktop window: a native window on the
+ * machine the server runs on, which owns the server-side realms rather than
+ * keeping a copy of its own.
+ *
+ * Being a native window is not enough. The desktop app also opens windows on a
+ * server somewhere else (Connect to Server, --url), and those are remote viewers
+ * however native they look. The server says which a page is (serveIndex marks a
+ * page `data-remote-viewer` by the same test its write guard applies), so the
+ * page and the guard cannot disagree.
+ * @returns {boolean} True only in a desktop window on the server's own machine.
+ */
+export function ownsServerPrefs() {
+  return isDesktopWindow() && !isRemoteViewer();
+}
 
 /**
  * The realm whose server document holds `realm`'s values. Only `machine`
@@ -135,14 +155,29 @@ function home(realm) {
 }
 
 /**
- * Whether this client keeps its own copy of a machine preference instead of
- * sharing the desktop's: true in anything that is not a desktop window.
+ * Whether this page views the server from another machine (serveIndex marks
+ * it), so the session realms' routes will refuse its writes.
+ * @returns {boolean} True in a viewer on another machine.
+ * @private
+ */
+function isRemoteViewer() {
+  return typeof document !== 'undefined' && document.documentElement.dataset.remoteViewer === '1';
+}
+
+/**
+ * Whether this client keeps its own copy of a preference instead of sharing the
+ * desktop's. A machine preference: anywhere but the server's own desktop
+ * window, since its route takes anyone's write. A window or project preference:
+ * in a viewer on another machine, which the session's routes refuse — a browser
+ * tab on the server's own machine still writes them.
  * @param {ServerRealm} realm
- * @returns {boolean} True for a machine preference in a remote viewer.
+ * @returns {boolean} True when this client's value never leaves it.
  * @private
  */
 function keepsOwnCopy(realm) {
-  return realm === 'machine' && !isDesktopWindow();
+  if (realm === 'machine') return !ownsServerPrefs();
+  if (realm === 'user') return false;
+  return isRemoteViewer();
 }
 
 /**
@@ -250,6 +285,47 @@ export function resolvePref({ desktop, session, device, windowScoped = [], fallb
     ? [session, ...windowScoped, device]
     : [device, ...windowScoped, session];
   return ordered.find((value) => value !== null && value !== undefined) ?? fallback;
+}
+
+/**
+ * Where a machine preference that is applied before first paint starts, and
+ * whether this window should store that value as its own.
+ *
+ * The theme and the zoom resolve synchronously from what the page was handed —
+ * the server-injected machine value, the hints the native host baked into the
+ * URL, this device's cache — so they cannot wait for {@link getMachinePref}.
+ * This is the rule they share, and index.html's pre-paint block mirrors it:
+ *
+ *   - A value of the client's own wins: the machine's, in the server's own
+ *     window; this device's copy, in any other viewer.
+ *   - Otherwise a value handed to this window (an inherited seed, and in the
+ *     server's own window whatever this origin's cache holds) is used and
+ *     stored, so the machine — or the device — has one from now on. The plain
+ *     default never is: stored, it would read as a choice nobody made.
+ *   - Otherwise a viewer on another machine starts from the host's value but
+ *     does not keep it, so it follows the host until the user chooses.
+ * @param {object} sources - Candidate values, each already validated or null.
+ * @param {boolean} sources.owner - True in the server's own desktop window
+ *   ({@link ownsServerPrefs}).
+ * @param {any} sources.machine - The machine realm's value, as injected.
+ * @param {any[]} [sources.inherited] - Values handed to this window, best first.
+ * @param {any} sources.device - This device's cached value.
+ * @param {any} sources.fallback - The default.
+ * @returns {{value: any, adopt: boolean}} The value to start from, and whether
+ *   to store it.
+ */
+export function startingMachinePref({ owner, machine, inherited = [], device, fallback }) {
+  /**
+   * @param {any} v
+   * @returns {boolean} Whether v is a value.
+   */
+  const known = (v) => v !== null && v !== undefined;
+  const own = owner ? machine : device;
+  if (known(own)) return { value: own, adopt: false };
+  const handed = (owner ? [...inherited, device] : inherited).find(known);
+  if (known(handed)) return { value: handed, adopt: handed !== fallback };
+  if (!owner && known(machine)) return { value: machine, adopt: false };
+  return { value: fallback, adopt: false };
 }
 
 /**
@@ -402,7 +478,11 @@ function readRealm(realm) {
       // back, so it stays on top.
       const merged = { ...stored, ...(documents.get(realm) || {}) };
       documents.set(realm, merged);
-      for (const [name, value] of Object.entries(stored)) writeMirror(realm, name, value);
+      // A viewer keeping its own copy holds its own values in these cells; the
+      // realm's are only where it starts, so they must not overwrite them.
+      if (!keepsOwnCopy(realm)) {
+        for (const [name, value] of Object.entries(stored)) writeMirror(realm, name, value);
+      }
       return merged;
     });
     reads.set(realm, pending);
@@ -423,7 +503,7 @@ async function getRealmPref(realm, name, fallback) {
   const value = stored[name] === undefined ? null : stored[name];
   // The user realm is one document for every client that can reach it, so there
   // is no device-first ordering to apply; the other three are the desktop's own.
-  const desktop = realm === 'user' || isDesktopWindow();
+  const desktop = realm === 'user' || ownsServerPrefs();
 
   // Nothing in the realm but something on this device: a value an older build
   // left in localStorage. Adopt it and write it up, so the next launch — on
@@ -471,8 +551,9 @@ function cachedRealmPref(realm, name, fallback) {
  */
 function setRealmPref(realm, name, value) {
   writeMirror(realm, name, value);
-  // The settings route takes a remote write, so it is this check, not the
-  // server, that keeps a phone's choice off the desktop.
+  // The settings route takes a remote write, so for the machine realm it is
+  // this check, not the server, that keeps a phone's choice off the desktop.
+  // The session realms' routes would refuse it; there is no point asking.
   if (keepsOwnCopy(realm)) return Promise.resolve();
   const doc = home(realm);
   const stored = documents.get(doc) || {};

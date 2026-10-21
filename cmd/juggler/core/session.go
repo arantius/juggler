@@ -95,7 +95,7 @@ func WindowRoleForView(view, boardID string) string {
 }
 
 // WindowState is one of this project's windows: its native geometry and the
-// look it was left wearing. The type lives in internal/windowstate, below both
+// viewer preferences it was left with. The type lives in internal/windowstate, below both
 // this package and internal/windowgeom, which reads and writes the same frames;
 // see windowstate.State for what each field means.
 type WindowState = windowstate.State
@@ -114,8 +114,8 @@ type Session struct {
 	Metadata             map[string]any             `json:"metadata,omitempty"`     // General-purpose key-value store for frontend flags
 	WindowState          *WindowState               `json:"windowState,omitempty"`  // Geometry written by a Juggler that had one window slot; folded into WindowStates["main"] on first use (see migrateWindowStates)
 	WindowStates         map[string]WindowState     `json:"windowStates,omitempty"` // Native-window geometry for this project, per window role (nil until first save)
-	UIZoom               int                        `json:"uiZoom,omitempty"`       // Project-wide UI zoom (root font-size %), followed by any window without one of its own; 0 until first set
-	UITheme              string                     `json:"uiTheme,omitempty"`      // Project-wide UI theme mode (system|light|dark), followed by any window without one of its own; "" until first set
+	UIZoom               int                        `json:"uiZoom,omitempty"`       // UI zoom (root font-size %) this project's session stored; read only, offered to the server's own window to adopt for its machine (see GetUIZoom)
+	UITheme              string                     `json:"uiTheme,omitempty"`      // UI theme mode (system|light|dark) this project's session stored; read only, offered to the server's own window to adopt for its machine (see GetUITheme)
 	UI                   map[string]json.RawMessage `json:"ui,omitempty"`           // UI preferences shared by every window of this project, stored verbatim (the client owns the shape); see ui_prefs.go
 	Pinboard             []Pin                      `json:"pinboard,omitempty"`     // Board written by a Juggler that had one; folded into Boards["main"] on first use (see migrateBoards)
 	Boards               map[string]Board           `json:"boards,omitempty"`       // Pinboard compositions by board id: "main" is the docked panel, the rest are detached windows (see pinboard.go)

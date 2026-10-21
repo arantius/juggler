@@ -19,7 +19,7 @@ import (
 )
 
 // The pinboard is the project's shared workspace composition — which panels are
-// pinned, in what order. Unlike ui-zoom and ui-theme it is NOT a per-device
+// pinned, in what order. Unlike the UI preferences it is NOT a per-device
 // preference, so its write route is deliberately not gated to the local viewer: a
 // phone editing the board over the LAN is editing the same board, which is the
 // point. These tests pin that, the operation semantics as seen through the route,

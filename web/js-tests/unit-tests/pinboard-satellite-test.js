@@ -642,11 +642,11 @@ export async function runTests() {
       }
     });
 
-    // A window's theme and zoom are kept under its role, so this string has to be
-    // the one both Go sides compute (core.WindowRoleForView, which the server uses
-    // to inject the theme pre-paint, and windowOpts.role() in the desktop app).
-    // Get it wrong and a board writes its theme into one slot and reads another
-    // back, which is invisible until the next launch.
+    // A window's own preferences are kept under its role, so this string has to
+    // be the one both Go sides compute (core.WindowRoleForView, and
+    // windowOpts.role() in the desktop app). Get it wrong and a board writes its
+    // preferences into one slot and reads another back, which is invisible until
+    // the next launch.
     await run('a window knows which window it is', () => {
       try {
         __setViewModeForTests('');
@@ -670,22 +670,22 @@ export async function runTests() {
     });
 
     // Every document on the origin shares one localStorage, so a board that read
-    // the same cell as the window it was opened from would keep being restyled by
+    // the same cell as the window it was opened from would keep being changed by
     // it. Desktop windows read the session first; this is what covers a board
     // opened as a browser tab, which has no session to write to.
-    await run('a board stores its own theme, not the window\u2019s', () => {
+    await run('a board caches its own window preferences, not the window\u2019s', () => {
       const previousProjectKey = window.__projectKey;
       try {
         window.__projectKey = 'proj1';
         __setViewModeForTests('');
-        const main = scopedKey('juggler-theme');
-        assert(main === 'juggler-theme:proj1',
+        const main = scopedKey('juggler-pinboard-width');
+        assert(main === 'juggler-pinboard-width:proj1',
           `the ordinary window keeps the plain key, got ${main}`);
 
         __setViewModeForTests('?view=pinboard&board=board_a');
-        const boardA = scopedKey('juggler-theme');
+        const boardA = scopedKey('juggler-pinboard-width');
         __setViewModeForTests('?view=pinboard&board=board_b');
-        const boardB = scopedKey('juggler-theme');
+        const boardB = scopedKey('juggler-pinboard-width');
         assert(boardA !== main, 'a board must not share the window\u2019s cell');
         assert(boardA !== boardB, `two boards shared one cell (${boardA})`);
       } finally {

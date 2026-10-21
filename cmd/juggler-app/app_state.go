@@ -827,25 +827,24 @@ func normaliseMode(mode string) string {
 }
 
 // startupPrefs decides the theme, mode and zoom a window opens with, from the
-// three things that can have an opinion:
+// two things that can have an opinion:
 //
-//   - saved: what this window's own role was last left in, read from the project
-//     session. It wins. Two boards detached onto two displays and set to two
-//     themes have to come back wearing them, whichever window opens them.
 //   - opts: the opener's hand-off (Session ▸ New Window, the page's open-in-new-
-//     window, a detach). What a window with nothing of its own inherits.
+//     window, a detach). It wins.
 //   - lastTheme/lastZoom: the freshest values any window of this app reported,
 //     this session or a previous launch. The fallback for a launch with no
 //     opener at all (Finder, restore).
 //
+// Both are per machine, as the theme mode and zoom themselves are (the machine
+// realm of the server's settings.json): every window wears the same ones, and
+// these only seed the frames painted before the page has read them.
+//
 // theme is a colour to paint the bare frame with before the page's first paint;
 // mode is the user's selection, so a 'system' opener hands 'system' on rather
-// than collapsing the child to a concrete colour. A saved 'system' therefore
-// names no colour: the inherited one stays as the pre-paint fill and the page
-// resolves the OS preference itself on its first frame. Empty/zero results mean
-// "say nothing", which leaves a first-ever launch following the OS and the
-// default size.
-func startupPrefs(opts windowOpts, saved core.WindowState, hasSaved bool, lastTheme string, lastZoom int) (theme, mode string, zoom int) {
+// than collapsing the child to a concrete colour. Empty/zero results mean "say
+// nothing", which leaves a first-ever launch following the OS and the default
+// size.
+func startupPrefs(opts windowOpts, lastTheme string, lastZoom int) (theme, mode string, zoom int) {
 	theme = normaliseTheme(opts.theme)
 	if theme == "" {
 		theme = lastTheme
@@ -854,18 +853,6 @@ func startupPrefs(opts windowOpts, saved core.WindowState, hasSaved bool, lastTh
 	zoom = opts.zoom
 	if zoom <= 0 {
 		zoom = lastZoom
-	}
-	if !hasSaved {
-		return theme, mode, zoom
-	}
-	if savedMode := normaliseMode(saved.Theme); savedMode != "" {
-		mode = savedMode
-		if savedTheme := normaliseTheme(saved.Theme); savedTheme != "" {
-			theme = savedTheme
-		}
-	}
-	if saved.Zoom > 0 {
-		zoom = saved.Zoom
 	}
 	return theme, mode, zoom
 }
@@ -918,8 +905,8 @@ func (a *appState) setPickerDirectory(dir string) {
 // built without an inherited zoom opens at the last-active size. Unlike theme it
 // touches no native window (zoom is a web-only root font-size); it just tracks
 // the inheritance seed and persists it across launches. A non-positive value is
-// ignored. The per-project value is owned by the session (server-side); this is
-// only the cross-window seed.
+// ignored. The zoom itself is a machine preference in the server's settings.json;
+// this is only the seed a new window's first frame is painted at.
 func (a *appState) setWindowZoom(zoom int) {
 	if zoom <= 0 {
 		return
@@ -1156,11 +1143,11 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 	nativeCtl := a.controlBase(id)
 
 	// Resolve the startup appearance before building the URL/options, from what
-	// this window was last left in and what it inherits (see startupPrefs).
+	// this window inherits (see startupPrefs).
 	var lastTheme string
 	var lastZoom int
 	a.reg(func(st *regState) { lastTheme, lastZoom = st.lastTheme, st.lastZoom })
-	startupTheme, startupMode, startupZoom := startupPrefs(opts, saved, hasSaved, lastTheme, lastZoom)
+	startupTheme, startupMode, startupZoom := startupPrefs(opts, lastTheme, lastZoom)
 
 	resolved := opts
 	resolved.theme, resolved.mode, resolved.zoom = startupTheme, startupMode, startupZoom
@@ -1171,10 +1158,10 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 	// frame. On Windows the window is created visible (platformWindowHidden is
 	// false), so Wails fills the bare frame with options.BackgroundColour on
 	// WM_ERASEBKGND until WebView2 paints; left unset that fill is black, which
-	// shows as a flash. Match it to the theme startupPrefs resolved — this
-	// window's own, else the one it inherits — so a restored window comes up in
-	// the colour it was left in; the app's dark default covers a first-ever launch
-	// that has neither.
+	// shows as a flash. Match it to the theme startupPrefs resolved — the
+	// opener's, else the app's last — so a restored window comes up in the colour
+	// it was left in; the app's dark default covers a first-ever launch that has
+	// neither.
 	bgTheme := startupTheme
 	if bgTheme == "" {
 		bgTheme = "dark"

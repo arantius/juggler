@@ -103,9 +103,10 @@ func (e workspaceEntry) spec() windowSpec {
 // small "last theme used" hint. lastTheme is the most recent theme any page
 // reported; it's read back at startup to paint a restored window's bare native
 // frame to match instead of flashing the dark default before the page's first
-// paint (see buildWindow's bgTheme). It's global, not per-project — the
-// per-project value only lives in the page's localStorage, which the Go side
-// can't read at window-build time.
+// paint (see buildWindow's bgTheme). The theme mode itself is a machine
+// preference in the server's settings.json, which the Go side can't read at
+// window-build time; lastTheme (a painted colour) is only the seed a new
+// window's bare frame is painted with.
 type workspaceFile struct {
 	Windows   []workspaceEntry `json:"windows"`
 	LastTheme string           `json:"lastTheme,omitempty"`
@@ -113,8 +114,8 @@ type workspaceFile struct {
 	// all windows. Read back at startup to seed the ?zoom= hint the next window
 	// (a restored, Finder-launched, or Session ▸ New Window one with no inherited
 	// value) opens with, so it inherits the last-active size rather than resetting
-	// to the default. Global, not per-project — the per-project value lives in the
-	// session (server-side); this is only the cross-window inheritance seed.
+	// to the default. The zoom itself is a machine preference in the server's
+	// settings.json; this is only the seed a new window's first frame is painted at.
 	LastZoom int `json:"lastZoom,omitempty"`
 }
 

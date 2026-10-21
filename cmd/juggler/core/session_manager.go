@@ -844,9 +844,8 @@ func (m *SessionManager) GetWindowState(role string) (WindowState, bool) {
 //
 // This is a geometry write. The frame comes from the live native window and so
 // carries no appearance, and it arrives on every drag and resize — so the
-// window's stored theme, zoom and UI preferences are kept, not overwritten with
-// the blanks the caller could not have filled in. SetWindowUITheme,
-// SetWindowUIZoom and MergeWindowUIPrefs own those.
+// window's stored UI preferences are kept, not overwritten with the blank the
+// caller could not have filled in. MergeWindowUIPrefs owns those.
 func (m *SessionManager) SetWindowState(role string, ws WindowState) error {
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		// No session loaded (e.g. a no-project window still at the picker) —
@@ -859,7 +858,7 @@ func (m *SessionManager) SetWindowState(role string, ws WindowState) error {
 			s.session.WindowStates = map[string]WindowState{}
 		}
 		prev := s.session.WindowStates[role]
-		ws.Theme, ws.Zoom, ws.UI = prev.Theme, prev.Zoom, prev.UI
+		ws.UI = prev.UI
 		s.session.WindowStates[role] = ws
 		return struct{}{}, s.store.Save(s.session)
 	})
@@ -867,8 +866,8 @@ func (m *SessionManager) SetWindowState(role string, ws WindowState) error {
 }
 
 // setWindowPref applies one change to a window role's slot, creating the slot if
-// this is the first thing ever stored about that window. A slot holding only an
-// appearance is fine: Place() reads a frameless one as "no saved geometry" and
+// this is the first thing ever stored about that window. A slot holding only UI
+// preferences is fine: Place() reads a frameless one as "no saved geometry" and
 // centres the window, exactly as a missing slot does.
 func setWindowPref(s *sessionState, role string, apply func(*WindowState)) error {
 	if s.session == nil {
@@ -884,11 +883,12 @@ func setWindowPref(s *sessionState, role string, apply func(*WindowState)) error
 	return s.store.Save(s.session)
 }
 
-// GetUIZoom returns the persisted UI zoom (root font-size %) for this project,
-// or (0, false) if none has been saved yet. Runs on the actor goroutine so it
-// never races a concurrent save. Zoom is per-project session state — like
-// WindowState — but, unlike geometry, it is surfaced to the web viewer so a
-// reopened project paints at the size the user left it.
+// GetUIZoom returns the UI zoom (root font-size %) this project's session holds,
+// or (0, false) if it holds none. Runs on the actor goroutine so it never races a
+// concurrent save. Nothing writes it: the zoom is a machine preference in
+// settings.json (see web/js/utils/zoom-manager.js), and this is read only so
+// serveIndex can offer it to the server's own window to adopt for a machine that
+// has none.
 func (m *SessionManager) GetUIZoom() (int, bool) {
 	return runLookup(m, func(s *sessionState) (int, bool) {
 		if s.session == nil || s.session.UIZoom <= 0 {
@@ -898,38 +898,17 @@ func (m *SessionManager) GetUIZoom() (int, bool) {
 	})
 }
 
-// SetUIZoom persists the UI zoom for this project and writes the session
-// manifest. A non-positive value or a no-project session (still at the picker)
-// is a no-op — there is nowhere to store it — mirroring SetWindowState.
-//
-// This is the desktop window's size. Only a viewer on this machine may set it:
-// the route is wrapped in localViewerOnly, so a phone or laptop browsing in
-// remotely keeps its own size in its own localStorage instead.
-func (m *SessionManager) SetUIZoom(zoom int) error {
-	if zoom <= 0 {
-		return nil
-	}
-	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
-		if s.session == nil {
-			return struct{}{}, nil
-		}
-		s.session.UIZoom = zoom
-		return struct{}{}, s.store.Save(s.session)
-	})
-	return err
-}
-
 // validUIThemeMode reports whether mode is a theme mode the web viewer accepts.
 func validUIThemeMode(mode string) bool {
 	return mode == "system" || mode == "light" || mode == "dark"
 }
 
-// GetUITheme returns the persisted UI theme mode (system|light|dark) for this
-// project, or ("", false) if none has been saved yet. Runs on the actor
-// goroutine so it never races a concurrent save. Like UIZoom this is per-project
-// session state, surfaced to the web viewer so a reopened project paints in the
-// theme the user left it — not whichever theme another project last wrote to the
-// origin-shared localStorage (every project's server reuses the same port).
+// GetUITheme returns the UI theme mode (system|light|dark) this project's
+// session holds, or ("", false) if it holds none or one the viewer does not
+// accept. Runs on the actor goroutine so it never races a concurrent save.
+// Nothing writes it: the theme is a machine preference in settings.json (see
+// web/js/utils/theme-manager.js), and this is read only so serveIndex can offer
+// it to the server's own window to adopt for a machine that has none.
 func (m *SessionManager) GetUITheme() (string, bool) {
 	return runLookup(m, func(s *sessionState) (string, bool) {
 		if s.session == nil || !validUIThemeMode(s.session.UITheme) {
@@ -937,103 +916,6 @@ func (m *SessionManager) GetUITheme() (string, bool) {
 		}
 		return s.session.UITheme, true
 	})
-}
-
-// SetUITheme persists the UI theme mode for this project and writes the session
-// manifest. An unrecognised mode or a no-project session (still at the picker)
-// is a no-op — mirroring SetUIZoom, including its local-viewer-only route guard.
-func (m *SessionManager) SetUITheme(mode string) error {
-	if !validUIThemeMode(mode) {
-		return nil
-	}
-	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
-		if s.session == nil {
-			return struct{}{}, nil
-		}
-		s.session.UITheme = mode
-		return struct{}{}, s.store.Save(s.session)
-	})
-	return err
-}
-
-// GetWindowUITheme returns the UI theme mode one window role should paint in:
-// its own if it has been given one, else the project's, else ("", false).
-//
-// The fallback is what keeps a project coherent. A window only stops following
-// the project when the user changes the theme in that window, so opening a
-// second board does not produce a window in some other colour than the one it
-// was opened from.
-func (m *SessionManager) GetWindowUITheme(role string) (string, bool) {
-	return runLookup(m, func(s *sessionState) (string, bool) {
-		if s.session == nil {
-			return "", false
-		}
-		s.session.migrateWindowStates()
-		if mode := s.session.WindowStates[role].Theme; validUIThemeMode(mode) {
-			return mode, true
-		}
-		if validUIThemeMode(s.session.UITheme) {
-			return s.session.UITheme, true
-		}
-		return "", false
-	})
-}
-
-// SetWindowUITheme records the theme mode one window is wearing. The main
-// window also sets the project's, so a window opened later — a board detached
-// tomorrow, a project reopened from Finder — starts out matching Juggler itself
-// rather than the theme of whichever board was restyled last.
-func (m *SessionManager) SetWindowUITheme(role, mode string) error {
-	if !validUIThemeMode(mode) {
-		return nil
-	}
-	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
-		if s.session == nil {
-			return struct{}{}, nil
-		}
-		if role == WindowRoleMain {
-			s.session.UITheme = mode
-		}
-		return struct{}{}, setWindowPref(s, role, func(ws *WindowState) { ws.Theme = mode })
-	})
-	return err
-}
-
-// GetWindowUIZoom returns the UI zoom one window role should paint at: its own
-// if it has been given one, else the project's, else (0, false). Mirrors
-// GetWindowUITheme, including why it falls back.
-func (m *SessionManager) GetWindowUIZoom(role string) (int, bool) {
-	return runLookup(m, func(s *sessionState) (int, bool) {
-		if s.session == nil {
-			return 0, false
-		}
-		s.session.migrateWindowStates()
-		if zoom := s.session.WindowStates[role].Zoom; zoom > 0 {
-			return zoom, true
-		}
-		if s.session.UIZoom > 0 {
-			return s.session.UIZoom, true
-		}
-		return 0, false
-	})
-}
-
-// SetWindowUIZoom records the zoom one window is at, and the project's too when
-// that window is the main one — mirroring SetWindowUITheme.
-func (m *SessionManager) SetWindowUIZoom(role string, zoom int) error {
-	if zoom <= 0 {
-		return nil
-	}
-	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
-		if s.session == nil {
-			return struct{}{}, nil
-		}
-		if role == WindowRoleMain {
-			s.session.UIZoom = zoom
-		}
-		return struct{}{}, setWindowPref(s, role, func(ws *WindowState) { ws.Zoom = zoom })
-	})
-	return err
 }
 
 // GetPinboard returns one board's composition — the ordered pins of the panel

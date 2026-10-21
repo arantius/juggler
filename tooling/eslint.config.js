@@ -436,7 +436,7 @@ export default [
   // files listed are the deliberate exceptions, each for a reason prefs.js
   // cannot serve:
   //   prefs.js                  — the realms themselves
-  //   theme-manager, zoom-manager — applied before first paint (see prefs.js)
+  //   theme-manager             — the device's record of the OS light/dark setting
   //   viewer-id                 — a tab's identity, not a preference
   //   websocket                 — a reload throttle, not a preference
   //   scheduled-send-service    — a claim lock between same-origin windows
@@ -446,7 +446,6 @@ export default [
       'web/extensions/**/_tests/**/*.js',
       'web/js/services/prefs.js',
       'web/js/utils/theme-manager.js',
-      'web/js/utils/zoom-manager.js',
       'web/js/utils/viewer-id.js',
       'web/js/services/websocket.js',
       'web/js/services/scheduled-send-service.js',

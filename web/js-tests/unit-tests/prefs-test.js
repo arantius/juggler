@@ -115,19 +115,23 @@ export async function runTests(_ctx) {
 
   const originalProjectKey = window.__projectKey;
   const originalWindowMode = document.documentElement.dataset.windowMode;
+  const originalRemoteViewer = document.documentElement.dataset.remoteViewer;
 
   /**
    * Start each case from nothing: a fresh module cache, no recorded calls, and
    * a named client (desktop windows and remote browsers rank the realms
    * differently, so every case has to say which it is).
-   * @param {boolean} desktop
+   * @param {boolean} desktop - A native desktop window rather than a browser tab.
+   * @param {boolean} [remote] - Viewing a server on another machine.
    */
-  const reset = (desktop = true) => {
+  const reset = (desktop = true, remote = !desktop) => {
     __resetPrefsForTests();
     calls = [];
     respond = () => ({ status: 200, body: { ui: {} } });
     if (desktop) document.documentElement.dataset.windowMode = '1';
     else delete document.documentElement.dataset.windowMode;
+    if (remote) document.documentElement.dataset.remoteViewer = '1';
+    else delete document.documentElement.dataset.remoteViewer;
   };
 
   try {
@@ -138,21 +142,21 @@ export async function runTests(_ctx) {
 
     await run('scopedKey namespaces by project', () => {
       window.__projectKey = 'abc123';
-      eq(scopedKey('juggler-zoom'), 'juggler-zoom:abc123', 'scoped key');
+      eq(scopedKey('juggler-column-width'), 'juggler-column-width:abc123', 'scoped key');
     });
 
     await run('scopedKey separates two projects', () => {
       window.__projectKey = 'aaa';
-      const first = scopedKey('juggler-theme');
+      const first = scopedKey('juggler-column-width');
       window.__projectKey = 'bbb';
-      if (first === scopedKey('juggler-theme')) {
-        throw new Error('two projects produced the same key, so their themes would collide');
+      if (first === scopedKey('juggler-column-width')) {
+        throw new Error('two projects produced the same key, so their widths would collide');
       }
     });
 
     await run('scopedKey falls back to the bare key with no project', () => {
       window.__projectKey = '';
-      eq(scopedKey('juggler-zoom'), 'juggler-zoom', 'no-project key');
+      eq(scopedKey('juggler-column-width'), 'juggler-column-width', 'no-project key');
     });
 
     await run('desktop takes the server realm first, remote its own device', () => {
@@ -373,6 +377,34 @@ export async function runTests(_ctx) {
       eq(await prefs.getMachinePref(name, null), 'mine', 'and after another reload');
     });
 
+    // The desktop app's Connect to Server window is a native window, but its
+    // server is on another machine: every preference it changes belongs to the
+    // computer in front of the user, not to the host it dialled into. Ranked as
+    // the host's own window, it read back the host's value on every load and lost
+    // its own; writing like one, it would redecorate the host.
+
+    await run('a desktop window on another machine keeps its machine preference to itself', async () => {
+      reset(true, true);
+      const name = uniqueName();
+      await prefs.setMachinePref(name, 'mine');
+      eq(calls.filter((c) => c.method === 'PUT').length, 0, 'writes sent to the host');
+      eq(localStorage.getItem(`${name}@viewer`), '"mine"', 'stored as this device\u2019s own copy');
+      __resetPrefsForTests();
+      respond = () => ({ status: 200, body: { ui: { [name]: 'the host\u2019s' } } });
+      eq(await prefs.getMachinePref(name, null), 'mine', 'after a relaunch');
+    });
+
+    await run('a desktop window on another machine ranks its own window preference first', async () => {
+      reset(true, true);
+      const name = uniqueName();
+      await setWindowPref(name, 'mine');
+      eq(calls.filter((c) => c.method === 'PUT').length, 0, 'writes sent to the host');
+      __resetPrefsForTests();
+      respond = () => ({ status: 200, body: { ui: { [name]: 'the host\u2019s' } } });
+      eq(await getWindowPref(name, null), 'mine', 'after a relaunch');
+      eq(cachedWindowPref(name, null), 'mine', 'and synchronously');
+    });
+
     await run('a remote viewer with nothing of its own starts from the desktop\u2019s', async () => {
       reset(false);
       const name = uniqueName();
@@ -507,6 +539,8 @@ export async function runTests(_ctx) {
     window.__projectKey = originalProjectKey;
     if (originalWindowMode === undefined) delete document.documentElement.dataset.windowMode;
     else document.documentElement.dataset.windowMode = originalWindowMode;
+    if (originalRemoteViewer === undefined) delete document.documentElement.dataset.remoteViewer;
+    else document.documentElement.dataset.remoteViewer = originalRemoteViewer;
     __resetPrefsForTests();
   }
 

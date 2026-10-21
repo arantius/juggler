@@ -75,9 +75,9 @@ type windowOpts struct {
 	theme string
 	mode  string
 
-	// zoom is the opener's root font-size percentage. It only seeds a child
-	// whose project session has no saved zoom of its own — the page gives that
-	// priority.
+	// zoom is the opener's root font-size percentage. It only seeds a child on a
+	// machine with no stored zoom — the page gives the machine's priority (see
+	// web/js/utils/zoom-manager.js).
 	zoom int
 
 	// view names the shell the page builds: empty for the app, viewPinboard for

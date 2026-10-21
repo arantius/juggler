@@ -66,13 +66,13 @@ func engineRoleAllowed(r *http.Request) bool {
 	return isLocalDirect(r)
 }
 
-// localViewerOnly guards a write to this project's stored UI preferences (zoom,
-// theme). Those describe how the desktop window on this machine is set up, so
-// only a viewer on this machine may change them. A phone or laptop browsing in
-// over the LAN or a tunnel is handed the stored values as its starting point but
-// keeps its own preferences in its own localStorage — it reads the desktop's
-// setup without redecorating it, and several remote devices no longer overwrite
-// each other through one shared slot.
+// localViewerOnly guards a write to this project's stored UI preferences
+// (/session/ui-prefs). Those describe how the desktop window on this machine is
+// set up, so only a viewer on this machine may change them. A phone or laptop
+// browsing in over the LAN or a tunnel is handed the stored values as its
+// starting point but keeps its own preferences in its own localStorage — it
+// reads the desktop's setup without redecorating it, and several remote devices
+// never overwrite each other through one shared slot.
 func localViewerOnly(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLocalDirect(r) {

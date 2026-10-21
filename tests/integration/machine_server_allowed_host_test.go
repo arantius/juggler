@@ -59,12 +59,12 @@ func TestMachineServerAdmitsAllowedHostAsRemote(t *testing.T) {
 	}
 	token := m[1]
 
-	if code, body := do(http.MethodPut, prefix+"/api/session/ui-zoom", allowed, token, `{"uiZoom":110}`); code != http.StatusForbidden {
-		t.Errorf("PUT ui-zoom through the proxy: status %d (%s), want 403 (a remote viewer)", code, strings.TrimSpace(body))
+	if code, body := do(http.MethodPut, prefix+"/api/session/ui-prefs", allowed, token, `{"ui":{"juggler-column-width":"31.5"}}`); code != http.StatusForbidden {
+		t.Errorf("PUT ui-prefs through the proxy: status %d (%s), want 403 (a remote viewer)", code, strings.TrimSpace(body))
 	}
 	addr := strings.TrimPrefix(ms.url(""), "http://")
-	if code, body := do(http.MethodPut, prefix+"/api/session/ui-zoom", addr, token, `{"uiZoom":110}`); code != http.StatusOK {
-		t.Errorf("PUT ui-zoom from this machine: status %d (%s), want 200", code, strings.TrimSpace(body))
+	if code, body := do(http.MethodPut, prefix+"/api/session/ui-prefs", addr, token, `{"ui":{"juggler-column-width":"31.5"}}`); code != http.StatusOK {
+		t.Errorf("PUT ui-prefs from this machine: status %d (%s), want 200", code, strings.TrimSpace(body))
 	}
 	if code, _ := do(http.MethodGet, prefix+"/", "other.tailnet.example.ts.net", "", ""); code != http.StatusForbidden {
 		t.Errorf("GET %s/ with an unlisted Host: status %d, want 403", prefix, code)

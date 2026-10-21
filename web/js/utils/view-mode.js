@@ -153,9 +153,9 @@ export function boardId() {
  *
  * The Juggler shell is 'main'; a detached board is 'pinboard:<board>', or plain
  * 'pinboard' when the URL named no usable board. This is the name a window's own
- * geometry, theme and zoom are kept under, so it has to be the same string the
- * two Go sides compute: WindowRoleForView in cmd/juggler/core/session.go, which
- * the server uses to inject this window's theme pre-paint, and role() in
+ * geometry and UI preferences are kept under, so it has to be the same string
+ * the two Go sides compute: WindowRoleForView in cmd/juggler/core/session.go,
+ * which names the window a page URL describes, and role() in
  * cmd/juggler-app/window_opts.go, which the desktop app opens the window with.
  *
  * Note this reads the board straight out of the URL rather than through

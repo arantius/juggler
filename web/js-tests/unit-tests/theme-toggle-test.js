@@ -28,6 +28,8 @@
 
 /** The device-wide record of the OS setting, written whenever we paint in 'system'. */
 const SYSTEM_THEME_KEY = 'juggler-system-theme';
+/** Where a viewer that is not the server's own window keeps its mode. */
+const STORED_MODE_KEY = 'juggler-theme@viewer';
 
 /**
  * @param {object} _ctx - Test context (unused)
@@ -79,16 +81,16 @@ export async function runTests(_ctx) {
   };
 
   const originalMatchMedia = window.matchMedia;
-  const originalProjectKey = window.__projectKey;
   const originalTheme = document.documentElement.getAttribute('data-theme');
   // Painting a theme also writes an inline background on <html>; the lane runs
   // every later suite under whatever is left there.
   const originalBackground = document.documentElement.style.background;
   const originalSystemRecord = localStorage.getItem(SYSTEM_THEME_KEY);
-  // Namespace this suite's stored mode away from any other lane sharing the
-  // origin; the OS record below is deliberately device-wide, so it is saved and
-  // put back by hand.
-  window.__projectKey = `theme-toggle-test-${Math.random().toString(36).slice(2)}`;
+  // The mode is a machine preference, which this lane — not a desktop window —
+  // keeps as its own copy. Neither cell is scoped to anything, so both are saved
+  // and put back by hand.
+  const originalStoredMode = localStorage.getItem(STORED_MODE_KEY);
+  const originalMode = getMode();
 
   try {
     // --- the ordinary path: system → pinned → system ----------------------
@@ -214,7 +216,9 @@ export async function runTests(_ctx) {
     });
   } finally {
     window.matchMedia = originalMatchMedia;
-    window.__projectKey = originalProjectKey;
+    setMode(originalMode);
+    if (originalStoredMode === null) localStorage.removeItem(STORED_MODE_KEY);
+    else localStorage.setItem(STORED_MODE_KEY, originalStoredMode);
     if (originalTheme) document.documentElement.setAttribute('data-theme', originalTheme);
     document.documentElement.style.background = originalBackground;
     if (originalSystemRecord === null) localStorage.removeItem(SYSTEM_THEME_KEY);

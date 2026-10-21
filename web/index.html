@@ -59,11 +59,20 @@
         (function() {
             var params = new URLSearchParams(window.location.search);
             // A native desktop window is opened with ?window=1; remote browsers
-            // never have it. Resolved first because it decides which store wins
-            // below: a desktop window's zoom and theme belong to the project and
-            // live server-side, while a remote viewer's belong to the device in
-            // front of the user and live here.
+            // never have it.
             var isWindow = params.has('window');
+            // Whether this page views the server from another machine — a phone,
+            // or the desktop app's own window on a server elsewhere. Decided by
+            // the server, by the same test its preference writes are guarded
+            // with. It decides which store wins below: the theme and zoom belong
+            // to the machine the screen is attached to, so the server's own
+            // window uses the machine's (settings.json), and anything else keeps
+            // its own in this origin's localStorage (services/prefs.js).
+            var remoteViewer = {{.RemoteViewer}};
+            if (remoteViewer) {
+                document.documentElement.dataset.remoteViewer = '1';
+            }
+            var owner = isWindow && !remoteViewer;
             // Opaque per-project key from the server, namespacing this origin's
             // localStorage. The origin identifies a port, not a project — the
             // next project's server reuses it, and a viewer arriving over the
@@ -71,55 +80,54 @@
             // so a bare key would hand this project whatever the last one left
             // behind. Empty for a no-project window, which uses the bare key.
             window.__projectKey = "{{.ProjectKey}}";
-            // Which of this project's windows this is: 'main' for Juggler,
-            // 'pinboard:<board>' for a detached board (mirrors windowRole() in
-            // js/utils/view-mode.js, and the two Go sides it names). A board is
-            // its own window with its own appearance, but every document on the
-            // origin shares one localStorage — so a board's stored values hang
-            // off its role and the ordinary window keeps the plain key.
-            var boardParam = params.get('board') || '';
-            var windowRole = params.get('view') !== 'pinboard' ? 'main'
-                : (/^[A-Za-z0-9_-]{1,64}$/.test(boardParam) ? 'pinboard:' + boardParam : 'pinboard');
-            var storeKey = function(base) {
-                var scoped = window.__projectKey ? base + ':' + window.__projectKey : base;
-                return windowRole === 'main' ? scoped : scoped + '@' + windowRole;
-            };
-            // The first candidate this window accepts, in precedence order.
-            var pick = function(candidates, accepts) {
-                for (var i = 0; i < candidates.length; i++) {
-                    if (accepts(candidates[i])) return candidates[i];
+            // This client's cached machine preference: the machine's in the
+            // server's own window, this device's own copy (@viewer) in any other
+            // viewer. JSON, as services/prefs.js writes it.
+            var cachedMachinePref = function(name) {
+                try {
+                    return JSON.parse(localStorage.getItem(owner ? name : name + '@viewer'));
+                } catch (e) {
+                    return null;
                 }
-                return null;
+            };
+            // Where a machine preference starts, mirroring startingMachinePref in
+            // services/prefs.js: the client's own value; else one handed to this
+            // window (and, in the server's own window, the cache); else, for a
+            // viewer on another machine, the host's; else the default.
+            var starting = function(machine, inherited, device, ok, fallback) {
+                var own = owner ? machine : device;
+                if (ok(own)) return own;
+                var handed = owner ? inherited.concat([device]) : inherited;
+                for (var i = 0; i < handed.length; i++) {
+                    if (ok(handed[i])) return handed[i];
+                }
+                if (!owner && ok(machine)) return machine;
+                return fallback;
             };
 
             // Resolve the theme to paint synchronously, so the page (and the
             // strip under the transparent macOS titlebar) is the right colour on
-            // the very first frame. Precedence (mirrors theme-manager.js) — in a
-            // desktop window: this project's saved session theme mode (server-
-            // injected, authoritative) > a ?mode= seed inherited from the window
-            // that opened this one (carries 'system' faithfully, so 'auto'
-            // survives the hand-off) > a resolved ?theme= seed (concrete colour
-            // only) > this device's stored mode > follow the OS. In a remote
-            // browser the device's own mode comes first and the session value is
-            // only a starting point, so re-theming on a phone doesn't follow the
-            // desktop home; the seeds are absent there, since only the native
-            // host bakes them into a window URL.
+            // the very first frame. What can be handed to this window: a ?mode=
+            // seed inherited from the window that opened it (carries 'system'
+            // faithfully, so 'auto' survives the hand-off), and, in the server's
+            // own window, the mode this project's session stored before the
+            // machine had one. theme-manager.js reconciles this at document-ready
+            // and reports to the native host.
             // 'system' (and any absent value) follows the OS via
             // prefers-color-scheme so system-light doesn't flash dark — but when a
             // concrete ?theme= seed rode along we paint that instead, so a window
             // opened from an 'auto' parent matches the parent's current colour on
             // its first frame rather than risking a flash from a stale matchMedia.
-            // window.__sessionThemeMode is read back by theme-manager.js, which
-            // reconciles this at document-ready and reports to the native host.
-            var sessionThemeMode = "{{.InitialThemeMode}}";
-            window.__sessionThemeMode = sessionThemeMode;
+            // The ?theme= seed is only ever a colour, never a mode.
+            var machineThemeMode = "{{.MachineThemeMode}}";
+            var projectThemeMode = "{{.ProjectThemeMode}}";
+            window.__machineThemeMode = machineThemeMode;
+            window.__projectThemeMode = projectThemeMode;
             var isThemeMode = function(m) { return m === 'system' || m === 'light' || m === 'dark'; };
             var seedTheme = params.get('theme');
-            var seedMode = params.get('mode');
-            var lsThemeMode = localStorage.getItem(storeKey('juggler-theme'));
-            var themeMode = pick(isWindow
-                ? [sessionThemeMode, seedMode, seedTheme, lsThemeMode]
-                : [lsThemeMode, sessionThemeMode], isThemeMode) || 'system';
+            var themeMode = starting(machineThemeMode,
+                [params.get('mode'), owner ? projectThemeMode : null],
+                cachedMachinePref('juggler-theme'), isThemeMode, 'system');
             var theme = themeMode === 'light' || themeMode === 'dark'
                 ? themeMode
                 : (seedTheme === 'light' || seedTheme === 'dark') ? seedTheme
@@ -138,22 +146,17 @@
             }
             // UI zoom (root font-size). Apply synchronously so the whole UI
             // paints at the right scale — a font-size change reflows everything,
-            // so a late correction is a visible jump. Precedence (mirrors
-            // zoom-manager.js) — in a desktop window: this project's saved
-            // session zoom (server-injected, authoritative) > an inherited ?zoom=
-            // seed from the window that opened this one > this device's cached
-            // value > the default. In a remote browser the device's own value
-            // comes first, so a phone that zoomed out stays zoomed out without
-            // taking the desktop with it.
-            // window.__sessionZoom is read back by zoom-manager.js.
-            var sessionZoom = {{.InitialZoom}};
-            window.__sessionZoom = sessionZoom;
+            // so a late correction is a visible jump. Resolved exactly as the
+            // theme is, with an inherited ?zoom= seed in place of ?mode=.
+            // window.__machineZoom is read back by zoom-manager.js.
+            var machineZoom = {{.MachineZoom}};
+            var projectZoom = {{.ProjectZoom}};
+            window.__machineZoom = machineZoom;
+            window.__projectZoom = projectZoom;
+            var isZoom = function(z) { return typeof z === 'number' && z > 0; };
             var seedZoom = parseInt(params.get('zoom'), 10);
-            var lsZoom = parseInt(localStorage.getItem(storeKey('juggler-zoom')), 10);
-            var isZoom = function(z) { return z > 0; };
-            var zoom = pick(isWindow
-                ? [sessionZoom, seedZoom, lsZoom]
-                : [lsZoom, sessionZoom], isZoom) || 110;
+            var zoom = starting(machineZoom, [seedZoom, owner ? projectZoom : null],
+                cachedMachinePref('juggler-zoom'), isZoom, 110);
             document.documentElement.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%';
             // Mark window-mode when loaded inside a native desktop window.
             if (isWindow) {

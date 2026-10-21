@@ -56,22 +56,36 @@ interface Window {
 	testComplete?: boolean;
 
 	/**
-	 * Project session's saved UI zoom (root font-size %), injected pre-paint by
-	 * the server. 0/absent when the session has none (see zoom-manager.js).
+	 * The machine's UI zoom (root font-size %) from settings.json, injected
+	 * pre-paint by the server. 0/absent when it has none (see zoom-manager.js).
 	 */
-	__sessionZoom?: number;
+	__machineZoom?: number;
 
 	/**
-	 * Project session's saved UI theme mode (system|light|dark), injected
-	 * pre-paint by the server. Empty/absent when the session has none (see
+	 * The machine's UI theme mode (system|light|dark) from settings.json,
+	 * injected pre-paint by the server. Empty/absent when it has none (see
 	 * theme-manager.js).
 	 */
-	__sessionThemeMode?: string;
+	__machineThemeMode?: string;
+
+	/**
+	 * The UI zoom this project's session stored, injected pre-paint so the
+	 * server's own window can adopt it for a machine that has none. 0/absent
+	 * when the session has none.
+	 */
+	__projectZoom?: number;
+
+	/**
+	 * The UI theme mode this project's session stored, injected pre-paint so
+	 * the server's own window can adopt it for a machine that has none.
+	 * Empty/absent when the session has none.
+	 */
+	__projectThemeMode?: string;
 
 	/**
 	 * Opaque per-project key injected pre-paint by the server, namespacing this
-	 * device's stored zoom/theme so they belong to the project they were set in
-	 * (see services/prefs.js). Empty/absent for a no-project window.
+	 * device's stored preferences so they belong to the project they were set
+	 * in (see services/prefs.js). Empty/absent for a no-project window.
 	 */
 	__projectKey?: string;
 

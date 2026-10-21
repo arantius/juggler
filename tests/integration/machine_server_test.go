@@ -814,9 +814,9 @@ func TestSessionChildTreatsItsSupervisorsIngressAsRemote(t *testing.T) {
 	}
 	token := string(m[1])
 
-	putZoom := func(ingressHeader string) (int, string) {
+	putUIPrefs := func(ingressHeader string) (int, string) {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodPut, base+"/api/session/ui-zoom", strings.NewReader(`{"uiZoom":110}`))
+		req, err := http.NewRequest(http.MethodPut, base+"/api/session/ui-prefs", strings.NewReader(`{"ui":{"juggler-column-width":"31.5"}}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -827,7 +827,7 @@ func TestSessionChildTreatsItsSupervisorsIngressAsRemote(t *testing.T) {
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			t.Fatalf("PUT ui-zoom: %v", err)
+			t.Fatalf("PUT ui-prefs: %v", err)
 		}
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
@@ -841,8 +841,8 @@ func TestSessionChildTreatsItsSupervisorsIngressAsRemote(t *testing.T) {
 		{"a forged ingress header", "not-the-secret", http.StatusOK},
 		{"the supervisor's ingress header", secret, http.StatusForbidden},
 	} {
-		if code, body := putZoom(c.header); code != c.want {
-			t.Errorf("PUT ui-zoom with %s: status %d (%s), want %d", c.name, code, strings.TrimSpace(body), c.want)
+		if code, body := putUIPrefs(c.header); code != c.want {
+			t.Errorf("PUT ui-prefs with %s: status %d (%s), want %d", c.name, code, strings.TrimSpace(body), c.want)
 		}
 	}
 

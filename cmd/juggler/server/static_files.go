@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -19,7 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/jlog"
 	"juggler/internal/srcroot"
@@ -364,6 +364,39 @@ func projectStorageKey(projectPath string) string {
 	return hex.EncodeToString(sum[:])[:projectStorageKeyLen]
 }
 
+// The names the viewer stores the theme mode and the UI zoom under in the
+// machine realm of settings.json's ui section (web/js/utils/theme-manager.js,
+// zoom-manager.js). The page applies both before its first paint, so this
+// server reads them to inject them; nothing else in Go does.
+const (
+	machineThemePref = "juggler-theme"
+	machineZoomPref  = "juggler-zoom"
+)
+
+// machineAppearance is the theme mode (system|light|dark) and UI zoom (root
+// font-size %) the viewer stored for this machine, or ""/0 for either it has
+// not stored or stored as something unusable. A server without a settings store
+// (a bare test server) has none.
+func (s *Server) machineAppearance() (themeMode string, zoom int) {
+	if s.settings == nil {
+		return "", 0
+	}
+	ui := s.settings.get().UI
+	if raw, ok := ui[machineThemePref]; ok {
+		var mode string
+		if json.Unmarshal(raw, &mode) == nil && (mode == "system" || mode == "light" || mode == "dark") {
+			themeMode = mode
+		}
+	}
+	if raw, ok := ui[machineZoomPref]; ok {
+		var z int
+		if json.Unmarshal(raw, &z) == nil && z > 0 {
+			zoom = z
+		}
+	}
+	return themeMode, zoom
+}
+
 // serveIndex serves the index.html template
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// Reload template from disk on each request when serving assets from disk
@@ -382,31 +415,28 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 
-	// Which of this project's windows is asking. The desktop app puts the view
-	// and board in the page URL when it opens a window, so the page it is served
-	// can be the one that window was left in — a board detached onto a second
-	// display keeps its own theme and zoom, rather than every window of the
-	// project painting whatever one of them last chose.
-	role := core.WindowRoleForView(r.URL.Query().Get("view"), r.URL.Query().Get("board"))
+	// The machine's UI theme mode and zoom (root font-size %), from the machine
+	// realm of settings.json, or ""/0 when it has none. Injected so the page
+	// paints in the right colour and at the right scale on the very first frame —
+	// a font-size change reflows the whole UI, so a late correction is a visible
+	// jump. They are the settings of this machine's own desktop windows. A
+	// remote viewer is sent them too, so a phone opens the way the desktop looks
+	// rather than at a stock default, but there they rank below the device's own
+	// stored preference and the device never writes back (see
+	// web/js/utils/theme-manager.js and zoom-manager.js).
+	machineThemeMode, machineZoom := s.machineAppearance()
 
-	// This window's saved UI zoom (root font-size %), or 0 when neither it nor
-	// the project has one. Injected so the page paints at the right scale on the
-	// very first frame — a font-size change reflows the whole UI, so a late
-	// correction is a visible jump. 0 lets the client fall back to an inherited
-	// seed or the default.
-	//
-	// This is the desktop window's setting. A remote viewer is sent it too, so a
-	// phone opens at the size the desktop is at rather than a stock default, but
-	// there it ranks below the device's own stored preference and the device
-	// never writes back (see web/js/utils/zoom-manager.js).
-	initialZoom, _ := s.SessionManager().GetWindowUIZoom(role)
-
-	// This window's saved UI theme mode (system|light|dark), or "" when neither
-	// it nor the project has one. Injected so the first paint uses it instead of
-	// whichever theme another project left in the origin-shared localStorage
-	// (every project's server reuses the same port, hence the same origin).
-	// Ranked for a remote viewer exactly as the zoom above is.
-	initialThemeMode, _ := s.SessionManager().GetWindowUITheme(role)
+	// What this project's session stored, offered to the server's own window
+	// only while the machine has nothing: that window adopts it for the machine
+	// once, so the look a project was left in carries over.
+	var projectThemeMode string
+	var projectZoom int
+	if machineThemeMode == "" {
+		projectThemeMode, _ = s.SessionManager().GetUITheme()
+	}
+	if machineZoom == 0 {
+		projectZoom, _ = s.SessionManager().GetUIZoom()
+	}
 
 	// The UI language, and its catalogue inline, so the first frame is already
 	// in that language (see ui_locale.go). Unlike theme and zoom it is the
@@ -430,11 +460,14 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		HarnessPage      bool
 		IsDevMode        bool
 		IsWindowMode     bool
+		RemoteViewer     bool
 		CSPNonce         string
 		APIToken         string
 		BasePath         string
-		InitialZoom      int
-		InitialThemeMode string
+		MachineZoom      int
+		MachineThemeMode string
+		ProjectZoom      int
+		ProjectThemeMode string
 		HTMLLang         string
 		UILocale         string
 		UILocalePinned   bool
@@ -450,8 +483,10 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// Where the client mounted this server: "" directly, /s/<id> behind
 		// the machine server's session proxy.
 		BasePath:         requestBasePath(r),
-		InitialZoom:      initialZoom,
-		InitialThemeMode: initialThemeMode,
+		MachineZoom:      machineZoom,
+		MachineThemeMode: machineThemeMode,
+		ProjectZoom:      projectZoom,
+		ProjectThemeMode: projectThemeMode,
 		HTMLLang:         htmlLang,
 		UILocale:         uiLocale,
 		// The page keeps this language when the setting changes (app.js).
@@ -466,6 +501,12 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// have it. Mirrors the client-side check in index.html and gates the
 		// Wails runtime <script>, which only does anything in a native window.
 		IsWindowMode: r.URL.Query().Has("window"),
+		// Whether the page is viewing this server from another machine. A native
+		// window can be (the desktop app's Connect to Server), and then the UI
+		// preferences it changes are its own, not this machine's. Decided by the
+		// test localViewerOnly applies to their writes, so the page never
+		// believes it owns what the server will refuse it.
+		RemoteViewer: !isLocalDirect(r),
 		CSPNonce:     nonce,
 		// Marks the page so its project chip leads to the sessions page rather
 		// than a picker the server would refuse (see setupProjectRoutes).

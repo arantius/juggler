@@ -22,8 +22,7 @@ import (
 // listening, so which project gets which port depends on launch order. A
 // relaunch that lands on a different port hands the window a different, usually
 // empty, localStorage — and every preference kept there appears to have
-// reverted. UIZoom and UITheme already survive for exactly this reason; these
-// two realms extend the same answer to the rest.
+// reverted. Keeping these two realms in the session makes them survive it.
 //
 // The values are opaque: keys are named by the client and the bytes are stored
 // verbatim, as MessageHistory and Metadata already are. Nothing in Go reads a
@@ -154,7 +153,7 @@ func (m *SessionManager) GetWindowUIPrefs(role string) map[string]json.RawMessag
 
 // MergeWindowUIPrefs applies a patch to one window role's preferences and writes
 // the session manifest. A no-project session (still at the picker) is a no-op —
-// there is nowhere to store it — mirroring SetWindowUITheme.
+// there is nowhere to store it — mirroring SetWindowState.
 //
 // Only a viewer on this machine may call this: the route is wrapped in
 // localViewerOnly, so a phone or laptop browsing in remotely keeps its own
