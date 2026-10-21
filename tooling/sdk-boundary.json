@@ -1,0 +1,107 @@
+{
+  "_comment": "The declared crossings of the SDK/app boundary, enforced by the juggler/sdk-boundary ESLint rule (tooling/eslint.config.js). \"sdk\": Apache-2.0 web/sdk/** modules that import the AGPL web/js/** tree (host bindings); LICENSING.md's boundary audit is rendered from them by TestLicensingBoundaryAudit (web/sdk_boundary_test.go, UPDATE=1 rewrites it). \"extensions\": bundled extension modules that import web/js/** or web/sdk/lib/** by relative path instead of through a juggler/* specifier. Each entry says why; an entry whose import is gone fails the lint.",
+  "sdk": {
+    "web/sdk/file-source.js": {
+      "why": "addresses the host's file-content, tree and asset endpoints under its base path",
+      "imports": ["web/js/utils/api-url.js"]
+    },
+    "web/sdk/lib/sandbox-runner.js": {
+      "why": "addresses the host's sandbox page under its base path",
+      "imports": ["web/js/utils/api-url.js"]
+    },
+    "web/sdk/model.js": {
+      "why": "the compaction lifecycle is the host's",
+      "imports": ["web/js/utils/compaction-utils.js"]
+    },
+    "web/sdk/ops.js": {
+      "why": "the host operations themselves",
+      "imports": ["web/js/services/fs.js", "web/js/services/ops-api.js", "web/js/services/shell-streaming.js"]
+    },
+    "web/sdk/pinboard.js": {
+      "why": "pins go to the host's board; pin descriptors come from the loaded extensions",
+      "imports": ["web/js/services/extensions.js", "web/js/services/pinboard-operations-api.js", "web/js/utils/asset-url.js"]
+    },
+    "web/sdk/registry.js": {
+      "why": "the host's capability registries",
+      "imports": ["web/js/registries/context-item-registry.js", "web/js/registries/file-viewer-registry.js", "web/js/registries/strategy-registry.js"]
+    },
+    "web/sdk/strategy-type.js": {
+      "why": "a strategy submits its turn through the host's orchestrator",
+      "imports": ["web/js/services/thread-orchestrator.js"]
+    },
+    "web/sdk/ui.js": {
+      "why": "the host's own UI components and formatters, so an extension's UI matches the app's",
+      "imports": [
+        "web/js/components/diff-viewer.js",
+        "web/js/components/project-picker.js",
+        "web/js/components/reveal-button.js",
+        "web/js/components/review-panel.js",
+        "web/js/services/key-shortcut-manager.js",
+        "web/js/services/nearest-context-item.js",
+        "web/js/utils/asset-url.js",
+        "web/js/utils/format.js",
+        "web/js/utils/image-lightbox.js",
+        "web/js/utils/menu-roles.js",
+        "web/js/utils/popup-surface.js",
+        "web/js/utils/properties-panel-helpers.js"
+      ]
+    },
+    "web/sdk/ui-worker.js": {
+      "why": "the DOM-free subset of the ui.js bindings, for the engine worker",
+      "imports": ["web/js/services/key-shortcut-manager.js", "web/js/utils/asset-url.js", "web/js/utils/format.js"]
+    }
+  },
+  "extensions": {
+    "web/extensions/juggler-core/cards/git-status-card.js": {
+      "why": "shows the host's git-status cache, shared with the app's own git UI",
+      "imports": ["web/js/services/git-status-cache.js", "web/js/services/pinboard-view.js"]
+    },
+    "web/extensions/juggler-core/cards/usage-card.js": {
+      "why": "shows the host's provider, model and usage caches",
+      "imports": ["web/js/services/default-model-cache.js", "web/js/services/providers-cache.js", "web/js/services/usage-stats-cache.js", "web/js/utils/usage-renderer.js"]
+    },
+    "web/extensions/juggler-core/context-items/define-command-context-item.js": {
+      "why": "writes to the host's user-command store",
+      "imports": ["web/js/services/user-commands.js"]
+    },
+    "web/extensions/juggler-core/context-items/edit/permission-section.js": {
+      "why": "the host's file-editing permission toggle",
+      "imports": ["web/js/services/file-editing-permission.js"]
+    },
+    "web/extensions/juggler-core/context-items/skill-context-item.js": {
+      "why": "reads the host's skill store and opens its settings preview",
+      "imports": ["web/js/components/settings/skill-preview.js", "web/js/services/skills.js"]
+    },
+    "web/extensions/juggler-core/context-items/system-prompt-context-item.js": {
+      "why": "assembles the host's own system prompt: preset registry, extension contributions, tool inventory, MCP state and the transcript of the last turn sent",
+      "imports": [
+        "web/js/services/extensions.js",
+        "web/js/services/mcp-availability.js",
+        "web/js/services/thread-tool-inventory.js",
+        "web/js/services/worker-manager.js",
+        "web/js/utils/transaction-anchor.js",
+        "web/sdk/lib/system-prompt-registry.js"
+      ]
+    },
+    "web/extensions/juggler-core/context-items/system-prompt/preset-browser.js": {
+      "why": "edits the host's system-prompt presets",
+      "imports": ["web/js/services/system-prompt-presets.js", "web/sdk/lib/system-prompt-registry.js"]
+    },
+    "web/extensions/juggler-core/strategies/auto-approve-strategy-type.js": {
+      "why": "reads the host's file-editing permission toggle",
+      "imports": ["web/js/services/file-editing-permission.js"]
+    },
+    "web/extensions/juggler-core/viewers/pdf-file-viewer.js": {
+      "why": "loads the vendored PDF.js (Apache-2.0, web/js/vendor/README.md) on demand; not app code",
+      "imports": ["web/js/vendor/pdf.min.mjs"]
+    },
+    "web/extensions/juggler-core/workspaces/git-worktree-workspace-provider.js": {
+      "why": "asks the host's git-status endpoint; the SDK has no git API",
+      "imports": ["web/js/services/api.js"]
+    },
+    "web/extensions/juggler-mcp/context-items/mcp-tool-context-item.js": {
+      "why": "listens for the host's plugin-changed push; the SDK has no server-event subscription",
+      "imports": ["web/js/services/websocket.js"]
+    }
+  }
+}

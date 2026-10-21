@@ -23,7 +23,7 @@
  */
 
 import { isUserMessage, isToolActionMessage, itemField } from 'juggler/model';
-import { extractUserMessage } from '../../../sdk/lib/error-utils.js';
+import { extractUserMessage } from 'juggler/ui';
 
 /*
  * The reviewer's system prompt is a fixed FRAME around a swappable POLICY BODY.

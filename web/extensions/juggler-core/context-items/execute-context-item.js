@@ -6,12 +6,12 @@
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { shellKill, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
-import { createHighlightedCode, createSummaryWithSubtitle } from 'juggler/ui';
-import { renderLiveTaskOutput } from '../../../sdk/lib/live-task-output.js';
+import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
 import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
 import { renderExecutePermissionSection } from './execute/permission-section.js';
+import { homeBase, tildeify, untildeify } from './path-approval.js';
 
 const t = translator('@juggler/core');
 
@@ -169,7 +169,7 @@ function stripLeadingProjectCd(command, opts = {}) {
   if (!match) return command;
   const target = (match[1] ?? match[2] ?? match[3] ?? '').replace(/\\ /g, ' ');
   if (!target || target.includes('$') || target.includes('`')) return command;
-  const to = comparableDir(ExecuteContextItem._untildeify(target, home), cwd, platform);
+  const to = comparableDir(untildeify(target, home), cwd, platform);
   return to === comparableDir(cwd, cwd, platform) ? command.slice(match[0].length) : command;
 }
 
@@ -408,41 +408,6 @@ class ExecuteContextItem extends ContextItem {
   }
 
   /**
-   * Display an absolute path with the user's home dir collapsed to `~` — the
-   * folder the "Yes + Don't Ask Again" button will add to the allowed-paths
-   * list. Purely cosmetic (the persisted value is the absolute path).
-   * @param {string} p - Absolute path
-   * @param {string} home - Backend home dir (may be empty)
-   * @returns {string} `~`-collapsed display path
-   */
-  static _tildeify(p, home) {
-    if (!home) return p;
-    const base = home.endsWith('/') ? home.slice(0, -1) : home;
-    if (p === base) return '~';
-    if (p.startsWith(base + '/')) return '~' + p.slice(base.length);
-    return p;
-  }
-
-  /**
-   * Expand a `~`-collapsed display path back to an absolute path — the inverse
-   * of {@link _tildeify}. A user editing a folder grant sees and types the
-   * tilde form; the persisted grant must be absolute, so we re-expand before
-   * validating. Anything that isn't a tilde path (already absolute, or
-   * relative) is returned unchanged for the caller to judge.
-   * @param {string} p - Display path, possibly `~`-collapsed
-   * @param {string} home - Backend home dir (may be empty)
-   * @returns {string} Absolute path, or `p` unchanged if not a tilde path
-   */
-  static _untildeify(p, home) {
-    if (!p) return '';
-    if (!home) return p;
-    const base = home.endsWith('/') ? home.slice(0, -1) : home;
-    if (p === '~') return base;
-    if (p.startsWith('~/')) return base + p.slice(1);
-    return p;
-  }
-
-  /**
    * Suggest escalating-breadth auto-approval rule-sets for this command.
    *
    * Defers to the analyser's {@link suggestApprovalPatterns}, which decomposes
@@ -509,7 +474,7 @@ class ExecuteContextItem extends ContextItem {
             suggestions.push({
               itemType: 'execute',
               allowedPaths: tier.allowedPaths,
-              patterns: tier.allowedPaths.map(p => ExecuteContextItem._tildeify(p, home))
+              patterns: tier.allowedPaths.map(p => tildeify(p, home))
             });
           }
           continue;
@@ -632,15 +597,15 @@ class ExecuteContextItem extends ContextItem {
    */
   static _reviseFolderGrant(text, home, cwd, approvesWith) {
     if (!text) return { valid: false, patterns: [], notice: t('Enter a folder path') };
-    const abs = resolveAgainstCwd(ExecuteContextItem._untildeify(text, home), cwd);
+    const abs = resolveAgainstCwd(untildeify(text, home), cwd);
     if (!abs || !abs.startsWith('/')) {
       return { valid: false, patterns: [text], notice: t('Not a valid folder') };
     }
     const root = canonicalRoot(abs, home);
     if (!root || !isGrantableRoot(root, home)) {
-      return { allowedPaths: [abs], patterns: [ExecuteContextItem._tildeify(abs, home)], valid: false, notice: t('Not a grantable folder') };
+      return { allowedPaths: [abs], patterns: [tildeify(abs, home)], valid: false, notice: t('Not a grantable folder') };
     }
-    const patterns = [ExecuteContextItem._tildeify(root, home)];
+    const patterns = [tildeify(root, home)];
     if (!approvesWith({ extraAllowedRoots: [root] })) {
       return { allowedPaths: [root], patterns, valid: false, notice: t("This folder wouldn't cover this command") };
     }
@@ -683,7 +648,7 @@ class ExecuteContextItem extends ContextItem {
     const segs = root.split('/').filter(Boolean);
     if (segs.length <= 2) return t('Broad — grants read access to a large tree');
     if (home) {
-      const base = home.endsWith('/') ? home.slice(0, -1) : home;
+      const base = homeBase(home);
       const homeSegs = base.split('/').filter(Boolean);
       if (segs.length === homeSegs.length + 1 && root.startsWith(base + '/')) {
         return t('Broad — grants read access to a large tree');

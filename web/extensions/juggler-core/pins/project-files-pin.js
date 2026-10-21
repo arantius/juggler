@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import PinboardItemType from 'juggler/pinboard-item-type';
+// The project's tree, by definition: a pin belongs to the project's board and
+// has no conversation, hence no workspace, to scope by.
+// eslint-disable-next-line no-restricted-imports
 import { expandDirectory, openPath } from 'juggler/ops';
 import { translator } from 'juggler/i18n';
 import { createElement, createFileActions, errorText, injectStylesOnce, pinFile } from 'juggler/ui';

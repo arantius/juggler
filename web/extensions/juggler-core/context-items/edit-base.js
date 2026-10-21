@@ -7,6 +7,7 @@ import ContextItem from 'juggler/context-item';
 import { formatDisplayPath } from 'juggler/item-utils';
 import { isPathInsideAllowedRoots, canonicalRoot } from 'juggler/utils/path-containment';
 import { renderWriteFilePermissionSection } from './edit/permission-section.js';
+import { tildeify } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
@@ -186,22 +187,6 @@ class EditBase extends ContextItem {
   }
 
   /**
-   * Collapse an absolute path's home-dir prefix to `~` for display (purely
-   * cosmetic; the persisted grant is the absolute path).
-   * @protected
-   * @param {string} p - Absolute path
-   * @param {string} home - Backend home dir (may be empty)
-   * @returns {string} `~`-collapsed display path
-   */
-  static _tildeify(p, home) {
-    if (!home) return p;
-    const base = home.endsWith('/') ? home.slice(0, -1) : home;
-    if (p === base) return '~';
-    if (p.startsWith(base + '/')) return '~' + p.slice(base.length);
-    return p;
-  }
-
-  /**
    * Directory portion of a path, handling both `/` and `\` separators (the
    * backend reports native OS paths).
    * @protected
@@ -262,7 +247,7 @@ class EditBase extends ContextItem {
         itemType: EDIT_ITEM_TYPE,
         rules: [allowRule],
         allowedPaths: [folder],
-        label: t('file edits + allow {folder}', { folder: EditBase._tildeify(folder, home) })
+        label: t('file edits + allow {folder}', { folder: tildeify(folder, home) })
       });
     }
     suggestions.push({

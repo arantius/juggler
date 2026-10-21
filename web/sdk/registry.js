@@ -9,11 +9,13 @@
  * The one registry capability a capability legitimately needs is to materialise
  * another registered context-item type by id — e.g. a plan strategy creating a
  * plan item. That is the narrow **`createItem`** named export below;
- * **`itemClassForTool`** answers which class provides a tool.
+ * **`itemClassForTool`** answers which class provides a tool, and
+ * **`hasStrategy`** whether a strategy id is registered.
  */
 
 import contextItemRegistry from '../js/registries/context-item-registry.js';
 import fileViewerRegistry from '../js/registries/file-viewer-registry.js';
+import strategyRegistry from '../js/registries/strategy-registry.js';
 import { toDescriptor } from './file-source.js';
 
 /**
@@ -39,6 +41,16 @@ export function createItem(json, session, conversation, messageThread) {
  */
 export function itemClassForTool(toolName) {
   return contextItemRegistry.getByToolName(toolName);
+}
+
+/**
+ * Whether a strategy with this id is registered — for an item that asks a
+ * sub-thread to run under a named strategy and must say so when it cannot.
+ * @param {string} strategyId - The strategy's `MANIFEST.id`
+ * @returns {boolean} True if a strategy with that id is registered
+ */
+export function hasStrategy(strategyId) {
+  return strategyRegistry.has(strategyId);
 }
 
 /**

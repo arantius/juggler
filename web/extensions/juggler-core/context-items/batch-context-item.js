@@ -9,6 +9,7 @@ import { translator, markUntranslated } from 'juggler/i18n';
 import { formatGrepResults } from './search/grep-format.js';
 import { creditProgramRead } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
+import { extractErrorMessage } from 'juggler/ui';
 
 const t = translator('@juggler/core');
 
@@ -244,7 +245,7 @@ class BatchContextItem extends ContextItem {
           if (result?.exists !== false) creditProgramRead(this.conversation, this.toolUseId, f.file_path, result?.contentHash);
           return { file: f.file_path, success: true, result };
         } catch (err) {
-          return { file: f.file_path, success: false, error: err instanceof Error ? err.message : String(err) };
+          return { file: f.file_path, success: false, error: extractErrorMessage(err) };
         }
       })
     );
@@ -268,7 +269,7 @@ class BatchContextItem extends ContextItem {
           const result = await this.ops.grep(/** @type {any} */ (searchParams), this.signal);
           return { pattern: s.pattern, success: true, result, outputMode: s.output_mode || 'files_with_matches' };
         } catch (err) {
-          return { pattern: s.pattern, success: false, error: err instanceof Error ? err.message : String(err) };
+          return { pattern: s.pattern, success: false, error: extractErrorMessage(err) };
         }
       })
     );

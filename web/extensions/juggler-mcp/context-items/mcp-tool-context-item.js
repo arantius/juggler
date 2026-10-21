@@ -11,6 +11,7 @@ import { translator, markUntranslated } from 'juggler/i18n';
 // importing the module by its stable URL yields that same singleton instance.
 import wsService from '../../../js/services/websocket.js';
 import { renderMcpPermissionSection } from './permission-section.js';
+import { extractErrorMessage } from 'juggler/ui';
 
 const t = translator('@juggler/mcp');
 
@@ -262,7 +263,7 @@ export async function storeMcpImages(blocks, { upload, conversationId, signal })
         images.push(ref);
         out.push({ ...rest, attached: ref.id });
       } catch (err) {
-        out.push({ ...rest, note: markUntranslated(`could not be stored: ${err instanceof Error ? err.message : String(err)}`) });
+        out.push({ ...rest, note: markUntranslated(`could not be stored: ${extractErrorMessage(err)}`) });
       }
     }
   }

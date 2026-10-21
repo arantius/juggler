@@ -354,6 +354,7 @@ class StrategyType {
      * primitives (createThread/continueConversation) via optional chaining.
      * @type {AbortController|null}
      * @protected
+     * @internal
      */
     this._abortController = null;
 
@@ -580,6 +581,7 @@ class StrategyType {
   /**
    * Check if operation was aborted and throw if so.
    * @private
+   * @internal
    * @throws {AbortError} If aborted
    */
   _checkAborted() {

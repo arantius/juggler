@@ -23,9 +23,10 @@ export {
   errorText,
 } from './lib/error-utils.js';
 export { FormattingHelpers } from './lib/formatting-helpers.js';
-// Date formatting is pure `Date`/`Intl` work, so the worker gets the real one:
-// an engine-side plugin naming a time must name it the way the viewer would.
-export { formatRelativeDateTime } from '../js/utils/format.js';
+// Date and token-count formatting is pure `Date`/`Intl` work, so the worker gets
+// the real ones: an engine-side plugin naming a time or a size must name it the
+// way the viewer would.
+export { formatRelativeDateTime, formatTokens } from '../js/utils/format.js';
 
 // Pure (DOM-free): highlightCode returns escaped/highlighted HTML as a string
 // and no-ops to escaped text when `window.Prism` is absent — which it always is
@@ -100,3 +101,7 @@ export const createHighlightedCode = () => domUnavailable('createHighlightedCode
 export const createSummaryRow = () => domUnavailable('createSummaryRow');
 export const createSummaryWithSubtitle = () => domUnavailable('createSummaryWithSubtitle');
 export const createLlmDescription = () => domUnavailable('createLlmDescription');
+export const attachMenuKeyboard = () => domUnavailable('attachMenuKeyboard');
+export const focusMenuItem = () => domUnavailable('focusMenuItem');
+export const renderLiveTaskOutput = () => domUnavailable('renderLiveTaskOutput');
+export const renderTaskDeliveryControl = () => domUnavailable('renderTaskDeliveryControl');

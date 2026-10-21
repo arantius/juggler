@@ -21,7 +21,7 @@ import { translator } from 'juggler/i18n';
 import defaultModelCache from '../../../js/services/default-model-cache.js';
 import providersCache from '../../../js/services/providers-cache.js';
 import usageStatsCache from '../../../js/services/usage-stats-cache.js';
-import { escapeHtml } from '../../../sdk/lib/html.js';
+import { escapeHtml } from 'juggler/ui';
 import { formatPlan, renderUsageRow } from '../../../js/utils/usage-renderer.js';
 
 const t = translator('@juggler/core');

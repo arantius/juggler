@@ -55,7 +55,7 @@
  * @module context-items/code/program-journal
  */
 
-import { extractErrorMessage } from '../../../../sdk/lib/error-utils.js';
+import { extractErrorMessage } from 'juggler/ui';
 
 /** A replayed call differed from the record at its step. */
 export class ProgramDiverged extends Error {

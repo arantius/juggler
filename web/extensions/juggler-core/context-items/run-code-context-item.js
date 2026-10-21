@@ -12,6 +12,7 @@ import { renderProgramSdk, describeProgramTool, toolOwnName } from './code/rende
 import { journalCapabilities } from './code/program-journal.js';
 import { pointImageReadsAtImage } from './code/program-images.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { extractErrorMessage } from 'juggler/ui';
 
 const t = translator('@juggler/core');
 
@@ -422,7 +423,7 @@ class RunCodeContextItem extends QueryCodeContextItem {
         success: false,
         errorCode: 'program-failed',
         error: /** @type {Error|null} */ (refusal)?.message
-          ?? (failure instanceof Error ? failure.message : String(failure))
+          ?? extractErrorMessage(failure)
       }
       : { result: value === undefined ? null : value };
     if (consoleLines.length > 0) out.console = consoleLines;

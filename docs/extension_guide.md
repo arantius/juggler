@@ -201,9 +201,21 @@ no per-extension containment.
 That means the `permissions` manifest field and the catalog's permission badges
 are **disclosure, not enforcement**: they tell you what host access an
 extension's code declares it uses, so you can make an informed decision. They do
-not stop an extension from doing more. The real safeguards are the ones you
-control at runtime — tool-approval dialogs and allowed-paths — plus the single
-rule that matters most:
+not stop an extension from doing more.
+
+The runtime safeguards you control — tool-approval dialogs and allowed-paths —
+govern what the **model** asks for, not what extension code does:
+
+- A tool-approval dialog appears for a tool call only when the tool asks for
+  one. A context item does not by default (`requiresApproval` is `false` unless
+  its manifest says otherwise), and code in a command, card, strategy or hook
+  calls `juggler/ops` with no dialog at all.
+- Allowed-paths bound the reading ops — `readFile`, `glob`, `grep`, the tree
+  ops — which the server confines to the working directory and the granted
+  roots. Writes, edits and shell commands are not confined by the server: they
+  rely on the calling tool having asked first.
+
+So the rule that matters most is the one before any of them:
 
 > **Install and enable only extensions you trust.** Treat an extension like any
 > other code you're about to run — you install a global extension deliberately
@@ -246,7 +258,7 @@ The full set of specifiers, and what each is for:
 | `juggler/ui` | Render/format helpers — `createElement`, `smartTruncate`, markdown, syntax highlighting, `FormattingHelpers` |
 | `juggler/item-utils` | Item-level formatting — paths, sizes, badges, empty states, LLM content formatting |
 | `juggler/model` | Conversation vocabulary — `MESSAGE_TYPES`, `TOOL_STATES`, `RESULT_TYPES`, message predicates |
-| `juggler/registry` | `createItem()` to materialise another registered item type; `extractFileSource()` |
+| `juggler/registry` | `createItem()` to materialise another registered item type; `itemClassForTool()`, `hasStrategy()`; `extractFileSource()` |
 | `juggler/sandbox` | `runInSandbox(code, { capabilities, timeoutMs })` — run untrusted code in an opaque-origin iframe |
 | `juggler/version` | `ENGINE_API_VERSION`, `satisfiesEngineApi(range, version)` |
 | `juggler/i18n` | `translator(id)` → a `t()` for your UI text, scoped to your extension's catalogue (English source is the key and the fallback); `markForTranslation()`, `markUntranslated()`, `htmlSlots()`/`withHtml()` for markup inside a message, `messageKey()` for a key with a context, `getLocale()`, `registerCatalog()`, and locale-aware `formatNumber`/`formatDate`/`formatRelativeTime`. See [Translating your extension](#translating-your-extension) |
@@ -258,8 +270,9 @@ The full set of specifiers, and what each is for:
   with the user's full authority; there is no per-extension sandbox. Declare the
   access your code uses in the manifest `permissions` list — that declaration is
   surfaced to the user (catalog + install prompt) as disclosure, **not** a gate
-  (see [Trust model](#trust-model)). The actual gate is the user-approval layer
-  (tool approval dialogs, allowed-paths), which applies to every op. The export
+  (see [Trust model](#trust-model)). Nothing gates a direct call: approval
+  dialogs gate a tool's call when the tool asks for approval, and allowed-paths
+  confine only the reading ops. The export
   names are a clean vocabulary, deliberately decoupled from the internal
   implementation names, grouped roughly as:
 
@@ -297,12 +310,13 @@ at load with a clear diagnostic instead of a mystery `import` failure
 The `engineApi` semver promise (`web/sdk/version.js`) covers a **specific
 surface**, not everything you can reach:
 
-- **Covered:** the named exports of each `juggler/*` module; the documented
+- **Covered:** the named exports of each `juggler/*` module, and the public
+  members of the classes they export; the documented
   `static MANIFEST` fields and `provides` fields; and the MessageThread methods
   marked **`@plugin-api`** in `web/js/model/message-thread.js`.
 - **Not covered:** anything reached through `this.session` / `this.conversation`,
   the raw Y.Map objects from `messageThread.items` / `CommandType.items`, and any
-  member tagged `@internal` or `@deprecated`. These work today but can change at
+  member tagged `@internal` or `@deprecated` or named with a leading `_`. These work today but can change at
   any release — don't build on them.
 
 ## Writing each capability

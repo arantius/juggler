@@ -19,7 +19,7 @@
  * @module context-items/path-approval
  */
 
-import { isPathInsideAllowedRoots, canonicalRoot } from 'juggler/utils/path-containment';
+import { isPathInsideAllowedRoots, canonicalRoot, posixNormalize } from 'juggler/utils/path-containment';
 
 /**
  * Extract a path from a tool input, tolerating the `file_path` alias the LLM
@@ -55,34 +55,16 @@ export function absolutePathKey(session, path) {
     if (root) p = `${String(root).replace(/\\/g, '/').replace(/\/+$/, '')}/${p}`;
   }
 
-  // Split off the absolute prefix so segment resolution can't walk above it.
-  let prefix = '';
+  // Split off the absolute prefix (a drive, a UNC `//`, or `/`) and normalise
+  // the rest as rooted, so `..` cannot walk above the prefix.
   const drive = /^([A-Za-z]:)(\/|$)/.exec(p)?.[1];
-  if (drive) {
-    prefix = `${drive}/`;
-    p = p.slice(drive.length);
-  } else if (p.startsWith('//')) {
-    prefix = '//';
-  } else if (p.startsWith('/')) {
-    prefix = '/';
+  const prefix = drive ? `${drive}/` : p.startsWith('//') ? '//' : p.startsWith('/') ? '/' : '';
+  if (!prefix) {
+    // Relative, with no root to resolve against: a leading `..` is kept.
+    const rel = posixNormalize(p);
+    return rel === '.' ? '' : rel;
   }
-
-  /** @type {string[]} */
-  const resolved = [];
-  for (const seg of p.split('/')) {
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') {
-      if (resolved.length > 0 && resolved[resolved.length - 1] !== '..') {
-        resolved.pop();
-      } else if (!prefix) {
-        // Relative path with no root to resolve against: keep the `..`.
-        resolved.push(seg);
-      }
-      continue;
-    }
-    resolved.push(seg);
-  }
-  return prefix + resolved.join('/');
+  return prefix + posixNormalize(`/${drive ? p.slice(drive.length) : p}`).slice(1);
 }
 
 /**
@@ -137,17 +119,46 @@ export function dirname(p) {
 }
 
 /**
+ * The home dir as a prefix to compare and join against: without its trailing
+ * slash (the backend may report either).
+ * @param {string} home - Backend home dir
+ * @returns {string} The home dir with no trailing slash
+ */
+export function homeBase(home) {
+  return home.endsWith('/') ? home.slice(0, -1) : home;
+}
+
+/**
  * Collapse a home-dir prefix to `~` for display (cosmetic; the persisted grant
- * is the absolute path).
+ * is the absolute path). Shared by the read, write and shell tools, so a folder
+ * grant reads the same in each.
  * @param {string} p - Absolute path
  * @param {string} home - Backend home dir (may be empty)
  * @returns {string} `~`-collapsed display path
  */
 export function tildeify(p, home) {
   if (!home) return p;
-  const base = home.endsWith('/') ? home.slice(0, -1) : home;
+  const base = homeBase(home);
   if (p === base) return '~';
   if (p.startsWith(base + '/')) return '~' + p.slice(base.length);
+  return p;
+}
+
+/**
+ * Expand a `~` or `~/…` path against the home dir, as the shell would — the
+ * inverse of {@link tildeify}. A user editing a folder grant sees and types the
+ * tilde form; the persisted grant must be absolute. Anything else (an absolute
+ * or relative path, `~user`) is returned unchanged for the caller to judge, as
+ * is every path when the home dir is unknown.
+ * @param {string} p - Display path, possibly `~`-collapsed
+ * @param {string} home - Backend home dir (may be empty)
+ * @returns {string} Absolute path, or `p` unchanged if not a tilde path
+ */
+export function untildeify(p, home) {
+  if (!p || !home) return p;
+  const base = homeBase(home);
+  if (p === '~' || p === '~/') return base;
+  if (p.startsWith('~/')) return base + p.slice(1);
   return p;
 }
 

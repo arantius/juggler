@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import FileViewer from 'juggler/file-viewer';
+// A viewer is handed a resolved file and has no conversation to scope by; it
+// stats that path, with the access its source carries.
+// eslint-disable-next-line no-restricted-imports
 import { stat } from 'juggler/ops';
 import { extensionOf } from 'juggler/file-source';
 import { formatFileSizeForDisplay } from 'juggler/item-utils';

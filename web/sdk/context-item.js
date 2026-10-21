@@ -307,6 +307,7 @@ class ContextItem {
      * sets one rather than the conversation's (truncationBudget).
      * @type {number|undefined}
      * @private
+     * @internal
      */
     this._truncationBudget = context.truncationBudget;
 
@@ -1155,6 +1156,7 @@ class ContextItem {
    * @param {ResultStatus} defaultStatus - Status to apply when the branch doesn't name one
    * @returns {ResultStatusMessage} Summary + status fragment
    * @private
+   * @internal
    */
   static _resolveStatusBranch(branch, defaultStatus) {
     const value = typeof branch === 'function' ? branch() : branch;

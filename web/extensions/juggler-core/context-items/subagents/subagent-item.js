@@ -5,7 +5,7 @@
 
 import ContextItem from 'juggler/context-item';
 import { effortInstruction, thoroughnessSchema } from './thoroughness.js';
-import strategyRegistry from '../../../../js/registries/strategy-registry.js';
+import { hasStrategy } from 'juggler/registry';
 import { translator, markUntranslated } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
@@ -167,7 +167,7 @@ export default class SubagentContextItem extends ContextItem {
       sessionName: toolInput.session ? String(toolInput.session).trim() : undefined
     };
 
-    if (strategyRegistry.has(strategyId)) {
+    if (hasStrategy(strategyId)) {
       spec.strategyId = strategyId;
     } else {
       // Worth a shout: the child still runs, but under the CALLER's strategy —

@@ -120,6 +120,7 @@ import { runTests as runHandoffPromotionTests } from '../unit-tests/handoff-prom
 import { runTests as runReadFileActionTests } from '../unit-tests/read-file-action-test.js';
 import { runTests as runReadTruncationTests } from '../unit-tests/read-truncation-test.js';
 import { runTests as runPathInputQuotesTests } from '../unit-tests/path-input-quotes-test.js';
+import { runTests as runPathContainmentTests } from '../unit-tests/path-containment-test.js';
 import { runTests as runSearchActionTests } from '../unit-tests/search-action-test.js';
 import { runTests as runToolCancellationTests } from '../unit-tests/tool-cancellation-test.js';
 import { runTests as runUnboundedAwaitTests } from '../unit-tests/unbounded-await-test.js';
@@ -629,6 +630,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:read-file-action', run: runReadFileActionTests },
   { name: 'unit:read-truncation', run: runReadTruncationTests },
   { name: 'unit:path-input-quotes', run: runPathInputQuotesTests },
+  { name: 'unit:path-containment', run: runPathContainmentTests },
   { name: 'unit:mobile-composer', run: runMobileComposerTests },
   { name: 'unit:composer-send-latch', run: runComposerSendLatchTests },
   { name: 'unit:composer-autoresize-defer', run: runComposerAutoresizeDeferTests },

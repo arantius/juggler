@@ -5,7 +5,7 @@
 
 import CommandType from 'juggler/command-type';
 import { translator } from 'juggler/i18n';
-import { extractErrorMessage } from '../../../sdk/lib/error-utils.js';
+import { extractErrorMessage } from 'juggler/ui';
 
 const t = translator('@juggler/core');
 

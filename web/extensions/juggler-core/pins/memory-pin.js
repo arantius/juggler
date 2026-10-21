@@ -4,6 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import PinboardItemType from 'juggler/pinboard-item-type';
+// The memory file is the project's, never a worktree's (see
+// memory-context-item.js), and a pin has no conversation to scope by: these ops
+// run in the project, which is what they mean.
+// eslint-disable-next-line no-restricted-imports
 import { readFile, writeFile } from 'juggler/ops';
 import { translator } from 'juggler/i18n';
 import { createElement, errorText, injectStylesOnce } from 'juggler/ui';

@@ -38,8 +38,8 @@
  */
 
 import { toolInputPath, absolutePathKey } from './path-approval.js';
-import { itemField } from '../../../sdk/lib/message.js';
-import { markUntranslated } from '../../../sdk/lib/i18n.js';
+import { itemField } from 'juggler/model';
+import { markUntranslated } from 'juggler/i18n';
 
 /**
  * Canonical comparison key for the freshness guard. macOS (default APFS/HFS+)

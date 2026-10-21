@@ -7,7 +7,7 @@ import ContextItem from 'juggler/context-item';
 // Aliased on import: this item exposes its own `grep`/`glob` helpers to sandboxed
 // code (below), so the ops primitives are bound under distinct local names.
 import { runInSandbox } from 'juggler/sandbox';
-import { createLlmDescription } from 'juggler/ui';
+import { createLlmDescription, extractErrorMessage } from 'juggler/ui';
 import { uploadAssetBase64 } from 'juggler/ops';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { gitignoreDisabled } from './path-approval.js';
@@ -163,7 +163,7 @@ class QueryCodeContextItem extends ContextItem {
       // error. A cancel stays a bare AbortError: nobody is reading the output.
       this._holdAssets([]);
       if (consoleLines.length === 0 || (err instanceof Error && err.name === 'AbortError')) throw err;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = extractErrorMessage(err);
       throw new Error(withConsole(message, consoleLines));
     }
 

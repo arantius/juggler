@@ -96,8 +96,17 @@ export { taskMarker, taskStatusWord } from './lib/task-markers.js';
 export { FormattingHelpers } from './lib/formatting-helpers.js';
 
 // The app's one date-time renderer — a plugin showing a timestamp (a file's
-// mtime, a run's start) must read the same as the chrome around it
-export { formatRelativeDateTime } from '../js/utils/format.js';
+// mtime, a run's start) must read the same as the chrome around it — and its
+// token-count renderer (`12.3k`), for the same reason
+export { formatRelativeDateTime, formatTokens } from '../js/utils/format.js';
+
+// Keyboard navigation for a role="menu" popup (arrow keys, Home/End, Escape)
+export { attachMenuKeyboard, focusMenuItem } from '../js/utils/menu-roles.js';
+
+// A background task's live output, tailed while it runs, and the control that
+// says whether its output is delivered to the model
+export { renderLiveTaskOutput } from './lib/live-task-output.js';
+export { renderTaskDeliveryControl } from './lib/task-delivery-control.js';
 
 // Full-screen image overlay (shared by the image viewer and attachment thumbs)
 export { openImageLightbox, createImageThumb } from '../js/utils/image-lightbox.js';

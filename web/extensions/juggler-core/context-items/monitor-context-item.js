@@ -5,9 +5,7 @@
 
 import ContextItem from 'juggler/context-item';
 import { MAX_EXEC_TIMEOUT_MS } from 'juggler/ops';
-import { createSummaryWithSubtitle } from 'juggler/ui';
-import { renderLiveTaskOutput } from '../../../sdk/lib/live-task-output.js';
-import { renderTaskDeliveryControl } from '../../../sdk/lib/task-delivery-control.js';
+import { createSummaryWithSubtitle, renderLiveTaskOutput, renderTaskDeliveryControl } from 'juggler/ui';
 import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 

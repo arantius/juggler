@@ -5,8 +5,8 @@
 
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { createUserMessage } from '../../../sdk/lib/message.js';
-import { decodeHtmlEntities } from '../../../sdk/lib/html.js';
+import { createUserMessage } from 'juggler/model';
+import { decodeHtmlEntities } from 'juggler/utils/html';
 
 const t = translator('@juggler/core');
 

@@ -37,20 +37,32 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import * as uiBrowser from '../../sdk/ui.js';
-import * as uiWorker from '../../sdk/ui-worker.js';
-import * as itemUtilsBrowser from '../../sdk/item-utils.js';
-import * as itemUtilsWorker from '../../sdk/item-utils-worker.js';
-import * as i18nBrowser from '../../sdk/i18n.js';
-import * as i18nWorker from '../../sdk/i18n-worker.js';
 
-// Keep in sync with the `*-worker.js` entries of `workerSDKImports` in
-// cmd/juggler/server/worker_module.go — those are the specifiers with a twin.
-const FACADE_PAIRS = [
-  { specifier: 'juggler/ui', browser: uiBrowser, worker: uiWorker },
-  { specifier: 'juggler/item-utils', browser: itemUtilsBrowser, worker: itemUtilsWorker },
-  { specifier: 'juggler/i18n', browser: i18nBrowser, worker: i18nWorker },
-];
+/**
+ * @typedef {object} FacadePair
+ * @property {string} specifier - The `juggler/*` specifier
+ * @property {object} browser - The browser façade's module namespace
+ * @property {object} worker - The worker twin's module namespace
+ */
+
+/**
+ * Every specifier with a worker twin, read from the fixture TestSDKWorkerTwinsFixture
+ * renders from the `-worker.js` entries of `workerSDKImports`
+ * (cmd/juggler/server/worker_module.go) — so a twin added there is checked here
+ * without anyone remembering to list it.
+ * @returns {Promise<FacadePair[]>} The pairs, both sides imported
+ */
+async function loadFacadePairs() {
+  const res = await fetch(new URL('../fixtures/sdk-worker-twins.json', import.meta.url));
+  assert(res.ok, `failed to fetch sdk-worker-twins.json: HTTP ${res.status}`);
+  const { twins } = /** @type {{twins: {specifier: string, browser: string, worker: string}[]}} */ (await res.json());
+  assert(twins.length > 0, 'sdk-worker-twins.json lists no twins');
+  return Promise.all(twins.map(async ({ specifier, browser, worker }) => ({
+    specifier,
+    browser: await import(new URL(`../..${browser}`, import.meta.url).href),
+    worker: await import(new URL(`../..${worker}`, import.meta.url).href),
+  })));
+}
 
 // Pure helpers a plugin may call through `juggler/ui` in either realm. Each
 // must return the same string whichever façade resolved it.
@@ -106,6 +118,8 @@ export async function runTests(_ctx) {
     }
   };
 
+  const FACADE_PAIRS = await loadFacadePairs();
+
   for (const { specifier, browser, worker } of FACADE_PAIRS) {
     const facade = specifier.replace('juggler/', 'sdk/') + '.js';
     const twin = specifier.replace('juggler/', 'sdk/') + '-worker.js';
@@ -156,7 +170,7 @@ export async function runTests(_ctx) {
   // on both sides, so a viewer and an engine plugin can both import them.
   for (const [specifier, name] of [['juggler/i18n', 'formatList'], ['juggler/item-utils', 'formatFileSizeForDisplay']]) {
     run(`${specifier}: exports ${name} on both sides`, () => {
-      const pair = /** @type {typeof FACADE_PAIRS[number]} */ (FACADE_PAIRS.find((p) => p.specifier === specifier));
+      const pair = /** @type {FacadePair} */ (FACADE_PAIRS.find((p) => p.specifier === specifier));
       for (const mod of [pair.browser, pair.worker]) {
         assert(typeof /** @type {any} */ (mod)[name] === 'function', `${specifier} lacks ${name} on one side`);
       }

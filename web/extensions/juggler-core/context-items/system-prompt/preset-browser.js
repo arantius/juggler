@@ -21,11 +21,9 @@
  * Only showPresetBrowser is exported; the rest is reachable from it.
  */
 
-import { createElement, presentPopup } from 'juggler/ui';
+import { createElement, presentPopup, attachMenuKeyboard, focusMenuItem, errorText } from 'juggler/ui';
 import { translator, markForTranslation } from 'juggler/i18n';
-import { attachMenuKeyboard, focusMenuItem } from '../../../../js/utils/menu-roles.js';
 import { systemPromptRegistry } from '../../../../sdk/lib/system-prompt-registry.js';
-import { errorText } from '../../../../sdk/lib/error-utils.js';
 import {
   ensureUserPresetsLoaded,
   getDefaultPresetId,

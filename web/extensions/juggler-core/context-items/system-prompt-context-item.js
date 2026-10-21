@@ -4,11 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import ContextItem from 'juggler/context-item';
-import { createElement, injectStylesOnce } from 'juggler/ui';
+import { createElement, injectStylesOnce, formatTokens, extractErrorMessage } from 'juggler/ui';
 import { createTextBlock } from 'juggler/item-utils';
 import { systemPromptRegistry, getDefaultIdentityText } from '../../../sdk/lib/system-prompt-registry.js';
 import { showPresetBrowser } from './system-prompt/preset-browser.js';
-import { formatTokens } from '../../../js/utils/format.js';
 import { translator, markUntranslated, markForTranslation } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
@@ -737,7 +736,7 @@ class SystemPromptContextItem extends ContextItem {
       // Never leave "Loading…" sitting there: a panel that can't answer should
       // say so, since silence here reads as "no tools".
       body.replaceChildren(createTextBlock(
-        t("Couldn't read the tool list.\n\n{error}", { error: err instanceof Error ? err.message : String(err) })
+        t("Couldn't read the tool list.\n\n{error}", { error: extractErrorMessage(err) })
       ));
     }
   }
@@ -961,9 +960,8 @@ class SystemPromptContextItem extends ContextItem {
     }
 
     try {
-      const { default: contextItemRegistry } =
-        await import('../../../js/registries/context-item-registry.js');
-      const ItemClass = /** @type {any} */ (contextItemRegistry.getByToolName(toolName));
+      const { itemClassForTool } = await import('juggler/registry');
+      const ItemClass = /** @type {any} */ (itemClassForTool(toolName));
       const id = ItemClass?.MANIFEST?.id;
       if (id) {
         openSettings('extensions', { capability: { itemType: 'context-item', id } });

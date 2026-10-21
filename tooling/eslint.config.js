@@ -8,6 +8,9 @@ import stylistic from '@stylistic/eslint-plugin';
 import noAbsoluteApiUrl from './eslint-rules/no-absolute-api-url.js';
 import noRawUiString from './eslint-rules/no-raw-ui-string.js';
 import testHooksInTestsOnly from './eslint-rules/test-hooks-in-tests-only.js';
+import sdkBoundary from './eslint-rules/sdk-boundary.js';
+import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 
 // Juggler's own rules, as one plugin object: flat config refuses a second,
 // different object under the same plugin name, and both blocks below use it.
@@ -16,8 +19,18 @@ const jugglerPlugin = {
     'no-absolute-api-url': noAbsoluteApiUrl,
     'no-raw-ui-string': noRawUiString,
     'test-hooks-in-tests-only': testHooksInTestsOnly,
+    'sdk-boundary': sdkBoundary,
   },
 };
+
+// The declared crossings of the SDK/app boundary (juggler/sdk-boundary below).
+// Each entry is `{ why, imports }`; the rule wants file → imports.
+const SDK_BOUNDARY = JSON.parse(readFileSync(new URL('./sdk-boundary.json', import.meta.url), 'utf8'));
+/**
+ * @param {Record<string, {imports: string[]}>} entries - The declarations of one boundary
+ * @returns {Record<string, string[]>} Each file's declared imports
+ */
+const boundaryImports = (entries) => Object.fromEntries(Object.entries(entries).map(([file, e]) => [file, e.imports]));
 
 // UI source: every file a user can see text from. Tests and vendored code are not.
 const UI_FILES = ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'];
@@ -341,6 +354,41 @@ export default [
     },
   },
   // ===================================================================
+  // The SDK/app boundary (juggler/sdk-boundary)
+  // ===================================================================
+  // web/sdk/** is Apache-2.0 and web/js/** is AGPL. An SDK module that imports
+  // the app binds the public interface to this host's implementation; each
+  // such binding is declared in tooling/sdk-boundary.json, and LICENSING.md's
+  // boundary audit is rendered from that file (TestLicensingBoundaryAudit).
+  {
+    files: ['web/sdk/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/sdk-boundary': ['error', {
+        forbidden: ['web/js/'],
+        allowed: boundaryImports(SDK_BOUNDARY.sdk),
+        hint: 'An SDK module reaches the app only through a host binding declared, with its reason, under "sdk" in tooling/sdk-boundary.json (which LICENSING.md is rendered from).',
+      }],
+    },
+  },
+  // A bundled extension is written the way a third-party one must be: through
+  // the juggler/* specifiers, since no relative path reaches web/js/ or
+  // web/sdk/lib/ from a user extension's directory. The exceptions are the
+  // built-ins that ARE a host feature (its own store, cache or settings UI),
+  // each declared with its reason under "extensions" in tooling/sdk-boundary.json.
+  {
+    files: ['web/extensions/**/*.js'],
+    ignores: ['web/extensions/**/_tests/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/sdk-boundary': ['error', {
+        forbidden: ['web/js/', 'web/sdk/lib/'],
+        allowed: boundaryImports(SDK_BOUNDARY.extensions),
+        hint: 'Import it through a juggler/* specifier (export it from the SDK façade if it is missing — every specifier is registered in the five places TestSDKSpecifiersRegisteredEverywhere checks). A built-in that is itself a host feature may be declared, with its reason, under "extensions" in tooling/sdk-boundary.json.',
+      }],
+    },
+  },
+  // ===================================================================
   // Test hooks are reached only from tests (juggler/test-hooks-in-tests-only)
   // ===================================================================
   // A module's test seams ship with it — `__…` exports, `…ForTests` methods —
@@ -499,28 +547,6 @@ export default [
   {
     files: ['web/extensions/**/*-context-item.js'],
     rules: {
-      // ===================================================================
-      // Tools reach the rooted ops through their item, never directly
-      // ===================================================================
-      // Every op below runs somewhere, and where is a property of the ITEM —
-      // its conversation's workspace, and the roots its user has granted — not
-      // of the call. Imported directly they take those as optional arguments,
-      // so forgetting them was silent: the op ran in the project and looked
-      // exactly like it had worked. `this.ops` cannot be built without them.
-      // An item that genuinely means the project (memory, whose file is the
-      // project's and never a worktree's) disables this by name, with a reason.
-      'no-restricted-imports': ['error', {
-        paths: [{
-          name: 'juggler/ops',
-          importNames: [
-            'readFile', 'writeFile', 'editFile', 'editFileLines', 'fileHash',
-            'stat', 'mkdir', 'getTree', 'expandDirectory', 'glob', 'grep',
-            'findSymbol', 'shell', 'shellBackground', 'shellStreaming',
-            'FileSystem', 'ReadOnlyFileSystem'
-          ],
-          message: 'Use this.ops.<name>() instead — the item carries the workspace and allowed-paths grant these ops run under. Importing them directly makes both optional, and an op that quietly ran in the project looks exactly like one that worked. See ContextItem#ops.'
-        }]
-      }],
       'no-restricted-syntax': [
         'error',
         {
@@ -535,6 +561,45 @@ export default [
         }
       ]
     }
+  },
+  // ===================================================================
+  // Tools reach the rooted ops through their item, never directly
+  // ===================================================================
+  // pins/file-pin.js and lib/live-file.js read paths a user gesture vouched
+  // for, and are excluded while that path (userInitiated) is reviewed.
+  {
+    files: ['web/extensions/**/*.js'],
+    ignores: [
+      'web/extensions/**/_tests/**/*.js',
+      'web/extensions/juggler-core/pins/file-pin.js',
+      'web/extensions/juggler-core/lib/live-file.js',
+    ],
+    rules: {
+      // Every op below runs somewhere, and where is a property of the ITEM —
+      // its conversation's workspace, and the roots its user has granted — not
+      // of the call. Imported directly they take those as optional arguments,
+      // so forgetting them was silent: the op ran in the project and looked
+      // exactly like it had worked. `this.ops` cannot be built without them.
+      // An item that genuinely means the project (memory, whose file is the
+      // project's and never a worktree's) disables this by name, with a reason.
+      // The rule covers all extension code, not only the tool items, because a
+      // helper module a tool imports runs under that tool's scope just the same.
+      // Only a ContextItem has `this.ops`: a pin or a viewer has no
+      // conversation to scope by, and states with a disable why it means the
+      // project (or the path it was handed).
+      'no-restricted-imports': ['error', {
+        paths: [{
+          name: 'juggler/ops',
+          importNames: [
+            'readFile', 'writeFile', 'editFile', 'editFileLines', 'fileHash',
+            'stat', 'mkdir', 'getTree', 'expandDirectory', 'glob', 'grep',
+            'findSymbol', 'shell', 'shellBackground', 'shellStreaming',
+            'FileSystem', 'ReadOnlyFileSystem'
+          ],
+          message: 'Use this.ops.<name>() instead — the item carries the workspace and allowed-paths grant these ops run under. Importing them directly makes both optional, and an op that quietly ran in the project looks exactly like one that worked. See ContextItem#ops. Code with no item to scope by (a pin, a viewer) disables this by name, saying why it means the project.'
+        }]
+      }],
+    },
   },
   // ===================================================================
   // Base plugin classes - allow helper methods

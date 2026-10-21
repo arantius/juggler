@@ -8,7 +8,7 @@ closed-source extensions — while the application itself remains strong copylef
 
 | Path | License | What it is |
 |---|---|---|
-| `web/sdk/**` | [Apache-2.0](web/sdk/LICENSE) | The extension SDK: the `juggler/*` modules extensions import, plus the self-contained support library in `web/sdk/lib/`. |
+| `web/sdk/**` | [Apache-2.0](web/sdk/LICENSE) | The extension SDK: the `juggler/*` modules extensions import, plus their support library in `web/sdk/lib/`. |
 | `web/extensions/**` | [Apache-2.0](web/extensions/LICENSE) | Bundled extensions, including `juggler-core` — the reference implementation of Juggler's built-in tools, and the best starting point for writing your own. |
 | `examples/**` | [Apache-2.0](examples/LICENSE) | Example extensions, written to be copied. Not shipped in any binary. |
 | Everything else | [AGPL-3.0-or-later](LICENSE) | The application: Go server and desktop app, web UI, build tooling, tests, docs. |
@@ -33,40 +33,55 @@ Juggler's AGPL code.
 
 ## Boundary audit
 
-The SDK/app dependency boundary was audited (2026-07) and is enforced as
-follows:
+The SDK/app dependency boundary is enforced by lint: a relative import from
+`web/sdk/**` into the AGPL `web/js/**` tree, or from a bundled extension into
+`web/js/**` or `web/sdk/lib/**`, fails unless it is declared, with its reason,
+in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
 
-- **Self-contained**: `web/sdk/lib/**` imports nothing outside `web/sdk`,
-  except `sdk/lib/sandbox-runner.js` → `js/utils/api-url.js` (a declared
-  binding, below). The SDK entry modules `context-item.js`, `command-type.js`, `item-utils.js`,
-  `item-utils-worker.js`, `ui-worker.js`, `sandbox.js`, `coerce-schema-types.js`
-  and `version.js` are likewise fully self-contained.
+<!-- sdk-boundary:begin — rendered from tooling/sdk-boundary.json by TestLicensingBoundaryAudit (web/sdk_boundary_test.go); UPDATE=1 rewrites it -->
+- **Self-contained**: these SDK entry modules import no app code: `sdk/coerce-schema-types.js`, `sdk/command-type.js`, `sdk/context-item-types.js`, `sdk/context-item.js`, `sdk/file-viewer.js`, `sdk/hook-type.js`, `sdk/i18n-worker.js`, `sdk/i18n.js`, `sdk/info-card-type.js`, `sdk/item-utils-worker.js`, `sdk/item-utils.js`, `sdk/pinboard-item-type.js`, `sdk/sandbox.js`, `sdk/version.js`, `sdk/workspace-provider.js`. Nothing under `sdk/lib/` imports app code either, except where listed next.
 - **Declared host bindings**: the SDK is the *interface* to a running Juggler
-  host, and a small number of facade re-exports intentionally bind to the
-  host's AGPL implementation. As shipped in this repository these are:
-  - `sdk/registry.js` → `js/registries/context-item-registry.js`
-  - `sdk/ui.js` → `js/utils/popup-surface.js`,
-    `js/utils/properties-panel-helpers.js`, `js/components/project-picker.js`
-  - `sdk/ops.js` → `js/services/ops-api.js`, `js/services/fs.js`
-  - `sdk/strategy-type.js` → `js/services/thread-orchestrator.js`,
-    `js/services/tool-generator.js`
-  - `sdk/model.js` → `js/utils/compaction-utils.js`
-  - `sdk/lib/sandbox-runner.js` → `js/utils/api-url.js`
-  - Runtime, not import: `sdk/context-item.js` calls the host-installed
-    `globalThis.__hostToolInvoker` (`js/services/tool-invoker.js`) from
-    `createToolInvoker`, and `sdk/lib/sandbox-runner.js` calls
-    `globalThis.__hostSandboxDelegate` (`js/engine-worker-sandbox.js`,
-    `js/engine-sandbox-node.mjs`). Neither imports host code.
-  - `extensions/juggler-core/context-items/system-prompt-context-item.js` →
-    `js/services/system-prompt-presets.js`, `js/services/extensions.js`
+  host, and these modules bind it to the host's AGPL implementation:
+  - `sdk/file-source.js` → `js/utils/api-url.js` — addresses the host's file-content, tree and asset endpoints under its base path
+  - `sdk/lib/sandbox-runner.js` → `js/utils/api-url.js` — addresses the host's sandbox page under its base path
+  - `sdk/model.js` → `js/utils/compaction-utils.js` — the compaction lifecycle is the host's
+  - `sdk/ops.js` → `js/services/fs.js`, `js/services/ops-api.js`, `js/services/shell-streaming.js` — the host operations themselves
+  - `sdk/pinboard.js` → `js/services/extensions.js`, `js/services/pinboard-operations-api.js`, `js/utils/asset-url.js` — pins go to the host's board; pin descriptors come from the loaded extensions
+  - `sdk/registry.js` → `js/registries/context-item-registry.js`, `js/registries/file-viewer-registry.js`, `js/registries/strategy-registry.js` — the host's capability registries
+  - `sdk/strategy-type.js` → `js/services/thread-orchestrator.js` — a strategy submits its turn through the host's orchestrator
+  - `sdk/ui-worker.js` → `js/services/key-shortcut-manager.js`, `js/utils/asset-url.js`, `js/utils/format.js` — the DOM-free subset of the ui.js bindings, for the engine worker
+  - `sdk/ui.js` → `js/components/diff-viewer.js`, `js/components/project-picker.js`, `js/components/reveal-button.js`, `js/components/review-panel.js`, `js/services/key-shortcut-manager.js`, `js/services/nearest-context-item.js`, `js/utils/asset-url.js`, `js/utils/format.js`, `js/utils/image-lightbox.js`, `js/utils/menu-roles.js`, `js/utils/popup-surface.js`, `js/utils/properties-panel-helpers.js` — the host's own UI components and formatters, so an extension's UI matches the app's
+- **Bundled extensions that reach past the SDK**: every other module under
+  `extensions/` reaches the host only through `juggler/*` specifiers, as a
+  third-party extension must. These are the exceptions — mostly built-ins that
+  are part of the app's own features — and are not templates for those parts:
+  - `extensions/juggler-core/cards/git-status-card.js` → `js/services/git-status-cache.js`, `js/services/pinboard-view.js` — shows the host's git-status cache, shared with the app's own git UI
+  - `extensions/juggler-core/cards/usage-card.js` → `js/services/default-model-cache.js`, `js/services/providers-cache.js`, `js/services/usage-stats-cache.js`, `js/utils/usage-renderer.js` — shows the host's provider, model and usage caches
+  - `extensions/juggler-core/context-items/define-command-context-item.js` → `js/services/user-commands.js` — writes to the host's user-command store
+  - `extensions/juggler-core/context-items/edit/permission-section.js` → `js/services/file-editing-permission.js` — the host's file-editing permission toggle
+  - `extensions/juggler-core/context-items/skill-context-item.js` → `js/components/settings/skill-preview.js`, `js/services/skills.js` — reads the host's skill store and opens its settings preview
+  - `extensions/juggler-core/context-items/system-prompt-context-item.js` → `js/services/extensions.js`, `js/services/mcp-availability.js`, `js/services/thread-tool-inventory.js`, `js/services/worker-manager.js`, `js/utils/transaction-anchor.js`, `sdk/lib/system-prompt-registry.js` — assembles the host's own system prompt: preset registry, extension contributions, tool inventory, MCP state and the transcript of the last turn sent
+  - `extensions/juggler-core/context-items/system-prompt/preset-browser.js` → `js/services/system-prompt-presets.js`, `sdk/lib/system-prompt-registry.js` — edits the host's system-prompt presets
+  - `extensions/juggler-core/strategies/auto-approve-strategy-type.js` → `js/services/file-editing-permission.js` — reads the host's file-editing permission toggle
+  - `extensions/juggler-core/viewers/pdf-file-viewer.js` → `js/vendor/pdf.min.mjs` — loads the vendored PDF.js (Apache-2.0, web/js/vendor/README.md) on demand; not app code
+  - `extensions/juggler-core/workspaces/git-worktree-workspace-provider.js` → `js/services/api.js` — asks the host's git-status endpoint; the SDK has no git API
+  - `extensions/juggler-mcp/context-items/mcp-tool-context-item.js` → `js/services/websocket.js` — listens for the host's plugin-changed push; the SDK has no server-event subscription
+<!-- sdk-boundary:end -->
 
-  These bindings mean the SDK facade, as shipped, resolves those symbols
-  against this application. A third party reimplementing a host would provide
-  their own implementations behind the same Apache-licensed interface.
-  Extension authors are unaffected — the modules *they* import are Apache-2.0.
-- **Type-only references**: JSDoc `@type {import('../js/…')}` annotations in
-  Apache files reference host types for type-checking. They are comments,
-  create no runtime dependency, and are erased by any bundler.
+The declared host bindings mean the SDK facade, as shipped, resolves those
+symbols against this application. A third party reimplementing a host would
+provide their own implementations behind the same Apache-licensed interface.
+Extension authors are unaffected — the modules *they* import are Apache-2.0.
+
+Two further bindings are made at runtime rather than by import:
+`sdk/context-item.js` calls the host-installed `globalThis.__hostToolInvoker`
+(`js/services/tool-invoker.js`) from `createToolInvoker`, and
+`sdk/lib/sandbox-runner.js` calls `globalThis.__hostSandboxDelegate`
+(`js/engine-worker-sandbox.js`, `js/engine-sandbox-node.mjs`).
+
+**Type-only references**: JSDoc `@type {import('../js/…')}` annotations in
+Apache files reference host types for type-checking. They are comments, create
+no runtime dependency, and are erased by any bundler.
 
 The reverse direction — the AGPL app importing from the Apache SDK — is
 unrestricted and common (the app uses its own SDK).

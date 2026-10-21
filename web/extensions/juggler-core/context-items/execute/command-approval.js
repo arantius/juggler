@@ -64,6 +64,7 @@ import {
   windowsToComparable,
 } from 'juggler/utils/path-containment';
 import { checkedAt, tokenize, SUBST_SENTINEL, TOP_LEVEL_SPLIT_OPS } from './shell-tokenizer.js';
+import { untildeify } from '../path-approval.js';
 import { COMMAND_HANDLERS, pathAllowed } from './command-handlers.js';
 
 /**
@@ -110,12 +111,7 @@ function normaliseCwd(cwd, platform = '') {
  * @returns {string} the new working directory
  */
 function cdTargetCwd(target, ctx) {
-  let p = target;
-  if (ctx.home) {
-    const base = ctx.home.endsWith('/') ? ctx.home.slice(0, -1) : ctx.home;
-    if (p === '~' || p === '~/') p = base;
-    else if (p.startsWith('~/')) p = base + '/' + p.slice(2);
-  }
+  const p = untildeify(target, ctx.home || '');
   return normaliseCwd(resolveAgainstCwd(p, ctx.cwd || '', ctx.platform), ctx.platform);
 }
 
@@ -760,12 +756,9 @@ function resolveDeletionTarget(text, { home, cwd, fold = (p) => p }) {
   } else if (p.includes('*') || p.includes('?') || p.includes('[')) {
     return null; // unexpanded glob (`rm -rf *`) — explicitly out of floor scope
   }
-  if (p === '~' || p === '~/') {
+  if (p === '~' || p.startsWith('~/')) {
     if (!home) return null;
-    p = home;
-  } else if (p.startsWith('~/')) {
-    if (!home) return null;
-    p = (home.endsWith('/') ? home.slice(0, -1) : home) + '/' + p.slice(2);
+    p = untildeify(p, home);
   }
   p = fold(p);
   if (!p.startsWith('/')) {

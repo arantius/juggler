@@ -19,8 +19,10 @@
  * ## What the version covers (the compat surface)
  *
  * IN scope — changes here follow the bump rules above:
- * - The named exports of each `juggler/*` facade (`context-item`, `strategy-type`,
- *   `command-type`, `ops`, `ui`, `registry`, `version`, `i18n`).
+ * - The named exports of every `juggler/*` specifier — the import map in
+ *   `web/index.html` is the list, and `TestSDKSpecifiersRegisteredEverywhere`
+ *   (cmd/juggler/server/sdk_specifiers_test.go) keeps every realm's copy of it
+ *   the same — and the public members of the classes they export.
  * - The documented `static MANIFEST` fields for each capability type, and the
  *   `provides` manifest fields (see `docs/extension_guide.md`).
  * - The MessageThread methods marked **`@plugin-api`** in
@@ -30,8 +32,9 @@
  * - Anything reached through `this.session`, `this.conversation`, or the raw
  *   Y.Map objects returned by `messageThread.items` / `CommandType.items` beyond
  *   the documented `@plugin-api` surface.
- * - Members tagged `@internal` / `@deprecated` in the SDK JSDoc (e.g. the
- *   `juggler/registry` default export, core-only MANIFEST fields).
+ * - Members tagged `@internal` / `@deprecated` in the SDK JSDoc (e.g.
+ *   `ContextItem._resolveStatusBranch`, `StrategyType._checkAborted`, core-only
+ *   MANIFEST fields), and any member whose name starts with `_`.
  * Reaching past the documented surface works today but can break at any release.
  */
 export const ENGINE_API_VERSION = '1.2.0';
