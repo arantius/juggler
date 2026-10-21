@@ -138,6 +138,7 @@
   "Couldn’t load the page (HTTP {status}), so shown as source.": "Couldn’t load the page (HTTP {status}), so shown as source.",
   "Couldn’t load the page ({error}), so shown as source.": "Couldn’t load the page ({error}), so shown as source.",
   "Couldn’t load this file: {error}": "Couldn’t load this file: {error}",
+  "Couldn’t refresh — showing earlier figures": "Couldn’t refresh — showing earlier figures",
   "Create Thread": "Create Thread",
   "Create a nested sub-conversation (thread)": "Create a nested sub-conversation (thread)",
   "Create a new independent conversation seeded with an initial message": "Create a new independent conversation seeded with an initial message",

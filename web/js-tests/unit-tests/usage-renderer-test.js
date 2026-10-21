@@ -144,6 +144,21 @@ export async function runTests(_ctx) {
       failed++;
       errors.push('a stat with no percentage should render a value row, not a meter');
     }
+
+    // A window whose reset has passed has rolled over: its percentage describes
+    // the window before, so the row must not present it as current.
+    const rolled = renderUsageRow(/** @type {any} */ ({
+      name: 'Session',
+      usedPercent: 100,
+      windowSecs: WINDOW_SECS,
+      resetsAt: new Date(NOW - 60 * 1000).toISOString()
+    }));
+    if (!rolled.includes('usage-stat-fill') && !rolled.includes('100%')) {
+      passed++;
+    } else {
+      failed++;
+      errors.push(`a window past its reset still shows its old percentage: ${rolled.replace(/\s+/g, ' ')}`);
+    }
   } finally {
     Date.now = origNow;
   }

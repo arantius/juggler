@@ -133,8 +133,13 @@ export default class UsageCard extends InfoCardType {
       const subtitle = providerName
         ? `<div class="info-card__usage-sub">${escapeHtml(providerLabel(providerName))}${usage?.plan ? ` · ${escapeHtml(formatPlan(usage.plan))}` : ''}</div>`
         : '';
+      // Meters kept from an earlier fetch are not current once a later one has
+      // failed, so they carry a note saying so, with the error as its tooltip.
+      const staleNote = hasStats && error
+        ? `<div class="info-card__usage-stale" title="${escapeHtml(error)}">${escapeHtml(t('Couldn’t refresh — showing earlier figures'))}</div>`
+        : '';
       const body = hasStats
-        ? stats.map(renderUsageRow).join('')
+        ? stats.map(renderUsageRow).join('') + staleNote
         : error
           ? `<p class="info-card__body" title="${escapeHtml(error)}">${escapeHtml(usageErrorLabel(error))}</p>`
           : `<p class="info-card__body">${escapeHtml(t('No usage data'))}</p>`;

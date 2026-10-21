@@ -1246,6 +1246,14 @@ conversation-bar .info-card__usage-sub {
     color: var(--text-secondary);
 }
 
+/* Under meters kept from an earlier fetch after a later one failed. */
+conversation-bar .info-card__usage-stale {
+    padding-top: 0.375rem;
+    font-size: var(--font-size-xs);
+    line-height: 1.35;
+    color: var(--text-tertiary);
+}
+
 /* Git-status per-repo rows: a subtle name badge + the monospaced counts. The
    whole row is set in the mono face so path labels and counts share the tabular
    look of the working tree they describe. */

@@ -48,6 +48,17 @@ export function isUsageStale(usage) {
 }
 
 /**
+ * Whether a stat's window has passed its reset time.
+ * @param {import('../services/usage-stats-cache.js').UsageStat} stat
+ * @returns {boolean} True once `resetsAt` is in the past.
+ */
+export function hasWindowRolledOver(stat) {
+  if (!stat?.resetsAt) return false;
+  const at = new Date(stat.resetsAt).getTime();
+  return Number.isFinite(at) && at < Date.now();
+}
+
+/**
  * Share of the average rate the rest of the window can afford, at or below which
  * a meter warns: the user has to ease off by a tenth to last until the reset.
  */
@@ -103,8 +114,11 @@ export function renderUsageRow(stat) {
   const resetRow = reset ? `<div class="usage-stat-reset">${escapeHtml(reset)}</div>` : '';
   const detail = stat.detail ? escapeHtml(stat.detail) : '';
 
+  // A window past its reset has rolled over, so its percentage belongs to the
+  // window before. Until a fetch reports the new one there is no current figure.
   const hasPct = stat.usedPercent !== null && stat.usedPercent !== undefined
-    && Number.isFinite(Number(stat.usedPercent));
+    && Number.isFinite(Number(stat.usedPercent))
+    && !hasWindowRolledOver(stat);
   if (!hasPct) {
     return `
             <div class="usage-stat usage-stat-value">

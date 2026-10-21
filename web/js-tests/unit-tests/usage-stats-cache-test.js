@@ -271,6 +271,30 @@ export async function runTests(_ctx) {
     }
   });
 
+  await run('a window reset is fetched soon after it passes, not after the full interval', async () => {
+    const p = 'codex-reset-due';
+    const clock = stubNow(Date.now());
+    try {
+      const snap = snapshotWith(p, 100);
+      snap.stats[0].resetsAt = new Date(Date.now() + 60 * 1000).toISOString();
+      snap.stats[0].windowSecs = 5 * 3600;
+      await refreshWith(p, [snap]);
+
+      // Two minutes on — inside the healthy interval, but past the reset.
+      clock.advance(2 * 60 * 1000);
+      const after = stubFetch(() => ({ ok: true, json: async () => ({ usage: [snapshotWith(p, 0)], errors: {} }) }));
+      try {
+        await usageStatsCache.refresh(p);
+      } finally {
+        after.restore();
+      }
+      assert(after.calls.length === 1, 'a passed reset must not be held behind the full interval');
+      assert(usageStatsCache.get(p)?.stats?.[0]?.usedPercent === 0, 'the fetch after the reset must replace the old meter');
+    } finally {
+      clock.restore();
+    }
+  });
+
   await run('a falsy provider name is a no-op that resolves null', async () => {
     const snap = await usageStatsCache.refresh('', { force: true });
     assert(snap === null, 'empty provider name resolves null without fetching');

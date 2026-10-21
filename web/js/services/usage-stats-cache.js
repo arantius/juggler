@@ -13,9 +13,9 @@
  * CLI-backed providers, can even provoke a login). The cache is
  * keyed by provider so the model selector and the usage sidebar card can track
  * different providers without evicting each other. Each provider's live fetch is
- * debounced to one call per REFRESH_INTERVAL_MS — or per the much shorter
- * RETRY_INTERVAL_MS when the last one reported an error or no meters — and
- * de-dupes concurrent callers.
+ * debounced to one call per REFRESH_INTERVAL_MS — cut short by the next window
+ * reset, and replaced by the much shorter RETRY_INTERVAL_MS when the last one
+ * reported an error or no meters — and de-dupes concurrent callers.
  */
 
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
@@ -67,6 +67,20 @@ const _errors = new Map();
 const _nextFetch = new Map();
 /** @type {Map<string, Promise<UsageStats|null>>} provider name → in-flight fetch. */
 const _inFlight = new Map();
+
+/**
+ * The soonest window reset a snapshot reports.
+ * @param {UsageStats|null|undefined} snapshot
+ * @returns {number} Epoch ms of the earliest `resetsAt`, or Infinity when none.
+ */
+function earliestReset(snapshot) {
+  let earliest = Infinity;
+  for (const stat of snapshot?.stats || []) {
+    const at = stat?.resetsAt ? new Date(stat.resetsAt).getTime() : NaN;
+    if (Number.isFinite(at) && at < earliest) earliest = at;
+  }
+  return earliest;
+}
 
 const usageStatsCache = {
   /**
@@ -144,9 +158,14 @@ const usageStatsCache = {
         if (nextHasStats || !prevHasStats) {
           _byProvider.set(providerName, snapshot);
         }
-        // Only a fetch that actually produced meters earns the full interval.
+        // Only a fetch that actually produced meters earns the full interval, and
+        // not past the next window reset: the numbers are known to change then.
         const healthy = nextHasStats && !fetchError;
-        _nextFetch.set(providerName, Date.now() + (healthy ? REFRESH_INTERVAL_MS : RETRY_INTERVAL_MS));
+        const now = Date.now();
+        const next = healthy
+          ? Math.min(now + REFRESH_INTERVAL_MS, Math.max(now + RETRY_INTERVAL_MS, earliestReset(_byProvider.get(providerName))))
+          : now + RETRY_INTERVAL_MS;
+        _nextFetch.set(providerName, next);
         return _byProvider.get(providerName) || null;
       } catch (err) {
         const message = extractErrorMessage(err);
