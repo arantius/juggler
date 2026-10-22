@@ -292,7 +292,7 @@ func TestUICatalogRouteCarriesExtensionCatalogues(t *testing.T) {
 }
 
 // The Language picker asks which UI languages exist rather than carrying a
-// list: every real catalogue in web/i18n, which today is none.
+// list: every real catalogue in web/i18n.
 func TestUILocalesRoute(t *testing.T) {
 	s := &Server{}
 	rec := httptest.NewRecorder()

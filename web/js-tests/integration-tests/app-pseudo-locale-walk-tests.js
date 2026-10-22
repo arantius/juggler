@@ -51,10 +51,12 @@ const SETTINGS_TABS = [
  * - `.connectivity-url`: a URL the connectivity panel links to — a server's
  *   address, or where to get a tool a tunnel mode needs.
  * - `code`, `pre`: tool arguments, paths and file content.
+ * - `option[lang]`: a Language menu entry naming a language in itself
+ *   ("简体中文"), which stays in that language whatever the UI language.
  */
 const DATA = '.ppd-path, .user-message-text, .markdown, .model-name, .info-card__usage-sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
-  + '.connectivity-url, code, pre';
+  + '.connectivity-url, code, pre, option[lang]';
 
 /**
  * Whether an element shows data. Besides {@link DATA}, a conversation tab's name
