@@ -865,8 +865,9 @@ func (a *appState) setWindowTheme(e *winEntry, theme string) (application.RGBA, 
 	if theme == "" {
 		return application.RGBA{}, false
 	}
-	changed := false
+	changed, quitting := false, false
 	a.reg(func(st *regState) {
+		quitting = st.quitting
 		if e != nil {
 			e.currentTheme = theme
 		}
@@ -878,8 +879,9 @@ func (a *appState) setWindowTheme(e *winEntry, theme string) (application.RGBA, 
 		}
 	})
 	// Persist across launches so a restored window's first frame matches, too.
-	// Only on an actual change — the page reports its theme on every load.
-	if changed {
+	// Only on an actual change — the page reports its theme on every load — and
+	// never once a quit is authorised (see persistThemeOrZoom).
+	if persistThemeOrZoom(changed, quitting) {
 		a.workspace.saveTheme(theme)
 	}
 	return themeColours[theme], true
@@ -914,17 +916,29 @@ func (a *appState) setWindowZoom(zoom int) {
 	if zoom <= 0 {
 		return
 	}
-	changed := false
+	changed, quitting := false, false
 	a.reg(func(st *regState) {
+		quitting = st.quitting
 		if st.lastZoom != zoom {
 			st.lastZoom = zoom
 			changed = true
 		}
 	})
-	// Only on an actual change — the page reports its zoom on every load.
-	if changed {
+	// Only on an actual change — the page reports its zoom on every load — and
+	// never once a quit is authorised (see persistThemeOrZoom).
+	if persistThemeOrZoom(changed, quitting) {
 		a.workspace.saveZoom(zoom)
 	}
+}
+
+// persistThemeOrZoom reports whether a page-reported theme or zoom is saved to
+// the workspace. Pages keep reporting as teardown begins, after the quit's own
+// synchronous snapshot (persistWorkspaceSync) is written. These saves are
+// fire-and-forget, so one started then is cut short by the process exiting:
+// the value is lost anyway, and the write's temp file is stranded beside the
+// workspace.
+func persistThemeOrZoom(changed, quitting bool) bool {
+	return changed && !quitting
 }
 
 // cascadeStep is the down-right nudge applied when a new window would open

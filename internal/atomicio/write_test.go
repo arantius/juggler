@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -125,6 +126,52 @@ func TestWriteFile_FailureLeavesNoTemp(t *testing.T) {
 		t.Fatal("WriteFile into a directory that does not exist succeeded")
 	}
 	onlyEntry(t, dir, "taken")
+}
+
+// RemoveTemps takes exactly the temp files WriteFile names for path, and
+// nothing that merely resembles one: not the file itself, not another file's
+// temps, not a name WriteFile would never generate.
+func TestRemoveTemps_RemovesOnlyThisFilesTemps(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workspace.json")
+	if err := WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kept := []string{
+		"workspace.json",
+		"workspace.json.corrupt",
+		".workspace.json.tmp",
+		".workspace.json.notanumber.tmp",
+		".settings.json.123.tmp",
+		"workspace.json.123.tmp",
+	}
+	removed := []string{".workspace.json.1840525170.tmp", ".workspace.json.7.tmp"}
+	for _, name := range append(kept[1:], removed...) {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RemoveTemps(path); err != nil {
+		t.Fatalf("RemoveTemps: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	slices.Sort(got)
+	want := slices.Sorted(slices.Values(kept))
+	if !slices.Equal(got, want) {
+		t.Errorf("directory holds %q, want %q", got, want)
+	}
+
+	if err := RemoveTemps(filepath.Join(dir, "missing", "f")); err != nil {
+		t.Errorf("RemoveTemps beside a directory that does not exist: %v, want nil", err)
+	}
 }
 
 // Racing writers each publish a complete file: whichever lands last, the result

@@ -145,7 +145,19 @@ func newWorkspaceStoreAt(path string) *workspaceStore {
 		// preserves the other field. Seed from disk once; this goroutine is the
 		// file's sole writer thereafter (no mutex, per the concurrency rule).
 		cur := readWorkspaceFile(w.path)
+		swept := false
 		for req := range w.saves {
+			// A run killed mid-save strands its temp file beside the document.
+			// Clear them before the first write, not at construction: the store
+			// is built before the single-instance lock is taken, and a second
+			// launch's sweep would delete the running app's in-flight temp. A
+			// second launch exits at that lock, before anything has saved.
+			if !swept {
+				swept = true
+				if err := atomicio.RemoveTemps(w.path); err != nil {
+					logf("workspace: clearing stale temp files: %v", err)
+				}
+			}
 			if req.entries != nil {
 				cur.Windows = req.entries
 			}

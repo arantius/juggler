@@ -69,6 +69,51 @@ func TestQuittingKeepsTheWholeWindowSet(t *testing.T) {
 	}
 }
 
+// Pages report their theme and zoom as teardown begins, after the quit's own
+// snapshot has been written. Saving them then starts a write the exiting
+// process does not live to finish, which strands its temp file beside the
+// workspace and loses the value anyway.
+func TestQuittingSavesNoThemeOrZoom(t *testing.T) {
+	path := workspacePath(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(path)
+	a.setWindowTheme(nil, "light")
+	a.setWindowZoom(100)
+	a.workspace.flush([]workspaceEntry{{Project: "/a"}})
+
+	a.reg(func(st *regState) { st.quitting = true })
+	a.setWindowTheme(nil, "dark")
+	a.setWindowZoom(110)
+	a.workspace.flush(nil) // barrier: nil entries leave the set unchanged
+
+	if f := readWorkspaceFile(path); f.LastTheme != "light" || f.LastZoom != 100 {
+		t.Errorf("after quitting the workspace holds theme %q and zoom %d, want light and 100 from before the quit",
+			f.LastTheme, f.LastZoom)
+	}
+}
+
+// A process killed mid-save leaves its temp file beside the workspace, and
+// nothing else will ever remove it. The next run's first save clears them.
+func TestTheFirstSaveClearsTempsAKilledRunLeft(t *testing.T) {
+	path := workspacePath(t)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".workspace.json.1840525170.tmp", ".workspace.json.88313521.tmp"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`{"windows":[]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	newWorkspaceStoreAt(path).flush([]workspaceEntry{{Project: "/a"}})
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || entries[0].Name() != "workspace.json" {
+		t.Errorf("the config directory holds %v, want only workspace.json", entries)
+	}
+}
+
 // Signing out of Windows or shutting it down ends the app through Wails' own
 // quit. Unauthorised, the busy guard vetoes that quit and Windows kills the
 // process before the window set is written. A shutdown that something else
