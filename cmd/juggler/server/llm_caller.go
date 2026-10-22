@@ -206,27 +206,16 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 		// asset reference (AssetID + mime + dims), never the bytes. Load the
 		// bytes from the per-conversation asset store here, in memory, just
 		// before Submit, so raw image data never travels in the request JSON and
-		// is never marshaled by the cost estimator. A missing asset is logged
+		// is never marshaled by the cost estimator. Each image is fitted to the
+		// size a model looks at (FitImageForModel), and its part's dims become
+		// the fitted ones, which admission prices. A missing asset is logged
 		// and skipped (the part is dropped at transform time) rather than
-		// failing the whole turn.
-		assetStore := worker.NewAssetStore(s.convDir)
-		for i := range req.Messages {
-			for j := range req.Messages[i].Parts {
-				part := &req.Messages[i].Parts[j]
-				if part.AssetID == "" || len(part.Data) > 0 {
-					continue
-				}
-				data, mime, err := assetStore.Get(req.ConversationID, part.AssetID)
-				if err != nil {
-					jlog.Error("LLM caller: could not resolve asset %s for conversation %s: %v", part.AssetID, req.ConversationID, err)
-					continue
-				}
-				part.Data = data
-				if part.Mime == "" {
-					part.Mime = mime
-				}
-			}
-		}
+		// failing the whole turn. Then the oldest images beyond the per-request
+		// budget are left out (CapImagesForModel), counted in fitted bytes. Both
+		// run on req, unmarshalled afresh for this call, so a retry starts from
+		// the full history again rather than capping a capped one.
+		worker.NewAssetStore(s.convDir).ResolveForModel(req.ConversationID, req.Messages)
+		worker.CapImagesForModel(req.Messages)
 
 		// Get credentials
 		creds, err := core.NewCredentialsStore()

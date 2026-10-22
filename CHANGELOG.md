@@ -5,6 +5,9 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Large images are scaled down before they're sent, so photo batches no longer stall
+- Long image-heavy conversations leave out their oldest images to keep requests sendable
+- A request over the provider's size limit no longer compacts history trying to fit
 - Models reporting no output limit get larger budgets on large windows, up to 64k
 - Settings shows the output budget "auto" resolves to, and how it was derived
 - An output-limit notice explains a derived budget and the context window it came from

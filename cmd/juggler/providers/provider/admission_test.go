@@ -264,6 +264,7 @@ func TestIsProviderContextOverflowErrorRealWorldWordings(t *testing.T) {
 		{"openai responses", "Your input exceeds the context window of this model."},
 		{"anthropic long prompt", "prompt is too long: 210522 tokens > 200000 maximum"},
 		{"anthropic max_tokens", "input length and max_tokens exceed context limit: 195726 + 8192 > 200000"},
+		{"anthropic on vertex (413 status)", `413 Request Entity Too Large {"type":"error","error":{"type":"invalid_request_error","message":"Prompt is too long"}}`},
 		{"deepseek", "This model's maximum context length is 131072 tokens. However, you requested 143220 tokens."},
 		{"gemini", "The input token count (1189051) exceeds the maximum number of tokens allowed (1048575)."},
 		{"xai", "This model's maximum prompt length is 131072 but the request contains 148231 tokens."},
@@ -282,6 +283,12 @@ func TestIsProviderContextOverflowErrorRealWorldWordings(t *testing.T) {
 		{"moonshot rate limit", "rate_limit_reached_error: your account reached max request"},
 		{"generic 400", "invalid_request_error: tool_choice is not supported with thinking mode"},
 		{"auth", "401 unauthorized: invalid api key"},
+		// A request over the provider's byte limit is not a context overflow:
+		// compaction folds text but resends every image, so it can never shrink
+		// the body below the limit and only burns summary calls trying.
+		{"anthropic byte limit", `413 Request Entity Too Large {"type":"error","error":{"type":"request_too_large","message":"Request exceeds the maximum allowed number of bytes."}}`},
+		{"anthropic byte limit (vertex)", "Request exceeds the maximum allowed number of bytes. The maximum request size is 32 MB"},
+		{"proxy body limit", "413 Request Entity Too Large: <html><center><h1>413 Request Entity Too Large</h1></center><hr><center>nginx</center></html>"},
 	}
 	for _, test := range notOverflow {
 		if isProviderContextOverflowError(errors.New(test.wording)) {

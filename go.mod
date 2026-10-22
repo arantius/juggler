@@ -20,6 +20,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.23
 	github.com/skyterra/y-crdt v0.0.0-20260605035931-e8e6d95bd5ff
 	github.com/wailsapp/wails/v3 v3.0.0-beta.32
+	golang.org/x/image v0.41.0
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0

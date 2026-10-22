@@ -10,8 +10,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"image"
-	// Register the stdlib decoders so image.DecodeConfig can read dimensions
-	// for png/jpeg/gif. webp has no stdlib decoder, so its dimensions stay 0.
+	// Register the decoders image.DecodeConfig reads dimensions with, and
+	// FitImageForModel decodes with: png/jpeg/gif from the stdlib, webp from
+	// x/image (decode only — nothing here encodes webp).
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -19,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/atomicio"
@@ -103,7 +106,7 @@ func (s *AssetStore) find(convID, sha string) (path, ext string, ok bool) {
 // The write is content-addressed and idempotent: if a file with the same hash
 // already exists, the bytes are by definition identical, so the rewrite is
 // skipped. Width/Height are populated best-effort by decoding image dimensions
-// (png/jpeg/gif via stdlib; webp left 0). Returns an error if the conversation
+// (png/jpeg/gif/webp; any other format left 0). Returns an error if the conversation
 // is unknown to the path provider.
 func (s *AssetStore) Save(convID string, data []byte, mime string) (AssetRef, error) {
 	sum := sha256.Sum256(data)

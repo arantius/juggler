@@ -805,6 +805,19 @@ func isProviderContextOverflowError(err error) bool {
 			return false
 		}
 	}
+	// A request body over Anthropic's byte limit (413 request_too_large,
+	// "Request exceeds the maximum allowed number of bytes") matches "exceeds
+	// the maximum" but is no token overflow. Images are what make a body that
+	// big, and compaction folds text while resending every image, so recovery
+	// would spend summary calls and history without ever getting under the
+	// limit. Leave it a plain error that ends the turn with the provider's own
+	// wording. The HTTP status text ("413 Request Entity Too Large") is not a
+	// marker: Vertex sends a genuine token overflow with that status.
+	for _, byteLimit := range []string{"number of bytes", "request_too_large"} {
+		if strings.Contains(msg, byteLimit) {
+			return false
+		}
+	}
 	for _, signature := range []string{
 		"context_length_exceeded",           // OpenAI error code
 		"context length",                    // OpenAI/DeepSeek/Mistral "maximum context length is N tokens"
