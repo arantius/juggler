@@ -86,26 +86,24 @@ that:
 The last case means the English was reworded: translate the new English, then
 delete the old entry.
 
-To see the result, run Juggler with `--dev`, then choose the language under
-Settings → Appearance → Language. Look for:
+To see the result, choose the language under Settings → Language.
+Look for:
 - **English left on screen:** a message that isn't in your file yet;
 - **clipped or overflowing text:** a layout that needs attention.
 
-The pseudo-locale `en-XA` in the same menu shows every translatable message
-accented and padded. Use it to check that nothing is missed.
+With Juggler run with `--dev`, the same menu also offers the pseudo-locale
+`en-XA`, which shows every translatable message accented and padded. Use it to
+check that nothing is missed.
 
 ## What follows automatically
 
 Adding `<locale>.json` is the whole change. Nothing else needs editing:
 - **The Language menu** lists every language that has a file in `web/i18n`, by
-  its own name (Français, Deutsch).
+  its own name (Français, Deutsch), whatever language the app is in.
 - **Other open windows** switch once they're idle.
 - **The desktop menus and dialogs** follow the chosen language.
 - **The macOS app** declares the language.
 - **The Windows installer** offers it, provided Inno Setup ships that language.
-
-Outside dev mode, the Language row appears only when the `ui` section of
-`settings.json` has `"juggler-language-picker": true`.
 
 ## Extensions
 

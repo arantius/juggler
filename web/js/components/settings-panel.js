@@ -22,6 +22,7 @@ import { ProvidersTab } from './settings/providers-tab.js';
 import { DefaultsTab } from './settings/defaults-tab.js';
 import { ConnectivityTab } from './settings/connectivity-tab.js';
 import { AppearanceTab } from './settings/appearance-tab.js';
+import { LanguageTab } from './settings/language-tab.js';
 import { NotificationsTab } from './settings/notifications-tab.js';
 import { ShortcutsTab } from './settings/shortcuts-tab.js';
 import { LogsTab } from './settings/logs-tab.js';
@@ -134,6 +135,7 @@ class SettingsPanel extends JugglerElement {
       acp: new AcpTab(this),
       skills: new SkillsTab(this),
       appearance: new AppearanceTab(this),
+      language: new LanguageTab(this),
       notifications: new NotificationsTab(this),
       shortcuts: new ShortcutsTab(this),
       logs: new LogsTab(this),
@@ -197,6 +199,8 @@ class SettingsPanel extends JugglerElement {
                 <button class="close-button" id="settings-close" title="${escapeHtml(t('Close'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
                 <nav class="settings-tabs">
                     <div class="settings-tabs-scroll">
+                        <!-- First, and marked by its icon: whoever needs this tab may not read the language the rest are in. -->
+                        <button class="settings-tab settings-tab-language" data-tab="language"><span class="icon-language" aria-hidden="true"></span><span>${escapeHtml(t('Language'))}</span></button>
                         <button class="settings-tab active" data-tab="providers">${escapeHtml(t('Providers'))}</button>
                         <button class="settings-tab" data-tab="defaults">${escapeHtml(t('Defaults'))}</button>
                         <button class="settings-tab" data-tab="connectivity">${escapeHtml(t('Connectivity'))}</button>
@@ -295,6 +299,10 @@ class SettingsPanel extends JugglerElement {
                         </div>
                         <div class="settings-section-heading">${escapeHtml(t('Proxy Settings'))}</div>
                         <div class="settings-form" id="proxy-form"></div>
+                    </section>
+
+                    <section class="settings-tab-content" id="tab-language">
+                        <div class="settings-form" id="language-form"></div>
                     </section>
 
                     <section class="settings-tab-content" id="tab-appearance">

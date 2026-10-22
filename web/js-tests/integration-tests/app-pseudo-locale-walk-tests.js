@@ -33,7 +33,7 @@ import { pseudoLocalize } from '../../sdk/lib/i18n.js';
 
 /** Every Settings tab, in strip order (settings-panel.js). */
 const SETTINGS_TABS = [
-  'providers', 'defaults', 'connectivity', 'extensions', 'skills', 'mcp', 'acp',
+  'language', 'providers', 'defaults', 'connectivity', 'extensions', 'skills', 'mcp', 'acp',
   'appearance', 'notifications', 'shortcuts', 'logs', 'updates',
 ];
 

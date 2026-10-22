@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Simplified Chinese translation; choose it under Settings → Language
+- Settings has a Language tab, first and marked 文A, listing each language in itself
 - Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch
 - Windows and Linux: the “…” menu has app commands and Exit, which restores all windows
 - Quitting, or signing out of Windows, reopens every window next launch, not just some

@@ -389,6 +389,7 @@ import { runTests as runWireProtocolParityTests } from '../unit-tests/wire-proto
 import { runTests as runFormatTimeAgoTests } from '../unit-tests/format-time-ago-test.js';
 import { runTests as runFormatUnitsTests } from '../unit-tests/format-units-test.js';
 import { runTests as runAppearanceTabTests } from '../unit-tests/appearance-tab-test.js';
+import { runTests as runLanguageTabTests } from '../unit-tests/language-tab-test.js';
 import { runTests as runUILocaleReloaderTests } from '../unit-tests/ui-locale-reloader-test.js';
 import { runTests as runNotificationsTabTests } from '../unit-tests/notifications-tab-test.js';
 import { runTests as runSettingsPanelTests } from '../unit-tests/settings-panel-test.js';
@@ -920,6 +921,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:format-time-ago', run: runFormatTimeAgoTests },
   { name: 'unit:format-units', run: runFormatUnitsTests },
   { name: 'unit:appearance-tab', run: runAppearanceTabTests },
+  { name: 'unit:language-tab', run: runLanguageTabTests },
   { name: 'unit:ui-locale-reloader', run: runUILocaleReloaderTests },
   { name: 'unit:notifications-tab', run: runNotificationsTabTests },
   { name: 'unit:settings-panel', run: runSettingsPanelTests },

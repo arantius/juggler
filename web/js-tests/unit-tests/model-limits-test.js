@@ -25,6 +25,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import { isolateFocus } from '../utilities/isolate-focus.js';
+import { setLocale } from '../../sdk/lib/i18n.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 
@@ -155,10 +156,15 @@ export async function runTests(_ctx) {
    * The tab is driven directly rather than through a mounted settings-panel:
    * the panel's load fans out five fetches and waits on the providers cache,
    * none of which this behaviour depends on.
+   *
+   * The tab renders under English: with no UI locale chosen, numbers format
+   * for the runtime's default locale, and a C/POSIX runner groups nothing
+   * ("32768" where these cases look for "32,768").
    * @param {{reject?: boolean, provider?: any}} opts - `provider` replaces the fixture.
    * @param {(host: HTMLElement, backend: ReturnType<typeof installFetch>, tab: any) => Promise<void>} body
    */
   const withTab = async (opts, body) => {
+    const previousLocale = setLocale('en');
     const backend = installFetch(opts);
     const host = document.createElement('div');
     const container = document.createElement('div');
@@ -174,6 +180,7 @@ export async function runTests(_ctx) {
     } finally {
       host.remove();
       backend.restore();
+      setLocale(previousLocale);
     }
   };
 

@@ -31,13 +31,6 @@ import { setLocale, markForTranslation, PSEUDO_LOCALE } from '../../sdk/lib/i18n
 import { isDesktopWindow, postWindowControl } from '../../sdk/lib/window-control.js';
 
 /**
- * User preference (settings.json `ui`) that shows the Language row in
- * Settings → Appearance outside dev mode. The row stays hidden otherwise until
- * a language is ready to ship.
- */
-export const LANGUAGE_PICKER_PREF = 'juggler-language-picker';
-
-/**
  * One entry in the Language menu. An entry with `lang` is a language named in
  * itself: its label is shown as it is and marked as that language. One without
  * has an English source label, translated where the menu is rendered.
@@ -45,13 +38,14 @@ export const LANGUAGE_PICKER_PREF = 'juggler-language-picker';
  */
 
 /**
- * The entries the menu always opens with.
- * @type {ReadonlyArray<UILocaleChoice>}
+ * The entry the menu always opens with. English is named in English like every
+ * other language is named in itself, so someone who reads only English finds it
+ * in a menu drawn in any other language. It also stands for the default (no
+ * language chosen), which is English: see {@link uiLocaleMenuValue}.
+ * @type {UILocaleChoice}
  */
-const ENGLISH_CHOICES = Object.freeze([
-  { value: '', label: markForTranslation('Default (English)') },
-  { value: 'en', label: markForTranslation('English') },
-]);
+// i18n-ignore: a language's name in that language, which no catalogue translates
+const ENGLISH_CHOICE = Object.freeze({ value: 'en', label: 'English', lang: 'en' });
 
 /**
  * The pseudo-locale's entry, offered in dev mode only.
@@ -76,8 +70,8 @@ export function localeEndonym(tag) {
 }
 
 /**
- * The Language menu, in order: the default, English, each available language
- * named in itself, then the pseudo-locale when asked for. The page's own
+ * The Language menu, in order: English, each available language named in
+ * itself, then the pseudo-locale when asked for. The page's own
  * language joins the end when it is none of those, so the menu can show what
  * is in use.
  * @param {ReadonlyArray<string>} available - The server's languages ({@link fetchUILocales}).
@@ -87,7 +81,7 @@ export function localeEndonym(tag) {
  */
 export function uiLocaleChoices(available, { pseudo = false, current = '' } = {}) {
   /** @type {UILocaleChoice[]} */
-  const choices = [...ENGLISH_CHOICES];
+  const choices = [ENGLISH_CHOICE];
   for (const tag of available) {
     if (!choices.some((c) => c.value === tag)) choices.push({ value: tag, label: localeEndonym(tag), lang: tag });
   }
@@ -96,6 +90,16 @@ export function uiLocaleChoices(available, { pseudo = false, current = '' } = {}
     choices.push({ value: current, label: localeEndonym(current), lang: current });
   }
   return choices;
+}
+
+/**
+ * The menu entry that shows a page's language: the language itself, or English
+ * for a page with none chosen, since that is what such a page is shown in.
+ * @param {string} current - The page's language ({@link pageUILocale}); '' for none.
+ * @returns {string} The entry's value.
+ */
+export function uiLocaleMenuValue(current) {
+  return current || ENGLISH_CHOICE.value;
 }
 
 /**

@@ -569,6 +569,13 @@ settings-panel .settings-tab:hover {
     color: var(--text-primary);
 }
 
+/* The Language tab leads with its icon, so it can be found without reading. */
+settings-panel .settings-tab-language {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 settings-panel .settings-tab.active {
     color: var(--accent-blue);
     border-bottom-color: var(--accent-blue);
