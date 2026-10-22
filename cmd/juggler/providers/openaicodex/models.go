@@ -17,11 +17,13 @@ const (
 	//
 	// The live path deliberately prefers the larger `max_context_window` (see
 	// listModels), and this map deliberately does not follow it. These numbers
-	// are used when the catalog is unreachable or the user is signed out, so
-	// they are guesses about a backend we could not reach — and the two
-	// directions of error are not equal. Guessing low compacts a conversation
-	// earlier than it needed to be; guessing high walks it into a mid-turn
-	// rejection with the whole prompt already assembled. The ceilings also vary
+	// are used when the catalog is unreachable, before it has ever answered, or
+	// while the user is signed out, so they are guesses about a backend we could
+	// not reach, and are published as assumed (the provider registers with
+	// StaticWindowsAssumed). An assumed window on this provider never triggers
+	// compaction by itself — the backend's rejection does — so the number mostly
+	// decides how full the context meter reads, and a low guess there errs
+	// toward warning early rather than late. The ceilings also vary
 	// per model in ways only the catalog knows, so a static one would be wrong
 	// per-slug rather than merely conservative.
 	catalogContextWindow = 272000

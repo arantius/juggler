@@ -32,6 +32,12 @@ func TestRegisterProviderInfo(t *testing.T) {
 	if info.ConfigKeyName != "" {
 		t.Fatalf("ConfigKeyName = %q, want empty for OAuth provider", info.ConfigKeyName)
 	}
+	// With the catalog unreachable its static windows are stand-ins, and the
+	// backend rejects an over-long request ("exceeds the context window of this
+	// model") rather than truncating it — so it can judge a guessed window.
+	if !info.StaticWindowsAssumed || !info.RejectsContextOverflow {
+		t.Fatalf("StaticWindowsAssumed = %v, RejectsContextOverflow = %v; want both", info.StaticWindowsAssumed, info.RejectsContextOverflow)
+	}
 }
 
 func TestCodexThinkingSpecHasNoColdCacheFallback(t *testing.T) {
@@ -237,6 +243,9 @@ func TestListModelsParsesCodexCatalog(t *testing.T) {
 			}
 			if model.ContextWindow != catalogContextWindow {
 				t.Fatalf("static fallback %s context window = %d, want %d", id, model.ContextWindow, catalogContextWindow)
+			}
+			if !model.WindowAssumed {
+				t.Fatalf("static fallback %s window is not marked assumed: %+v", id, model)
 			}
 		}
 	}

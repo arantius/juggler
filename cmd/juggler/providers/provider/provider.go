@@ -884,6 +884,21 @@ type ProviderInfo struct {
 	// CLI subprocess or local daemon). Consumers should treat empty/nil as
 	// "models discovered elsewhere", not as "no models".
 	ModelContextWindows map[string]int
+	// StaticWindowsAssumed marks ModelContextWindows as stand-ins for a live
+	// catalogue rather than documented figures: what the provider is assumed to
+	// allow while its catalogue is unreachable or the user is signed out. A
+	// window taken from them is published and resolved as assumed
+	// (ModelInfo.WindowAssumed), which is what keeps a guess from being treated
+	// as the backend's word.
+	StaticWindowsAssumed bool
+	// RejectsContextOverflow marks a provider that answers an over-long request
+	// with an error admission recognises as a context overflow, rather than
+	// silently dropping what does not fit. Such a provider can be left to judge a
+	// request against a window that is only assumed, so automatic compaction
+	// waits for its rejection instead of folding history against the guess. Leave
+	// it unset for a server that truncates (Ollama does): for those the assumed
+	// window is the only protection there is.
+	RejectsContextOverflow bool
 	// ResolveModelCapabilities optionally supplies static admission capabilities
 	// that cannot be represented by ModelContextWindows alone. The bool is false
 	// for unknown model ids so custom aliases continue to fail closed.

@@ -6,6 +6,7 @@ package worker
 
 import (
 	"errors"
+	"fmt"
 
 	"juggler/cmd/juggler/providers/provider"
 )
@@ -15,8 +16,13 @@ import (
 //   - The event tape (JUGGLER_TRACE) gets structured per-pass and per-call
 //     records plus orchestrator start/outcome markers — the test-assertable,
 //     cross-correlatable trail.
-//   - The conversation log gets one Info line per outcome for normal
-//     (non-trace) forensics.
+//   - The conversation log gets an Info line when an operation starts, and one
+//     per outcome, for normal (non-trace) forensics. A successful fold or
+//     shrink writes its own outcome line where it lands (compaction_trigger.go);
+//     recordCompactionOutcome writes the line for one that was cancelled or
+//     failed, which would otherwise spend its hidden calls without a trace. The
+//     start line matters as much: a compaction can run for minutes before any
+//     outcome, and the log is where a user looks to learn why it is running.
 //   - Durable state carries the accounting: the compaction-summary item's
 //     Data, the folded thread's compactionAccounting map, and the terminal
 //     error item's data on failure — so success, failure, and cancellation
@@ -59,16 +65,19 @@ func (r *run) compactionTapeHooks(kind string) compactionHooks {
 	}
 }
 
-// recordCompactionStart tapes an orchestrator's entry with its budget frame.
+// recordCompactionStart tapes and logs an orchestrator's entry with its budget
+// frame.
 func (r *run) recordCompactionStart(kind string, window, reserve, envelope int64) {
 	r.tape.Record("compaction-start", map[string]any{
 		"kind": kind, "thread": r.t.thread.itemID, "window": window, "reserve": reserve, "envelope": envelope,
 	})
+	r.log.Info("[compaction] started (kind=%s thread=%q window=%d reserve=%d envelope=%d)",
+		kind, r.t.thread.itemID, window, reserve, envelope)
 }
 
-// recordCompactionOutcome tapes and logs one completed (or aborted) operation
-// with its full accounting. outcome is "fold", "shrink", "shrink-only",
-// "result", "error", or "cancelled".
+// recordCompactionOutcome tapes one completed (or aborted) operation with its
+// full accounting, and logs it when it was cancelled or failed. outcome is
+// "fold", "shrink", "shrink-only", "result", "error", or "cancelled".
 func (r *run) recordCompactionOutcome(kind, outcome string, result CompactionResult, extra map[string]any) {
 	summary := map[string]any{
 		"kind": kind, "thread": r.t.thread.itemID, "outcome": outcome,
@@ -81,6 +90,15 @@ func (r *run) recordCompactionOutcome(kind, outcome string, result CompactionRes
 		summary[k] = v
 	}
 	r.tape.Record("compaction-outcome", summary)
+	if outcome == "cancelled" || outcome == "error" {
+		detail := ""
+		if len(extra) > 0 {
+			detail = fmt.Sprintf(" %v", extra)
+		}
+		r.log.Info("[compaction] %s (kind=%s thread=%q passes=%d calls=%d input=%d output=%d cached=%d in %dms)%s",
+			outcome, kind, r.t.thread.itemID, result.Passes, result.Calls,
+			result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.CachedTokens, result.DurationMs, detail)
+	}
 }
 
 // usageMap renders hidden-call usage as the nested map shape used in durable

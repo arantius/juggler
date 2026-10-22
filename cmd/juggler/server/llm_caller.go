@@ -79,11 +79,13 @@ func appendStreamedBlock(blocks []provider.ContentBlock, chunk provider.StreamCh
 func (s *Server) createWindowResolver() worker.WindowResolverFunc {
 	return func(mc worker.ModelConfig) worker.ContextWindowInfo {
 		caps, provenance := s.resolveModelLimits(mc.Provider, mc.Model)
+		info, _ := provider.GetProviderInfo(mc.Provider)
 		return worker.ContextWindowInfo{
-			WindowTokens:   int(caps.ContextWindowTokens),
-			ReserveTokens:  int(caps.MaxOutputTokens),
-			Assumed:        provenance.windowAssumed,
-			ReserveDerived: provenance.outputDerived,
+			WindowTokens:     int(caps.ContextWindowTokens),
+			ReserveTokens:    int(caps.MaxOutputTokens),
+			Assumed:          provenance.windowAssumed,
+			OverflowRejected: info.RejectsContextOverflow,
+			ReserveDerived:   provenance.outputDerived,
 			// The most a one-off "retry with a larger Max output" may ask for.
 			OutputRaiseCeiling: int(provenance.raiseCeiling),
 		}

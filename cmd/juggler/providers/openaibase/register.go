@@ -56,6 +56,12 @@ type Descriptor struct {
 	// May be nil for providers whose model list is discovered at runtime. When
 	// nil, Register derives it from ContextWindowCaps.Overrides.
 	ContextWindows map[string]int
+	// StaticWindowsAssumed and RejectsContextOverflow are surfaced on the
+	// ProviderInfo fields of the same names: ContextWindows are stand-ins for a
+	// live catalogue, and the backend rejects an over-long request rather than
+	// truncating it.
+	StaticWindowsAssumed   bool
+	RejectsContextOverflow bool
 
 	// ContextWindowCaps / MaxOutputCaps supply per-model context-window and
 	// max-output-tokens lookups as data (default + exact-id overrides). When
@@ -149,22 +155,24 @@ func Register(d Descriptor) {
 	}
 
 	info := provider.ProviderInfo{
-		Name:                d.Name,
-		DisplayName:         d.DisplayName,
-		Description:         d.Description,
-		AuthType:            d.AuthType,
-		AuthSource:          d.AuthSource,
-		SignInMethod:        d.SignInMethod,
-		ConfigKeyName:       d.ConfigKeyName,
-		EnvVarName:          d.EnvVarName,
-		APIKeyURL:           d.APIKeyURL,
-		AutoDetect:          d.AutoDetect,
-		APIKeyOptional:      d.APIKeyOptional,
-		ModelContextWindows: d.ContextWindows,
-		CheapModel:          d.CheapModel,
-		DefaultModels:       d.DefaultModels,
-		FreeToRun:           d.FreeToRun,
-		Successor:           d.Successor,
+		Name:                   d.Name,
+		DisplayName:            d.DisplayName,
+		Description:            d.Description,
+		AuthType:               d.AuthType,
+		AuthSource:             d.AuthSource,
+		SignInMethod:           d.SignInMethod,
+		ConfigKeyName:          d.ConfigKeyName,
+		EnvVarName:             d.EnvVarName,
+		APIKeyURL:              d.APIKeyURL,
+		AutoDetect:             d.AutoDetect,
+		APIKeyOptional:         d.APIKeyOptional,
+		ModelContextWindows:    d.ContextWindows,
+		StaticWindowsAssumed:   d.StaticWindowsAssumed,
+		RejectsContextOverflow: d.RejectsContextOverflow,
+		CheapModel:             d.CheapModel,
+		DefaultModels:          d.DefaultModels,
+		FreeToRun:              d.FreeToRun,
+		Successor:              d.Successor,
 		// A provider that does not opt into forced tool choice cannot reliably
 		// honor a named tool_choice, so the worker runs those turns unforced
 		// rather than send a choice the upstream rejects.

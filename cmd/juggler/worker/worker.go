@@ -566,15 +566,8 @@ func (w *ConversationWorker) pushStateToEngine() {
 // zero value when no resolver is wired (tests) or the model is unknown; callers
 // read a non-positive window as "unknown".
 func (r *run) resolveContextWindow() ContextWindowInfo {
-	resolve := r.deps().windowResolver
-	if resolve == nil {
-		return ContextWindowInfo{}
-	}
-	mc := r.resolveModelConfig()
-	if mc == nil {
-		return ContextWindowInfo{}
-	}
-	return resolve(*mc)
+	info, _, _ := r.windowInfo(nil)
+	return info
 }
 
 // autoCompactEnabled reports whether automatic compaction is enabled. A nil gate

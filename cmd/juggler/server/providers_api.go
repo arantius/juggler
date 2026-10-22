@@ -189,6 +189,30 @@ func withDerivedOutputBudget(model ModelWithContext, providerDerived bool) Model
 	return model
 }
 
+// publishedModels turns one provider's model listing into its published
+// entries, with the user's limits and hidden models applied.
+func publishedModels(pInfo provider.ProviderInfo, modelInfos []provider.ModelInfo, settings core.GlobalSettings) []ModelWithContext {
+	var models []ModelWithContext
+	for _, modelInfo := range modelInfos {
+		models = append(models, withDerivedOutputBudget(applyModelLimits(ModelWithContext{
+			ID:                   modelInfo.ID,
+			DisplayName:          modelInfo.DisplayName,
+			ContextWindow:        modelInfo.ContextWindow,
+			MaxOutputTokens:      modelInfo.MaxOutputTokens,
+			FromAPI:              modelInfo.FromAPI,
+			WindowAssumed:        modelInfo.WindowAssumed,
+			InputModalities:      modelInfo.InputModalities,
+			ThinkingLevels:       modelInfo.ThinkingLevels,
+			DefaultThinkingLevel: modelInfo.DefaultThinkingLevel,
+			ServiceTiers:         modelInfo.ServiceTiers,
+			DefaultServiceTier:   modelInfo.DefaultServiceTier,
+			Hidden:               settings.IsModelHidden(pInfo.Name, modelInfo.ID),
+			StreamsLiveUsage:     pInfo.StreamsLiveUsage,
+		}, settings.ModelLimitsFor(pInfo.Name, modelInfo.ID)), modelInfo.MaxOutputDerived))
+	}
+	return models
+}
+
 func modelContextFallbacks(pInfo provider.ProviderInfo, settings core.GlobalSettings) []ModelWithContext {
 	if len(pInfo.ModelContextWindows) == 0 {
 		return nil
@@ -204,6 +228,7 @@ func modelContextFallbacks(pInfo provider.ProviderInfo, settings core.GlobalSett
 			ID:               id,
 			ContextWindow:    pInfo.ModelContextWindows[id],
 			FromAPI:          false,
+			WindowAssumed:    pInfo.StaticWindowsAssumed,
 			Hidden:           settings.IsModelHidden(pInfo.Name, id),
 			StreamsLiveUsage: pInfo.StreamsLiveUsage,
 		}, settings.ModelLimitsFor(pInfo.Name, id)), false))
@@ -307,23 +332,8 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 			if available || readyGated {
 				modelInfos, err := s.fetchModels(ctx, pInfo.Name, cred)
 				if err == nil {
-					for _, modelInfo := range modelInfos {
-						modelsWithContext = append(modelsWithContext, withDerivedOutputBudget(applyModelLimits(ModelWithContext{
-							ID:                   modelInfo.ID,
-							DisplayName:          modelInfo.DisplayName,
-							ContextWindow:        modelInfo.ContextWindow,
-							MaxOutputTokens:      modelInfo.MaxOutputTokens,
-							FromAPI:              modelInfo.FromAPI,
-							WindowAssumed:        modelInfo.WindowAssumed,
-							InputModalities:      modelInfo.InputModalities,
-							ThinkingLevels:       modelInfo.ThinkingLevels,
-							DefaultThinkingLevel: modelInfo.DefaultThinkingLevel,
-							ServiceTiers:         modelInfo.ServiceTiers,
-							DefaultServiceTier:   modelInfo.DefaultServiceTier,
-							Hidden:               settings.IsModelHidden(pInfo.Name, modelInfo.ID),
-							StreamsLiveUsage:     pInfo.StreamsLiveUsage,
-						}, settings.ModelLimitsFor(pInfo.Name, modelInfo.ID)), modelInfo.MaxOutputDerived))
-					}
+					s.lastListedModels.Store(pInfo.Name, modelInfos)
+					modelsWithContext = publishedModels(pInfo, modelInfos, settings)
 				} else {
 					available = false
 					jlog.Error("computeProviders: list models from %s failed: %v", pInfo.Name, err)
@@ -333,7 +343,13 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 					if !readyGated {
 						setAuthHint(humanizeModelListError(pInfo.DisplayName, err))
 					}
-					modelsWithContext = modelContextFallbacks(pInfo, settings)
+					// The last listing that succeeded still says more about each
+					// model than the static map does (see lastListedModels).
+					if last, ok := s.lastListedModels.Load(pInfo.Name); ok {
+						modelsWithContext = publishedModels(pInfo, last.([]provider.ModelInfo), settings)
+					} else {
+						modelsWithContext = modelContextFallbacks(pInfo, settings)
+					}
 				}
 			} else if authType == provider.AuthTypeOAuthBearer && !disabled {
 				// OAuth providers can be discoverable in the UI even while their
@@ -890,6 +906,7 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 		if capabilities.ContextWindowTokens <= 0 {
 			if contextWindow, found := info.ModelContextWindows[model]; found && contextWindow > 0 {
 				capabilities.ContextWindowTokens = int64(contextWindow)
+				assumed = info.StaticWindowsAssumed
 			}
 		}
 	}

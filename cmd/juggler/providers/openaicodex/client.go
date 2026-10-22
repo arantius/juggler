@@ -38,14 +38,20 @@ const (
 // uses the local Codex app/CLI's ChatGPT OAuth token, not a Platform API key.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
-		Name:            "openaicodex",
-		DisplayName:     "OpenAI Codex (ChatGPT plan)",
-		Description:     msg.New("Uses your local ChatGPT app or Codex CLI login, so any ChatGPT plan including Free can run Codex here without an OpenAI Platform API key."),
-		AuthType:        provider.AuthTypeOAuthBearer,
-		AuthSource:      "codex_cli",
-		BaseURL:         baseURL,
-		ContextWindows:  ModelContextWindows,
-		DisplayProvider: "OpenAI Codex",
+		Name:           "openaicodex",
+		DisplayName:    "OpenAI Codex (ChatGPT plan)",
+		Description:    msg.New("Uses your local ChatGPT app or Codex CLI login, so any ChatGPT plan including Free can run Codex here without an OpenAI Platform API key."),
+		AuthType:       provider.AuthTypeOAuthBearer,
+		AuthSource:     "codex_cli",
+		BaseURL:        baseURL,
+		ContextWindows: ModelContextWindows,
+		// The static windows are catalogContextWindow guesses (see models.go), and
+		// the backend answers an over-long request with "exceeds the context
+		// window of this model" — so a guessed window is left for it to judge
+		// rather than compacted against.
+		StaticWindowsAssumed:   true,
+		RejectsContextOverflow: true,
+		DisplayProvider:        "OpenAI Codex",
 		// The reason to name one at all: this provider is second in
 		// defaultProviderPreference, so a fresh install that signs in to Codex
 		// and nothing else lands here. The plan catalog has no mini, so this is
@@ -312,13 +318,15 @@ func withStaticFallbackModels(infos []provider.ModelInfo) []provider.ModelInfo {
 		// These compatibility entries contribute only static admission limits. The
 		// ChatGPT-plan /models response is the sole authority for reasoning levels
 		// and serving classes, so a model absent from that response advertises
-		// neither a thinking control nor a speed control.
+		// neither a thinking control nor a speed control. Their windows are the
+		// same stand-ins, so they are assumed.
 		infos = append(infos, provider.ModelInfo{
 			ID:              id,
 			DisplayName:     utils.ModelDisplayName(id) + " (ChatGPT plan)",
 			ContextWindow:   ModelContextWindows[id],
 			MaxOutputTokens: DefaultMaxOutputTokens,
 			FromAPI:         false,
+			WindowAssumed:   true,
 		})
 	}
 	return infos

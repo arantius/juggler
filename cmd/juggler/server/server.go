@@ -146,6 +146,14 @@ type providerRefresh struct {
 	// rather than the still-empty cache. providersReadyOnce guards the close.
 	providersReady     chan struct{}
 	providersReadyOnce sync.Once
+	// lastListedModels holds, per provider name, the []provider.ModelInfo of
+	// its last model listing that succeeded. A listing that fails says nothing
+	// new about a model's limits, so computeProviders republishes these rather
+	// than replace reported windows with the provider's static stand-ins — one
+	// timed-out catalog request must not shrink a window to a third and compact
+	// conversations against it. Starts empty; written from the per-provider
+	// goroutines of one computation.
+	lastListedModels sync.Map
 }
 
 // wsFleet is the WebSocket side of the server: how a connection is upgraded,

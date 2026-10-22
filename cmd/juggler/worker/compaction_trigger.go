@@ -22,7 +22,10 @@
 // the hard window — the character estimator overcounts real transcripts by 2x
 // or more, so an unanchored soft-ceiling advisory earns one guard-bypassed
 // dispatch instead of a fold, and the provider's answer settles it: a billed
-// count that re-anchors admission, or a rejection that re-enters here.
+// count that re-anchors admission, or a rejection that re-enters here. No
+// advisory counts against an assumed window on a provider that rejects
+// overflow (ContextWindowInfo.OverflowRejected): the guess is no ceiling, and
+// the provider's rejection is the trigger.
 //
 // The ladder handleContextOverflow runs, in order: hand a folded /compact thread
 // to its summarizer; honour the off switch; shrink an oversized trailing tool
@@ -292,6 +295,19 @@ func (r *run) handleContextOverflow(o contextOverflow, recovery *compactionAttem
 		return true, nil
 	}
 
+	// A measured count is only as good as the window it is measured against.
+	// When that window is a guess (a stand-in for a catalogue that could not be
+	// reached) on a provider that rejects what it cannot hold, crossing the
+	// guess's ceiling proves nothing, and folding on it summarizes history the
+	// model had room for — on whatever the model costs. Let the provider judge:
+	// its rejection re-enters here as an authoritative overflow and folds. A
+	// provider that truncates instead is no judge, so for it the guess stands.
+	window, _, _ := r.windowInfo(modelConfig)
+	if o.advisory && window.Assumed && window.OverflowRejected {
+		r.logContextGuardDecision("window is assumed and the provider rejects overflow; dispatching bypassed for its verdict", limit)
+		return true, nil
+	}
+
 	// Ordinary root / subthread turn: summarize or shrink durable history, then
 	// rebuild and retry only when its objective shape changed.
 	if !recovery.canAttempt() {
@@ -299,6 +315,16 @@ func (r *run) handleContextOverflow(o contextOverflow, recovery *compactionAttem
 			"recovery attempt bound reached; dispatching one fallback",
 			fmt.Sprintf("stopped after %d progressive attempts", recovery.attempts))
 	}
+
+	// Compaction spends hidden calls on the model and rewrites history, so it is
+	// always worth a line saying what triggered it — never deduplicated like the
+	// guard decisions above.
+	trigger := "provider rejection"
+	if o.advisory {
+		trigger = "admission ceiling"
+	}
+	r.log.Info("[context guard] compacting on %s (%s=%d reserve=%d window=%d assumed=%v)",
+		trigger, limit.InputBasis(), limit.EstimatedInputTokens, limit.OutputReserveTokens, limit.ContextWindowTokens, window.Assumed)
 
 	// Said before recovery runs, so a recovery that then fails still leaves the
 	// reason it ran so early on screen. Appending here cannot read as recovery
@@ -700,6 +726,23 @@ func (r *run) insertCompactionNotice(foldedItems int) {
 	r.appendTargetMessage(notice)
 }
 
+// windowInfo resolves mc's context window through the injected resolver,
+// returning the model it resolved (mc, or the conversation's effective model
+// when mc is nil). It reports false, with the zero value, when there is no
+// resolver or no model to resolve.
+func (r *run) windowInfo(mc *ModelConfig) (ContextWindowInfo, *ModelConfig, bool) {
+	resolve := r.deps().windowResolver
+	if resolve == nil {
+		return ContextWindowInfo{}, nil, false
+	}
+	if mc == nil {
+		if mc = r.resolveModelConfig(); mc == nil {
+			return ContextWindowInfo{}, nil, false
+		}
+	}
+	return resolve(*mc), mc, true
+}
+
 // assumedWindowNoticeData is the Data payload of a notice about an assumed
 // context window: where the window is corrected, and which window it was, so
 // the same guess is reported once per conversation rather than at every fold.
@@ -728,17 +771,8 @@ type assumedWindowNoticeData struct {
 // not assumed, is unknown, or this conversation already carries a notice for
 // the same model and window.
 func (r *run) assumedWindowNotice(mc *ModelConfig) (ConversationItem, bool) {
-	resolve := r.deps().windowResolver
-	if resolve == nil {
-		return ConversationItem{}, false
-	}
-	if mc == nil {
-		if mc = r.resolveModelConfig(); mc == nil {
-			return ConversationItem{}, false
-		}
-	}
-	info := resolve(*mc)
-	if !info.Assumed || info.WindowTokens <= 0 {
+	info, mc, ok := r.windowInfo(mc)
+	if !ok || !info.Assumed || info.WindowTokens <= 0 {
 		return ConversationItem{}, false
 	}
 

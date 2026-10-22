@@ -175,6 +175,11 @@ type ContextWindowInfo struct {
 	// user has not set one. Compaction says so, because a guessed window
 	// decides both when a conversation folds and how long a reply may be.
 	Assumed bool
+	// OverflowRejected is true when the model's provider rejects an over-long
+	// request rather than truncating it (provider.ProviderInfo's
+	// RejectsContextOverflow). With Assumed, it means the provider rather than
+	// the guess decides when the conversation must be compacted.
+	OverflowRejected bool
 	// ReserveDerived is true when ReserveTokens is Juggler's default derived
 	// from the window, because neither the provider nor the user stated a
 	// usable output limit. The truncation notice says so, since that is the one
