@@ -76,10 +76,19 @@ export default class FindController {
   #revealed = false;
   /** @type {boolean} Whether the CSS Custom Highlight API is available. */
   #supported = false;
+  /** @type {any} The full-set Highlight, created once and mutated in place. */
+  #hlAll = null;
+  /** @type {any} The active-match Highlight, created once and mutated in place. */
+  #hlCurrent = null;
 
   constructor() {
     this.#supported =
       typeof Highlight !== 'undefined' && typeof CSS !== 'undefined' && !!CSS.highlights;
+    if (this.#supported) {
+      this.#hlAll = new Highlight();
+      this.#hlCurrent = new Highlight();
+      this.#hlCurrent.priority = 1;
+    }
   }
 
   /** @returns {number} Total match count. */
@@ -177,10 +186,8 @@ export default class FindController {
     this.#matches = [];
     this.#index = 0;
     this.#revealed = false;
-    if (this.#supported) {
-      this.#registry.delete(HL_ALL);
-      this.#registry.delete(HL_CURRENT);
-    }
+    this.#paintAll();
+    this.#paintCurrent();
   }
 
   // ---- internals ---------------------------------------------------------
@@ -359,34 +366,45 @@ export default class FindController {
   }
 
   /**
-   * Register (or clear) the full-set highlight. No-op when the Highlight API is
+   * Refill `hl` with `ranges` in place, and make sure it is the Highlight
+   * registered under `name`.
+   *
+   * The Highlight is never swapped for a new one: WebKit repaints the ranges a
+   * Highlight's own `clear()`/`add()` touch, but re-setting a registered name to
+   * a different Highlight repaints nothing, so the previous query's ranges stay
+   * on screen — typing "co" then "cor" left every "co" painted. `set` is only
+   * called when the name isn't already ours (first paint, or another
+   * controller took it), which WebKit does repaint.
+   * @param {string} name - The registry name.
+   * @param {any} hl - This controller's Highlight for that name.
+   * @param {Range[]} ranges - The ranges to paint; empty paints nothing.
+   * @returns {void}
+   */
+  #paint(name, hl, ranges) {
+    hl.clear();
+    for (const r of ranges) hl.add(r);
+    if (this.#registry.get(name) !== hl) this.#registry.set(name, hl);
+  }
+
+  /**
+   * Repaint the full-set highlight. No-op when the Highlight API is
    * unavailable — matching and scrolling still work, only the paint is skipped.
    * @returns {void}
    */
   #paintAll() {
     if (!this.#supported) return;
-    if (this.#matches.length) {
-      this.#registry.set(HL_ALL, new Highlight(...this.#matches));
-    } else {
-      this.#registry.delete(HL_ALL);
-    }
+    this.#paint(HL_ALL, this.#hlAll, this.#matches);
   }
 
   /**
-   * Register (or clear) the single active-match highlight, given a higher paint
+   * Repaint the single active-match highlight, which carries a higher paint
    * priority so it wins over the overlapping full-set highlight.
    * @returns {void}
    */
   #paintCurrent() {
     if (!this.#supported) return;
     const cur = this.#matches[this.#index];
-    if (cur) {
-      const hi = new Highlight(cur);
-      hi.priority = 1;
-      this.#registry.set(HL_CURRENT, hi);
-    } else {
-      this.#registry.delete(HL_CURRENT);
-    }
+    this.#paint(HL_CURRENT, this.#hlCurrent, cur ? [cur] : []);
   }
 
   /**

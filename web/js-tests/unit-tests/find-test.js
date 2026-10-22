@@ -29,9 +29,10 @@
  * merely clipped is — and the reveal tests assert on real layout.
  *
  * The CSS Custom Highlight paint is feature-detected and may be absent in the
- * headless engine, so nothing here asserts on `CSS.highlights` — only on
- * `total`/`current`, the counter text, the DOM, and (in the reveal section)
- * measured rects. All fixtures attach to `document.body` and are torn down (and
+ * headless engine, so only one test touches `CSS.highlights` (the re-use of
+ * one registered Highlight per name, skipped where the API is absent); the rest
+ * assert on `total`/`current`, the counter text, the DOM, and (in the reveal
+ * section) measured rects. All fixtures attach to `document.body` and are torn down (and
  * the bar closed) in `finally` blocks so no state leaks into sibling suites.
  * @module unit-tests/find-test
  */
@@ -361,6 +362,33 @@ export async function runTests(_ctx) {
       const after = fc.refresh().total;
       assert(after === before + 1, `refresh should add one match (before ${before}, after ${after})`);
     } finally {
+      root.remove();
+    }
+  });
+
+  await run('engine: a narrowed query repaints through the same registered Highlight', () => {
+    // WebKit does not repaint when a registry name is re-set to a NEW Highlight:
+    // typing "co" then "cor" left every "co" still painted. Each search must
+    // mutate the one Highlight already registered, so its old ranges are
+    // invalidated as they are removed.
+    if (typeof Highlight === 'undefined' || !CSS.highlights) return;
+    const registry = /** @type {any} */ (CSS.highlights);
+    const root = attach('core cord copy cot');
+    const fc = new FindController();
+    try {
+      fc.setRoot(root);
+      fc.search('co');
+      const all = registry.get('find-match');
+      const current = registry.get('find-match-current');
+      assert(all && all.size === 4, `"co" should paint 4 ranges, got ${all && all.size}`);
+      fc.search('cor');
+      assert(registry.get('find-match') === all, 'the full-set Highlight is re-used, not replaced');
+      assert(registry.get('find-match-current') === current, 'the active Highlight is re-used, not replaced');
+      assert(all.size === 2, `"cor" should leave 2 painted ranges, got ${all.size}`);
+      fc.clear();
+      assert(all.size === 0 && current.size === 0, 'clear() empties both Highlights');
+    } finally {
+      fc.clear();
       root.remove();
     }
   });
