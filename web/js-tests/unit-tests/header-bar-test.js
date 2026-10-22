@@ -394,6 +394,11 @@ export async function runTests() {
         const suffixShown = view.getComputedStyle(f.el('.network-button__suffix')).display !== 'none';
         assert(suffixShown === label,
           `${width}px: "connected" ${label ? 'is' : 'is not'} spelled out (shown=${suffixShown})`);
+        if (label) {
+          // The same small print as a remote window's host, one line or two.
+          const size = parseFloat(view.getComputedStyle(f.el('.network-button__clients')).fontSize);
+          assert(size < 12, `${width}px: the label is small print, got ${size}px`);
+        }
         const w = button.getBoundingClientRect().width;
         assert(label ? w > 60 : Math.round(w) === 32,
           `${width}px: the button is ${label ? 'widened to hold the label' : 'icon-sized'}, got ${w}px`);
@@ -725,7 +730,7 @@ export async function runTests() {
             `${width}px: the network button leads the button row`);
           // Small print, so a long host does not make the button a slab.
           const hostSize = parseFloat(view.getComputedStyle(host).fontSize);
-          assert(hostSize < 12, `${width}px: the host is set smaller than the header's 12px labels, got ${hostSize}px`);
+          assert(hostSize < 12, `${width}px: the host is small print, under 12px, got ${hostSize}px`);
 
           clientsChanged(3);
           assert(button.title.includes('devbox:8080') && button.title.includes('2'),

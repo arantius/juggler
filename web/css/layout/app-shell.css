@@ -215,8 +215,8 @@ app-container {
         padding: 0;
         background-color: transparent;
         color: var(--text-secondary);
-        font-size: 12px;
-        line-height: normal;
+        font-size: 10px;
+        line-height: 13px;
     }
 
     :where(.network-button.has-clients:hover) .network-button__clients {
@@ -228,19 +228,14 @@ app-container {
         display: inline;
     }
 
-    /* On a remote window the label is the host's second line, in its print.
-       After the rules above so the stacked layout wins. */
+    /* On a remote window the label is the host's second line. After the rules
+       above so the stacked layout's geometry wins. */
     .network-button.is-remote.has-clients {
         padding: 0 8px 0 30px;
     }
 
     .network-button.is-remote.has-clients::before {
         left: 15px;
-    }
-
-    :where(.network-button.is-remote.has-clients) .network-button__clients {
-        font-size: 10px;
-        line-height: 13px;
     }
 }
 /* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */

@@ -33,7 +33,6 @@ import { assert } from '../utilities/test-helpers.js';
  *   every radius step and short of a pill.
  */
 const ALLOWED = [
-  ['.network-button__clients', '12px'],
   ['.network-button__clients', '10px'],
   ['.network-button__host', '10px'],
   ['update-button .update-btn', '13px'],
