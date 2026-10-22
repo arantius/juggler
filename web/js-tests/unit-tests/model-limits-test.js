@@ -293,6 +293,61 @@ export async function runTests(_ctx) {
     });
   });
 
+  // A llama.cpp model reports a window and nothing else, so the budget a turn
+  // gets is Juggler's own derivation. "auto" alone hid it: a user cut off at
+  // 20,000 tokens could not find where 20,000 came from.
+  await run('an unreported max output shows the budget auto resolves to', async () => {
+    const provider = providerFixture();
+    provider.modelsWithContext = [
+      { id: 'local-model', contextWindow: 262144, maxOutputTokens: 0, derivedMaxOutputTokens: 32768, fromAPI: true },
+      {
+        id: 'local-overridden',
+        contextWindow: 262144,
+        maxOutputTokens: 50000,
+        providerMaxOutputTokens: 0,
+        derivedMaxOutputTokens: 32768,
+        fromAPI: true,
+      },
+      { id: 'plain-model', contextWindow: 128000, maxOutputTokens: 16384 },
+    ];
+    await withTab({ provider }, async (host) => {
+      const output = limitInput(host, 'local-model', 'maxOutputTokens');
+      assert(output.value === '', `blank must still mean auto; got ${JSON.stringify(output.value)}`);
+      assert(/auto/.test(output.placeholder) && /32,768/.test(output.placeholder),
+        `placeholder = ${JSON.stringify(output.placeholder)}, want auto with the resolved 32,768`);
+      assert(/derived from the 262,144-token context window/.test(output.title) && /Type a number/.test(output.title),
+        `the tooltip should say how auto was worked out and how to override it; got ${JSON.stringify(output.title)}`);
+      assert(!/reported by/.test(output.title), `a derived budget claims the provider reported it: ${JSON.stringify(output.title)}`);
+
+      const overridden = limitInput(host, 'local-overridden', 'maxOutputTokens');
+      assert(overridden.value === '50000', `the override wins; got ${JSON.stringify(overridden.value)}`);
+      assert(/32,768/.test(overridden.placeholder) && /32,768/.test(overridden.title),
+        `clearing an override goes back to auto (32,768), and says so; got ${JSON.stringify(overridden.placeholder)} / ${JSON.stringify(overridden.title)}`);
+
+      const plain = limitInput(host, 'plain-model', 'maxOutputTokens');
+      assert(plain.placeholder === '16384', `a provider's own cap stays a bare number; got ${plain.placeholder}`);
+    });
+  });
+
+  await run('a republished derived budget lands on the placeholder', async () => {
+    const provider = providerFixture();
+    provider.modelsWithContext = [
+      { id: 'local-model', contextWindow: 262144, maxOutputTokens: 0, derivedMaxOutputTokens: 32768, fromAPI: true },
+    ];
+    await withTab({ provider }, async (host) => {
+      // Another window raised the context window, so the derivation moved.
+      const next = JSON.parse(JSON.stringify(provider));
+      next.modelsWithContext[0].providerContextWindow = 262144;
+      next.modelsWithContext[0].contextWindow = 524288;
+      next.modelsWithContext[0].derivedMaxOutputTokens = 64000;
+      wsService._emit('providers-update', [next]);
+      await settle();
+      const output = limitInput(host, 'local-model', 'maxOutputTokens');
+      assert(/64,000/.test(output.placeholder) && /524,288/.test(output.title),
+        `the placeholder kept the old derivation; got ${JSON.stringify(output.placeholder)} / ${JSON.stringify(output.title)}`);
+    });
+  });
+
   await run('an overridden model shows the override, and what clearing restores', async () => {
     await withTab({}, async (host) => {
       const window_ = limitInput(host, 'fixed-model', 'contextWindow');

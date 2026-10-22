@@ -639,18 +639,28 @@ func (cv *admissionConversation) storeAnchor(threadID string, anchor *measuredPr
 }
 
 // ContextSafetyReserve derives the output reserve for a known context window
-// when the model exposes no output limit of its own: a flat 20k for very
-// large windows, otherwise a fifth of the window. Exported so providers that
+// when the model exposes no output limit of its own. Exported so providers that
 // set their own wire output cap can charge the identical reserve (the wire
 // value and the admission reserve must never diverge).
 func ContextSafetyReserve(window int64) int64 {
-	// Monotone in the window: a fifth for small windows, flat 20k once window/5
-	// exceeds 20k (crossover at 100k). This is deliberately monotone — the old
-	// step (window/5 up to 200k, then a cliff to 20k) meant a 200,000 window
-	// derived 40k but 200,001 derived 20k. The flat ceiling gives more input room
-	// in exactly the 100k–200k regime where admission pressure is highest, and
-	// 20k stays generous for a reserve the model never reported.
-	return min(int64(20_000), max(int64(1), window/5))
+	// min(window/5, clamp(window/8, 20k, 64k)), floored at one token:
+	//
+	//   - up to 100k, a fifth of the window;
+	//   - 100k–160k, a flat 20k;
+	//   - 160k–512k, an eighth of the window (262,144 → 32,768);
+	//   - 512k and above, a flat 64k.
+	//
+	// Every piece meets its neighbour, so the function is continuous and
+	// monotone: no window derives less than a slightly smaller one. The reserve
+	// is held back inside the window, so it is room history cannot use. A
+	// modest one suits the short replies of an agent turn and keeps input room
+	// in the 100k–200k range where compaction pressure is highest. A large window
+	// has room to spare, and there a long single reply (a reasoning model's
+	// thinking plus its answer) should not be cut short by a budget sized for a
+	// small one. The 64k ceiling bounds how long a runaway generation can run on
+	// slow local hardware. The fifth keeps small windows well under the
+	// compaction ceiling (DefaultContextCeilingFraction).
+	return max(int64(1), min(window/5, min(max(window/8, 20_000), 64_000)))
 }
 
 // DefaultContextCeilingFraction is the share of a model's context window a

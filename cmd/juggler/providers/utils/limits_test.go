@@ -20,9 +20,10 @@ func TestClampOutputToWindow(t *testing.T) {
 		{"a cap that fits is left alone", 200000, 64000, 64000},
 		{"a cap equal to the window leaves no input room", 8192, 8192, 1638},
 		{"a cap above the window is a catalog artifact", 128000, 200000, 20000},
-		{"a cap over the admission ceiling leaves no usable input room", 1000000, 900000, 20000},
+		{"a cap over the admission ceiling leaves no usable input room", 1000000, 900000, 64000},
 		{"a cap just under the admission ceiling is left alone", 1000000, 849999, 849999},
-		{"an absent cap derives the reserve", 1000000, 0, 20000},
+		{"an absent cap derives the reserve", 1000000, 0, 64000},
+		{"a large local window derives an eighth", 262144, 0, 32768},
 		{"a negative cap derives the reserve", 32000, -1, 6400},
 		{"a small window derives a fifth", 4096, 0, 819},
 		{"an unknown window cannot clamp", 0, 64000, 64000},
@@ -32,6 +33,34 @@ func TestClampOutputToWindow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ClampOutputToWindow(tc.window, tc.maxOutput); got != tc.want {
 				t.Errorf("ClampOutputToWindow(%d, %d) = %d, want %d", tc.window, tc.maxOutput, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveOutputCapSaysWhenItDerived pins the flag that lets the settings UI
+// and the truncation notice say "derived from the context window" instead of
+// presenting Juggler's own default as a limit the provider reported.
+func TestResolveOutputCapSaysWhenItDerived(t *testing.T) {
+	tests := []struct {
+		name        string
+		window      int
+		maxOutput   int
+		want        int
+		wantDerived bool
+	}{
+		{"a reported cap is the provider's", 200000, 64000, 64000, false},
+		{"an absent cap is derived", 262144, 0, 32768, true},
+		{"a cap over the ceiling is replaced by the derived reserve", 1000000, 900000, 64000, true},
+		{"an unknown window derives nothing", 0, 0, 0, false},
+		{"an unknown window passes a cap through", 0, 4096, 4096, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, derived := ResolveOutputCap(tc.window, tc.maxOutput)
+			if got != tc.want || derived != tc.wantDerived {
+				t.Errorf("ResolveOutputCap(%d, %d) = (%d, %v), want (%d, %v)",
+					tc.window, tc.maxOutput, got, derived, tc.want, tc.wantDerived)
 			}
 		})
 	}

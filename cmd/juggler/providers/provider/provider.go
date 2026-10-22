@@ -523,6 +523,12 @@ type ModelInfo struct {
 	ContextWindow   int    // Input token limit (0 if unknown)
 	MaxOutputTokens int    // Output token limit (0 if unknown)
 	FromAPI         bool   // True if retrieved from API, false if hardcoded fallback
+	// MaxOutputDerived is true when MaxOutputTokens is not a limit the model or
+	// a catalogue stated but the reserve Juggler derived from ContextWindow
+	// (ContextSafetyReserve), stood in because the stated one was absent or
+	// unusable (utils.ResolveOutputCap). It lets the settings UI and the
+	// truncation notice describe the number as Juggler's default.
+	MaxOutputDerived bool
 	// WindowAssumed is true when ContextWindow is a provider-wide fallback: the
 	// server reported nothing for this model and no per-model catalogue entry
 	// knew it either. It is narrower than !FromAPI, which also covers curated

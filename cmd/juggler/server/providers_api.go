@@ -47,6 +47,15 @@ type ModelWithContext struct {
 	// than left for each consumer to remember to merge.
 	ProviderContextWindow   *int `json:"providerContextWindow,omitempty"`
 	ProviderMaxOutputTokens *int `json:"providerMaxOutputTokens,omitempty"`
+	// DerivedMaxOutputTokens is the output budget Juggler derives from the
+	// effective ContextWindow (provider.ContextSafetyReserve) for a model whose
+	// provider states no usable output limit: what admission charges and the
+	// request sends while the user's Max output is blank. Set whether or not the
+	// user overrode Max output, because it is then what clearing the override
+	// restores; zero when the provider states a limit of its own, or no window is
+	// known. Published so the settings UI can show "auto" as the number it
+	// resolves to without re-implementing the formula.
+	DerivedMaxOutputTokens int `json:"derivedMaxOutputTokens,omitempty"`
 	// ThinkingLevels lists the reasoning-effort tiers this model supports, in
 	// display order (least effort first; see lowestThinkingLevel), each named
 	// in the provider's own native vocabulary (e.g.
@@ -157,6 +166,29 @@ func applyModelLimits(model ModelWithContext, limits core.ModelLimits) ModelWith
 	return model
 }
 
+// withDerivedOutputBudget fills DerivedMaxOutputTokens on a published model
+// that applyModelLimits has already resolved. providerDerived is the
+// provider's own provider.ModelInfo.MaxOutputDerived: its MaxOutputTokens is a
+// reserve it derived, not a limit it was told.
+//
+// The figure is the one normalizeOutputLimit produces from this same entry
+// with no output override in force, so the settings field and admission can
+// never disagree about what "auto" means.
+func withDerivedOutputBudget(model ModelWithContext, providerDerived bool) ModelWithContext {
+	if model.ContextWindow <= 0 {
+		return model
+	}
+	own := model.MaxOutputTokens
+	if model.ProviderMaxOutputTokens != nil {
+		own = *model.ProviderMaxOutputTokens
+	}
+	budget, substituted := utils.ResolveOutputCap(model.ContextWindow, own)
+	if providerDerived || substituted {
+		model.DerivedMaxOutputTokens = budget
+	}
+	return model
+}
+
 func modelContextFallbacks(pInfo provider.ProviderInfo, settings core.GlobalSettings) []ModelWithContext {
 	if len(pInfo.ModelContextWindows) == 0 {
 		return nil
@@ -168,13 +200,13 @@ func modelContextFallbacks(pInfo provider.ProviderInfo, settings core.GlobalSett
 	sort.Strings(ids)
 	models := make([]ModelWithContext, 0, len(ids))
 	for _, id := range ids {
-		models = append(models, applyModelLimits(ModelWithContext{
+		models = append(models, withDerivedOutputBudget(applyModelLimits(ModelWithContext{
 			ID:               id,
 			ContextWindow:    pInfo.ModelContextWindows[id],
 			FromAPI:          false,
 			Hidden:           settings.IsModelHidden(pInfo.Name, id),
 			StreamsLiveUsage: pInfo.StreamsLiveUsage,
-		}, settings.ModelLimitsFor(pInfo.Name, id)))
+		}, settings.ModelLimitsFor(pInfo.Name, id)), false))
 	}
 	return models
 }
@@ -276,7 +308,7 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 				modelInfos, err := s.fetchModels(ctx, pInfo.Name, cred)
 				if err == nil {
 					for _, modelInfo := range modelInfos {
-						modelsWithContext = append(modelsWithContext, applyModelLimits(ModelWithContext{
+						modelsWithContext = append(modelsWithContext, withDerivedOutputBudget(applyModelLimits(ModelWithContext{
 							ID:                   modelInfo.ID,
 							DisplayName:          modelInfo.DisplayName,
 							ContextWindow:        modelInfo.ContextWindow,
@@ -290,7 +322,7 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 							DefaultServiceTier:   modelInfo.DefaultServiceTier,
 							Hidden:               settings.IsModelHidden(pInfo.Name, modelInfo.ID),
 							StreamsLiveUsage:     pInfo.StreamsLiveUsage,
-						}, settings.ModelLimitsFor(pInfo.Name, modelInfo.ID)))
+						}, settings.ModelLimitsFor(pInfo.Name, modelInfo.ID)), modelInfo.MaxOutputDerived))
 					}
 				} else {
 					available = false
@@ -819,14 +851,24 @@ func (s *Server) resolveModelCapabilities(providerName, model string) provider.M
 	return capabilities
 }
 
-// resolveModelLimits is resolveModelCapabilities together with whether the
-// resulting window is a guess: true only when the published entry that
-// supplied it carries WindowAssumed and no user override replaced it. The
-// flag is kept out of provider.ModelCapabilities, which is the admission
-// snapshot handed to providers, because nothing that admits or sends a
-// request has any use for it.
-func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelCapabilities, bool) {
-	assumed := false
+// modelLimitProvenance says where two of a resolved snapshot's numbers came
+// from, for the messages that quote them. It is kept out of
+// provider.ModelCapabilities, which is the admission snapshot handed to
+// providers, because nothing that admits or sends a request has any use for it.
+type modelLimitProvenance struct {
+	// windowAssumed is true only when the published entry that supplied the
+	// window carries WindowAssumed and no user override replaced it.
+	windowAssumed bool
+	// outputDerived is true when the output limit is Juggler's reserve derived
+	// from the window (provider.ContextSafetyReserve): neither the provider nor
+	// the user stated a usable one.
+	outputDerived bool
+}
+
+// resolveModelLimits is resolveModelCapabilities together with the provenance
+// of its window and output limit.
+func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelCapabilities, modelLimitProvenance) {
+	assumed, outputDerived := false, false
 	info, hasInfo := provider.GetProviderInfo(providerName)
 	capabilities := provider.ModelCapabilities{}
 	if hasInfo {
@@ -857,6 +899,10 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 			if candidate.MaxOutputTokens > 0 {
 				capabilities.MaxOutputTokens = int64(candidate.MaxOutputTokens)
 			}
+			// The entry derived its budget unless the user overrode it, and unless a
+			// static resolver supplied a stated limit the entry left blank.
+			outputDerived = candidate.DerivedMaxOutputTokens > 0 && candidate.ProviderMaxOutputTokens == nil &&
+				(candidate.MaxOutputTokens > 0 || capabilities.MaxOutputTokens <= 0)
 			break
 		}
 		break
@@ -877,9 +923,16 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 		}
 		if limits.MaxOutputTokens > 0 {
 			capabilities.MaxOutputTokens = int64(limits.MaxOutputTokens)
+			outputDerived = false
 		}
 	}
-	return normalizeOutputLimit(capabilities), assumed
+	normalized := normalizeOutputLimit(capabilities)
+	// Whatever the sources said, a limit normalizeOutputLimit had to replace was
+	// replaced by the derived reserve.
+	if normalized.MaxOutputTokens != capabilities.MaxOutputTokens {
+		outputDerived = true
+	}
+	return normalized, modelLimitProvenance{windowAssumed: assumed, outputDerived: outputDerived}
 }
 
 // normalizeOutputLimit fills the derived safety reserve when the window is

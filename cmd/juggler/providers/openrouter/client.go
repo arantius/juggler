@@ -96,9 +96,9 @@ func listModels(ctx context.Context, apiKey string, headers map[string]string) (
 		// window, so the listed data is already hygienic before the server's
 		// normalizeOutputLimit sees it. A model with no window at all keeps the
 		// flat default, since there is nothing to derive a reserve from.
-		maxOut := utils.ClampOutputToWindow(ctxWindow, m.TopProvider.MaxCompletionTokens)
+		maxOut, derived := utils.ResolveOutputCap(ctxWindow, m.TopProvider.MaxCompletionTokens)
 		if maxOut <= 0 {
-			maxOut = DefaultMaxOutputTokens
+			maxOut, derived = DefaultMaxOutputTokens, false
 		}
 		// Map OpenRouter's reported input modalities, keeping only the kinds we
 		// model (text/image). Anything else (e.g. "file") is dropped; a result
@@ -112,12 +112,13 @@ func listModels(ctx context.Context, apiKey string, headers map[string]string) (
 		}
 
 		infos = append(infos, provider.ModelInfo{
-			ID:              m.ID,
-			DisplayName:     utils.FirstNonEmpty(m.Name, utils.ModelDisplayName(m.ID)),
-			ContextWindow:   ctxWindow,
-			MaxOutputTokens: maxOut,
-			FromAPI:         true,
-			InputModalities: inputModalities,
+			ID:               m.ID,
+			DisplayName:      utils.FirstNonEmpty(m.Name, utils.ModelDisplayName(m.ID)),
+			ContextWindow:    ctxWindow,
+			MaxOutputTokens:  maxOut,
+			MaxOutputDerived: derived,
+			FromAPI:          true,
+			InputModalities:  inputModalities,
 		})
 	}
 

@@ -167,6 +167,11 @@ type ContextWindowInfo struct {
 	// user has not set one. Compaction says so, because a guessed window
 	// decides both when a conversation folds and how long a reply may be.
 	Assumed bool
+	// ReserveDerived is true when ReserveTokens is Juggler's default derived
+	// from the window, because neither the provider nor the user stated a
+	// usable output limit. The truncation notice says so, since that is the one
+	// budget a user cannot trace to anything they or their server set.
+	ReserveDerived bool
 }
 
 // WindowResolverFunc resolves a model's context window from its identity alone,

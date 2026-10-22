@@ -141,7 +141,9 @@ func (c *openAICompatClient) fillWindowsFromCapabilities(ctx context.Context, mo
 		// larger window. Left alone it can now exceed the window the server just
 		// told us it will serve, which is a 400 on the wire rather than a
 		// truncated reply.
-		models[i].MaxOutputTokens = utils.ClampOutputToWindow(window, model.MaxOutputTokens)
+		maxOutput, derived := utils.ResolveOutputCap(window, model.MaxOutputTokens)
+		models[i].MaxOutputTokens = maxOutput
+		models[i].MaxOutputDerived = model.MaxOutputDerived || derived
 		models[i].FromAPI = true
 	}
 	return models

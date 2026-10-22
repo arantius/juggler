@@ -21,7 +21,7 @@ import { buildEndpointCard, buildAddEndpointForm } from './custom-endpoint-card.
 import { formatTokens } from '../../utils/format.js';
 import { CHECK_SVG, REFRESH_SVG } from '../../utils/icons.js';
 import { escapeHtml } from '../../../sdk/lib/html.js';
-import { t } from '../../../sdk/lib/i18n.js';
+import { t, formatNumber } from '../../../sdk/lib/i18n.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
 import { providerDescription, providerAuthHint } from '../../utils/provider-text.js';
 
@@ -1160,7 +1160,7 @@ export class ProvidersTab {
    * @private
    */
   _buildModelVisibilityRow(provider) {
-    /** @type {Array<{id: string, displayName?: string, hidden?: boolean, fromAPI?: boolean, windowAssumed?: boolean, contextWindow?: number, maxOutputTokens?: number, providerContextWindow?: number, providerMaxOutputTokens?: number}>} */
+    /** @type {Array<{id: string, displayName?: string, hidden?: boolean, fromAPI?: boolean, windowAssumed?: boolean, contextWindow?: number, maxOutputTokens?: number, providerContextWindow?: number, providerMaxOutputTokens?: number, derivedMaxOutputTokens?: number}>} */
     const models = Array.isArray(provider.modelsWithContext) ? provider.modelsWithContext : [];
     if (models.length === 0) return null;
 
@@ -1272,41 +1272,50 @@ export class ProvidersTab {
     const saveLimits = () => settingsApi.updateSettings({ models: { limits: { [provider.name]: limits } } });
 
     /**
-     * One token-limit field: blank means "use whatever the provider reports",
-     * which is also what the placeholder shows — on an overridden model that is
-     * the number clearing the field restores, not the override in force.
+     * Write what a blank field stands for onto it: the placeholder and the
+     * tooltip saying where that number comes from. Called when the field is
+     * built and again when the catalogue is republished, because an override of
+     * the window elsewhere moves a derived output budget with it.
+     * @param {HTMLInputElement} input - The limit field.
      * @param {any} model - The catalogue entry this row is for.
-     * @param {'contextWindow'|'maxOutputTokens'} field - Which limit to edit.
-     * @param {string} ariaLabel - The field's accessible name.
-     * @returns {HTMLInputElement} The input to append to the row.
+     * @param {'contextWindow'|'maxOutputTokens'} field - Which limit it edits.
      */
-    const buildLimitInput = (model, field, ariaLabel) => {
+    const describeLimit = (input, model, field) => {
       const overridden = field === 'contextWindow'
         ? model.providerContextWindow !== undefined && model.providerContextWindow !== null
         : model.providerMaxOutputTokens !== undefined && model.providerMaxOutputTokens !== null;
       const reported = field === 'contextWindow'
         ? (model.providerContextWindow ?? model.contextWindow)
         : (model.providerMaxOutputTokens ?? model.maxOutputTokens);
-      const stored = () => limits[model.id]?.[field];
-
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.min = '0';
-      input.className = 'model-limit-input';
-      input.dataset.limit = field;
-      input.placeholder = reported > 0 ? String(reported) : t('auto');
-      input.value = stored() ? String(stored()) : '';
-      input.autocomplete = 'off';
-      input.spellcheck = false;
-      input.setAttribute('aria-label', ariaLabel);
-      // Four numbers that look identical in a box: one the provider stated, one
+      // The budget the server derives when nobody states one. Shown as what
+      // "auto" resolves to, so a turn cut off at that figure can be traced here.
+      const derived = field === 'maxOutputTokens' && model.derivedMaxOutputTokens > 0
+        ? model.derivedMaxOutputTokens
+        : 0;
+      if (derived) {
+        input.placeholder = t('auto ({count})', { count: formatNumber(derived) });
+      } else {
+        input.placeholder = reported > 0 ? String(reported) : t('auto');
+      }
+      // Five numbers that look identical in a box: one the provider stated, one
       // from Juggler's catalogue for this model, one guessed because neither
-      // knows the model, and one typed here. Which it is decides how much to
-      // trust it, and nothing else on the row says. windowAssumed describes the
-      // context window only; a guessed window's output cap is worked out from it.
+      // knows the model, one Juggler derives from the window, and one typed
+      // here. Which it is decides how much to trust it, and nothing else on the
+      // row says. windowAssumed describes the context window only; a guessed
+      // window's output cap is worked out from it.
       const who = provider.displayName;
-      if (overridden) {
+      if (overridden && derived) {
+        input.title = t("You set this. Clear the field to go back to Juggler's default of {count} tokens, derived from the context window.", { count: formatNumber(derived) });
+      } else if (overridden) {
         input.title = t('You set this. Clear the field to go back to {count}.', { count: reported });
+      } else if (derived && model.windowAssumed) {
+        input.title = t('Worked out from the guessed context window. Type a number to set it yourself.');
+      } else if (derived) {
+        input.title = t("{count} tokens, Juggler's default, derived from the {window}-token context window because {name} doesn't report a max output for this model. Type a number to set it yourself.", {
+          count: formatNumber(derived),
+          window: formatNumber(model.contextWindow),
+          name: who,
+        });
       } else if (model.fromAPI && !(field === 'contextWindow' && model.windowAssumed)) {
         input.title = t('{count} tokens, as reported by {name} for this model.', { count: reported, name: who });
       } else if (model.windowAssumed) {
@@ -1316,6 +1325,31 @@ export class ProvidersTab {
       } else {
         input.title = t("{count} tokens, from Juggler's list of {name}'s models. {name} doesn't report limits itself — if it's out of date, type the right figure.", { count: reported, name: who });
       }
+    };
+
+    /**
+     * One token-limit field: blank means "use whatever the provider reports",
+     * which is also what the placeholder shows — on an overridden model that is
+     * the number clearing the field restores, not the override in force. Where
+     * the provider reports no output limit, that is the budget Juggler derives.
+     * @param {any} model - The catalogue entry this row is for.
+     * @param {'contextWindow'|'maxOutputTokens'} field - Which limit to edit.
+     * @param {string} ariaLabel - The field's accessible name.
+     * @returns {HTMLInputElement} The input to append to the row.
+     */
+    const buildLimitInput = (model, field, ariaLabel) => {
+      const stored = () => limits[model.id]?.[field];
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0';
+      input.className = 'model-limit-input';
+      input.dataset.limit = field;
+      input.value = stored() ? String(stored()) : '';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.setAttribute('aria-label', ariaLabel);
+      describeLimit(input, model, field);
 
       input.addEventListener('change', async () => {
         const previous = limits[model.id] ? { ...limits[model.id] } : undefined;
@@ -1493,8 +1527,9 @@ export class ProvidersTab {
         else assumed.delete(entry.id);
         if (entry.marker) entry.marker.hidden = !assumed.has(entry.id);
 
-        for (const field of ['contextWindow', 'maxOutputTokens']) {
+        for (const field of /** @type {const} */ (['contextWindow', 'maxOutputTokens'])) {
           const input = entry.fields[field];
+          if (input) describeLimit(input, next, field);
           if (!input || document.activeElement === input) continue;
           const value = /** @type {any} */ (overrides)[field];
           input.value = value ? String(value) : '';

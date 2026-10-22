@@ -78,11 +78,12 @@ func appendStreamedBlock(blocks []provider.ContentBlock, chunk provider.StreamCh
 // Returns (0, 0) for an unknown model, which the worker reads as "no threshold".
 func (s *Server) createWindowResolver() worker.WindowResolverFunc {
 	return func(mc worker.ModelConfig) worker.ContextWindowInfo {
-		caps, assumed := s.resolveModelLimits(mc.Provider, mc.Model)
+		caps, provenance := s.resolveModelLimits(mc.Provider, mc.Model)
 		return worker.ContextWindowInfo{
-			WindowTokens:  int(caps.ContextWindowTokens),
-			ReserveTokens: int(caps.MaxOutputTokens),
-			Assumed:       assumed,
+			WindowTokens:   int(caps.ContextWindowTokens),
+			ReserveTokens:  int(caps.MaxOutputTokens),
+			Assumed:        provenance.windowAssumed,
+			ReserveDerived: provenance.outputDerived,
 		}
 	}
 }

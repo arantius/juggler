@@ -129,7 +129,7 @@ settings-panel .model-visibility-header {
     top: 0;
     z-index: 1;
     display: grid;
-    grid-template-columns: 1fr 5.5rem 5.5rem;
+    grid-template-columns: 1fr 6.5rem 6.5rem;
     column-gap: 0.25rem;
     padding: 0.125rem 0.375rem;
     background: var(--bg-primary);
@@ -225,8 +225,9 @@ settings-panel .model-limit-fields {
     flex: 0 0 auto;
 }
 
+/* Wide enough for a derived output budget's placeholder, "auto (64,000)". */
 settings-panel .model-limit-input {
-    width: 5.5rem;
+    width: 6.5rem;
     padding: 0.0625rem 0.25rem;
     background: var(--bg-secondary);
     color: var(--text-primary);

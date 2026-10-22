@@ -561,8 +561,13 @@ func (r *run) insertProviderNotice(notice *StreamNotice) {
 // nobody here can see. It is also the max_tokens sent, except where a
 // provider's catalogue knows a lower ceiling for the model and the request is
 // clamped to that.
+//
+// A budget Juggler derived from the window is the one a user cannot trace to
+// anything they or their server set, so that case names the figure as Juggler's
+// default, the window it came from, and what raising it costs.
 func (r *run) insertTruncationNotice(response *LLMResponse) {
-	reserve := r.resolveContextWindow().ReserveTokens
+	limits := r.resolveContextWindow()
+	reserve := limits.ReserveTokens
 
 	// The measured figures say whichever of the budget and its use are known.
 	budget := "none"
@@ -588,6 +593,17 @@ func (r *run) insertTruncationNotice(response *LLMResponse) {
 		"than the one your server really serves shrinks replies too.",
 		"thinkingOnly", yesNo(!hasAssistantText(response)), "budget", budget,
 		"reserve", reserve, "used", response.OutputTokens)
+	if limits.ReserveDerived && reserve > 0 && limits.WindowTokens > 0 {
+		content = msg.New("The model hit its output limit before it finished, so this turn stops mid-reply."+
+			"{thinkingOnly, select, yes { It spent the whole budget thinking, so there is no answer to show.} other {}}\n\n"+
+			"{budget, select, both {Output budget: {reserve} tokens; this turn used {used}. } other {Output budget: {reserve} tokens. }}"+
+			"Neither you nor the provider set a limit for this model, so that is Juggler's default, derived from its "+
+			"{window}-token context window. Thinking counts against it. To allow longer replies, set this model's "+
+			"Max output tokens under its provider's \"Models and token limits\" in Settings. The budget is held back "+
+			"inside the context window, so a larger one leaves less room for conversation history.",
+			"thinkingOnly", yesNo(!hasAssistantText(response)), "budget", budget,
+			"reserve", reserve, "used", response.OutputTokens, "window", limits.WindowTokens)
+	}
 
 	source := ""
 	if mc := r.resolveModelConfig(); mc != nil {

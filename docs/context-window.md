@@ -91,12 +91,30 @@ is a last resort rather than a fact.
 ## The output reserve
 
 Every request must leave room for the answer. Juggler reserves, in order of
-preference: the model's reported maximum output, or — when only the window is
-known — a derived reserve: a fifth of the window, capped at a flat 20k (so a
-window of 100k or more reserves 20k, and anything smaller reserves a fifth).
-The same number is sent to the provider as the wire
-output cap and charged against the window before sending, so the two never
-diverge.
+preference: the Max output you set for the model in Settings, the model's
+reported maximum output, or — when only the window is known — a derived
+reserve that grows with the window:
+
+| Context window | Derived output budget |
+|---|---|
+| up to 100k | a fifth of the window (32k → 6,400) |
+| 100k – 160k | 20,000 |
+| 160k – 512k | an eighth of the window (262,144 → 32,768) |
+| 512k and above | 64,000 |
+
+The same number is sent to the provider as the wire output cap and held back
+inside the window before sending, so the two never diverge. That is the
+trade-off in raising it: a larger budget allows longer replies — a reasoning
+model's thinking counts against it — but leaves less room for conversation
+history, so compaction starts sooner. Compaction is suggested once the input
+plus the budget passes 85% of the window; at 262,144 tokens with the derived
+32,768 that is at about 190k tokens of input.
+
+Settings → Providers → *Models and token limits* shows a derived budget as
+**auto (32,768)**, with a tooltip saying where it came from. Type a number in
+the Max output field to replace it; clear the field to go back to auto. When a
+turn stops at a derived budget, the notice in the conversation says so and
+names the window it was derived from.
 
 ## What is checked before each call
 

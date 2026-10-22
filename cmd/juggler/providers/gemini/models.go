@@ -39,8 +39,8 @@ var ModelContextWindows = map[string]int{
 // ceiling. Every current text model shares 65536.
 //
 // Without these, a listing that could not be fetched leaves the output limit
-// unknown, and admission falls back to the derived 20k reserve — under a third
-// of what the model would write.
+// unknown, and admission falls back to the reserve derived from the window —
+// a figure sized for the window, not for what the model can write.
 var ModelMaxOutputTokens = map[string]int{
 	"gemini-3.8-flash":       65536,
 	"gemini-3.7-flash":       65536,

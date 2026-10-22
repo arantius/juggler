@@ -40,19 +40,20 @@ func TestListModelsClampsOutputCapAtOrAboveWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
-	byID := map[string]int{}
+	byID := map[string]provider.ModelInfo{}
 	for _, info := range infos {
-		byID[info.ID] = info.MaxOutputTokens
+		byID[info.ID] = info
 	}
-	// A 128000 window derives a 20000 reserve (a fifth, capped at 20k).
+	// A 128000 window derives a 20000 reserve (provider.ContextSafetyReserve).
 	const derivedReserve = 20000
 	for _, id := range []string{"cap-equals-window", "cap-above-window", "no-cap-reported"} {
-		if got := byID[id]; got != derivedReserve {
-			t.Errorf("%s MaxOutputTokens = %d, want the derived reserve %d", id, got, derivedReserve)
+		if got := byID[id]; got.MaxOutputTokens != derivedReserve || !got.MaxOutputDerived {
+			t.Errorf("%s MaxOutputTokens = %d (derived %v), want the derived reserve %d, flagged as derived",
+				id, got.MaxOutputTokens, got.MaxOutputDerived, derivedReserve)
 		}
 	}
-	if got := byID["normal-cap"]; got != 16384 {
-		t.Fatalf("normal-cap MaxOutputTokens = %d, want 16384 preserved", got)
+	if got := byID["normal-cap"]; got.MaxOutputTokens != 16384 || got.MaxOutputDerived {
+		t.Fatalf("normal-cap = %d (derived %v), want 16384 preserved as the provider's own", got.MaxOutputTokens, got.MaxOutputDerived)
 	}
 }
 
@@ -99,8 +100,9 @@ func TestListModelsPrefersServingContextWindow(t *testing.T) {
 	}
 	// 943718 is at or above the admission ceiling of a 1048576 window, so the
 	// clamp replaces it with the reserve derived from that window.
-	if glm.MaxOutputTokens != 20000 {
-		t.Errorf("MaxOutputTokens = %d, want the derived reserve 20000", glm.MaxOutputTokens)
+	if want := int(provider.ContextSafetyReserve(1048576)); glm.MaxOutputTokens != want || !glm.MaxOutputDerived {
+		t.Errorf("MaxOutputTokens = %d (derived %v), want the derived reserve %d, flagged as derived",
+			glm.MaxOutputTokens, glm.MaxOutputDerived, want)
 	}
 
 	// Nothing to prefer: the top-level window stands.

@@ -5,6 +5,9 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Models reporting no output limit get larger budgets on large windows, up to 64k
+- Settings shows the output budget "auto" resolves to, and how it was derived
+- An output-limit notice explains a derived budget and the context window it came from
 - Windows and Linux: the “…” menu has app commands and Exit, which restores all windows
 - Quitting, or signing out of Windows, reopens every window next launch, not just some
 - Auto-approve can judge tool calls with a decision model chosen in Settings

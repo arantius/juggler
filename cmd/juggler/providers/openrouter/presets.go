@@ -108,14 +108,15 @@ func listPresets(ctx context.Context, apiKey string, headers map[string]string, 
 			// than dropping out of the list, the same way a config that names no
 			// model does: the user configured it, so it is offered.
 			models := fetchPresetModels(ctx, preset.Slug, apiKey, headers)
-			window, maxOut := presetLimits(models, byID)
+			window, maxOut, derived := presetLimits(models, byID)
 			return provider.ModelInfo{
-				ID:              presetIDPrefix + preset.Slug,
-				DisplayName:     utils.FirstNonEmpty(preset.Name, preset.Slug),
-				ContextWindow:   window,
-				MaxOutputTokens: maxOut,
-				FromAPI:         true,
-				InputModalities: presetInputModalities(models, byID),
+				ID:               presetIDPrefix + preset.Slug,
+				DisplayName:      utils.FirstNonEmpty(preset.Name, preset.Slug),
+				ContextWindow:    window,
+				MaxOutputTokens:  maxOut,
+				MaxOutputDerived: derived,
+				FromAPI:          true,
+				InputModalities:  presetInputModalities(models, byID),
 			}
 		})
 }
@@ -166,28 +167,33 @@ func presetConfigModels(config map[string]any) []string {
 // provider default. That matters because admission fails closed on an unknown
 // window, so listing a preset without one would make it unusable rather than
 // approximate.
-func presetLimits(models []string, catalog map[string]provider.ModelInfo) (int, int) {
-	window, maxOut := 0, 0
+//
+// The third result reports that the cap is a derived reserve rather than one a
+// model stated (provider.ModelInfo.MaxOutputDerived): either the chain's
+// smallest cap was itself derived, or none was usable and the window's reserve
+// stood in.
+func presetLimits(models []string, catalog map[string]provider.ModelInfo) (int, int, bool) {
+	window, maxOut, derived := 0, 0, false
 	for _, id := range models {
-		modelWindow, modelCap := GetContextWindow(id), 0
+		modelWindow, modelCap, modelDerived := GetContextWindow(id), 0, false
 		if info, ok := catalog[id]; ok && info.ContextWindow > 0 {
-			modelWindow, modelCap = info.ContextWindow, info.MaxOutputTokens
+			modelWindow, modelCap, modelDerived = info.ContextWindow, info.MaxOutputTokens, info.MaxOutputDerived
 		}
 		if window == 0 || modelWindow < window {
 			window = modelWindow
 		}
 		if modelCap > 0 && (maxOut == 0 || modelCap < maxOut) {
-			maxOut = modelCap
+			maxOut, derived = modelCap, modelDerived
 		}
 	}
 	if window <= 0 {
 		window = DefaultContextWindow
 	}
-	maxOut = utils.ClampOutputToWindow(window, maxOut)
+	maxOut, substituted := utils.ResolveOutputCap(window, maxOut)
 	if maxOut <= 0 {
-		maxOut = DefaultMaxOutputTokens
+		return window, DefaultMaxOutputTokens, false
 	}
-	return window, maxOut
+	return window, maxOut, derived || substituted
 }
 
 // presetInputModalities reports image input for a preset only when every model

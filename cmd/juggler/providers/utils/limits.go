@@ -71,11 +71,21 @@ type Limits struct {
 // An unknown window has nothing to clamp against, so the cap passes through
 // untouched: whether it is usable is not a question this function can answer.
 func ClampOutputToWindow(window, maxOutput int) int {
+	clamped, _ := ResolveOutputCap(window, maxOutput)
+	return clamped
+}
+
+// ResolveOutputCap is ClampOutputToWindow together with whether the result is
+// the derived reserve rather than the cap passed in. A provider publishing the
+// result records the flag (provider.ModelInfo.MaxOutputDerived), so the
+// settings UI and the truncation notice can call Juggler's default by its name
+// instead of presenting it as a limit the provider stated.
+func ResolveOutputCap(window, maxOutput int) (int, bool) {
 	if window <= 0 {
-		return maxOutput
+		return maxOutput, false
 	}
 	if maxOutput <= 0 || int64(maxOutput) >= provider.ContextCeiling(int64(window), 0) {
-		return int(provider.ContextSafetyReserve(int64(window)))
+		return int(provider.ContextSafetyReserve(int64(window))), true
 	}
-	return maxOutput
+	return maxOutput, false
 }

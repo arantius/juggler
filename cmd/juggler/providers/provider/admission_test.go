@@ -602,10 +602,16 @@ func TestAdmissionDerivesOutputReserveFromKnownContext(t *testing.T) {
 		window  int64
 		reserve int64
 	}{
-		{name: "small context", window: 100_000, reserve: 20_000},
+		{name: "small context", window: 32_000, reserve: 6_400},
 		{name: "sub-crossover context", window: 50_000, reserve: 10_000},
-		{name: "monotone flat ceiling at boundary", window: 200_000, reserve: 20_000},
-		{name: "large context", window: 200_001, reserve: 20_000},
+		{name: "fifth meets the floor", window: 100_000, reserve: 20_000},
+		{name: "floor plateau", window: 128_000, reserve: 20_000},
+		{name: "eighth leaves the floor", window: 160_000, reserve: 20_000},
+		{name: "eighth past the floor", window: 200_000, reserve: 25_000},
+		{name: "no cliff past 200k", window: 200_001, reserve: 25_000},
+		{name: "256Ki local model", window: 262_144, reserve: 32_768},
+		{name: "eighth meets the ceiling", window: 512_000, reserve: 64_000},
+		{name: "ceiling plateau", window: 1_000_000, reserve: 64_000},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

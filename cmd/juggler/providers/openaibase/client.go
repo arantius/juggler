@@ -323,7 +323,7 @@ func (c *Client) ListModelsWithInfo(ctx context.Context, filterFunc ModelFilterF
 				maxOutputTokens = discovered.MaxOutput
 			}
 		}
-		maxOutputTokens = utils.ClampOutputToWindow(contextWindow, maxOutputTokens)
+		maxOutputTokens, maxOutputDerived := utils.ResolveOutputCap(contextWindow, maxOutputTokens)
 
 		var inputModalities []string
 		if modalitiesFunc != nil {
@@ -347,10 +347,11 @@ func (c *Client) ListModelsWithInfo(ctx context.Context, filterFunc ModelFilterF
 		}
 
 		modelInfos = append(modelInfos, provider.ModelInfo{
-			ID:              model.ID,
-			DisplayName:     utils.ModelDisplayName(model.ID),
-			ContextWindow:   contextWindow,
-			MaxOutputTokens: maxOutputTokens,
+			ID:               model.ID,
+			DisplayName:      utils.ModelDisplayName(model.ID),
+			ContextWindow:    contextWindow,
+			MaxOutputTokens:  maxOutputTokens,
+			MaxOutputDerived: maxOutputDerived,
 			// True only when this row carried its own window. An endpoint that
 			// returns bare ids — OpenAI, DeepSeek, z.ai — leaves this false, and
 			// that is what tells the UI the number was assumed, not measured.

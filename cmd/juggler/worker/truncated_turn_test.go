@@ -140,6 +140,61 @@ func TestTruncatedThinkingOnlyTurnIsReportedNotRetried(t *testing.T) {
 	}
 }
 
+// The reported confusion: a 262,144-token window, Max output left on auto, and a
+// turn cut off at a number the user had never seen and could not trace. When
+// the budget is Juggler's own derivation the notice says so, names the window
+// it came from, and says what raising it costs.
+func TestTruncationNoticeExplainsADerivedBudget(t *testing.T) {
+	w := newTruncationWorker(t, "conv-truncated-derived")
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "llamacpp", "model": "local"})
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo {
+		return ContextWindowInfo{WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true}
+	})
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{thinkingBlock("pondering")}, StopReason: "max_tokens", OutputTokens: 32768},
+	})
+
+	w.driveStrategyLoop(t, "optimise clipToPolygon", false)
+
+	notices := itemsByType(w)[ItemTypeNotice]
+	if len(notices) != 1 {
+		t.Fatalf("got %d notice items, want exactly 1", len(notices))
+	}
+	content := notices[0].Content
+	for _, want := range []string{"Output budget: 32768", "Juggler's default", "262144-token context window",
+		"Models and token limits", "less room"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("derived-budget notice lacks %q: %q", want, content)
+		}
+	}
+	if _, message := assertNoticeMessages(t, notices[0]); message.Params["window"] != float64(262144) {
+		t.Errorf("message params = %v, want the window the budget was derived from", message.Params)
+	}
+}
+
+// A budget the provider reported, or the user set, is not Juggler's to explain
+// as a derivation.
+func TestTruncationNoticeDoesNotCallAReportedBudgetDerived(t *testing.T) {
+	w := newTruncationWorker(t, "conv-truncated-reported")
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "llamacpp", "model": "local"})
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo {
+		return ContextWindowInfo{WindowTokens: 262144, ReserveTokens: 16384}
+	})
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{thinkingBlock("pondering")}, StopReason: "max_tokens", OutputTokens: 16384},
+	})
+
+	w.driveStrategyLoop(t, "optimise clipToPolygon", false)
+
+	notices := itemsByType(w)[ItemTypeNotice]
+	if len(notices) != 1 {
+		t.Fatalf("got %d notice items, want exactly 1", len(notices))
+	}
+	if content := notices[0].Content; strings.Contains(content, "Juggler's default") || !strings.Contains(content, "Output budget: 16384") {
+		t.Errorf("reported-budget notice misdescribes its budget: %q", content)
+	}
+}
+
 // A truncated turn that DID emit text is still reported, but the text stands:
 // the reply is short, not absent, and nothing may discard it.
 func TestTruncatedTurnWithTextKeepsTheTextAndReportsIt(t *testing.T) {

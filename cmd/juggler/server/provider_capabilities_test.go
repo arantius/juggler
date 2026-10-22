@@ -231,15 +231,110 @@ func TestWindowResolverReportsAssumedWindow(t *testing.T) {
 	}}
 	s.providersList.Store(&providers)
 
+	// None of the three states an output limit, so every reserve is derived.
 	resolve := s.createWindowResolver()
 	for model, want := range map[string]worker.ContextWindowInfo{
-		"guessed":   {WindowTokens: 8192, ReserveTokens: int(provider.ContextSafetyReserve(8192)), Assumed: true},
-		"corrected": {WindowTokens: 256000, ReserveTokens: int(provider.ContextSafetyReserve(256000))},
-		"reported":  {WindowTokens: 131072, ReserveTokens: int(provider.ContextSafetyReserve(131072))},
+		"guessed":   {WindowTokens: 8192, ReserveTokens: int(provider.ContextSafetyReserve(8192)), Assumed: true, ReserveDerived: true},
+		"corrected": {WindowTokens: 256000, ReserveTokens: int(provider.ContextSafetyReserve(256000)), ReserveDerived: true},
+		"reported":  {WindowTokens: 131072, ReserveTokens: int(provider.ContextSafetyReserve(131072)), ReserveDerived: true},
 	} {
 		if got := resolve(worker.ModelConfig{Provider: providerName, Model: model}); got != want {
 			t.Errorf("%s: resolver = %+v, want %+v", model, got, want)
 		}
+	}
+}
+
+// TestWindowResolverReportsDerivedReserve pins what the truncation notice is
+// told about the budget that ended a turn: whether it is Juggler's default
+// derived from the window, or a limit the provider or the user set. Only the
+// first may be described as derived.
+func TestWindowResolverReportsDerivedReserve(t *testing.T) {
+	userpathstest.Isolate(t)
+	const providerName = "test_capability_reserve_derived"
+	provider.RegisterProvider(provider.ProviderInfo{Name: providerName},
+		func(provider.Config) (provider.Provider, error) { return nil, nil })
+
+	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
+		Limits: map[string]map[string]core.ModelLimits{providerName: {
+			"user-set": {MaxOutputTokens: 50000},
+		}},
+	}}); err != nil {
+		t.Fatalf("SaveGlobalSettings: %v", err)
+	}
+	s := &Server{settings: newSettingsStore()}
+	published := []ModelWithContext{
+		// llama.cpp: a window and nothing else.
+		{ID: "unreported", ContextWindow: 262144},
+		// An OpenAI-compatible list that already stood the derived reserve in.
+		{ID: "provider-derived", ContextWindow: 262144, MaxOutputTokens: 32768},
+		{ID: "reported", ContextWindow: 262144, MaxOutputTokens: 16384, FromAPI: true},
+		{ID: "user-set", ContextWindow: 262144},
+		{ID: "over-ceiling", ContextWindow: 100000, MaxOutputTokens: 90000},
+	}
+	derivedFlags := map[string]bool{"provider-derived": true}
+	settings := s.settings.get()
+	for i, m := range published {
+		published[i] = withDerivedOutputBudget(applyModelLimits(m, settings.ModelLimitsFor(providerName, m.ID)), derivedFlags[m.ID])
+	}
+	providers := []ProviderStatus{{Name: providerName, ModelsWithContext: published}}
+	s.providersList.Store(&providers)
+
+	resolve := s.createWindowResolver()
+	for model, want := range map[string]worker.ContextWindowInfo{
+		"unreported":       {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true},
+		"provider-derived": {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true},
+		"reported":         {WindowTokens: 262144, ReserveTokens: 16384},
+		"user-set":         {WindowTokens: 262144, ReserveTokens: 50000},
+		"over-ceiling":     {WindowTokens: 100000, ReserveTokens: 20000, ReserveDerived: true},
+	} {
+		if got := resolve(worker.ModelConfig{Provider: providerName, Model: model}); got != want {
+			t.Errorf("%s: resolver = %+v, want %+v", model, got, want)
+		}
+	}
+	// With no window known there is nothing to derive from, so nothing may
+	// claim to have been derived.
+	if got := resolve(worker.ModelConfig{Provider: providerName, Model: "unlisted"}); got.ReserveDerived {
+		t.Errorf("unlisted model with no window claims a derived reserve: %+v", got)
+	}
+}
+
+// TestPublishedModelCarriesDerivedOutputBudget pins the number the settings UI
+// shows in place of a bare "auto": the budget admission will actually charge
+// for a model whose provider reports no usable output limit, worked out by the
+// server so the browser never re-implements the formula.
+func TestPublishedModelCarriesDerivedOutputBudget(t *testing.T) {
+	tests := []struct {
+		name            string
+		model           ModelWithContext
+		limits          core.ModelLimits
+		providerDerived bool
+		wantDerived     int
+		wantMaxOutput   int
+	}{
+		{name: "an unreported cap derives from the window",
+			model: ModelWithContext{ContextWindow: 262144}, wantDerived: 32768},
+		{name: "a reported cap derives nothing",
+			model: ModelWithContext{ContextWindow: 262144, MaxOutputTokens: 16384}, wantDerived: 0, wantMaxOutput: 16384},
+		{name: "a cap the provider derived is labelled as derived",
+			model: ModelWithContext{ContextWindow: 262144, MaxOutputTokens: 32768}, providerDerived: true,
+			wantDerived: 32768, wantMaxOutput: 32768},
+		{name: "a user override keeps the derived figure as what clearing restores",
+			model: ModelWithContext{ContextWindow: 262144}, limits: core.ModelLimits{MaxOutputTokens: 50000},
+			wantDerived: 32768, wantMaxOutput: 50000},
+		{name: "a window override derives from the window in force",
+			model: ModelWithContext{ContextWindow: 8192}, limits: core.ModelLimits{ContextWindow: 524288},
+			wantDerived: 64000},
+		{name: "an unknown window derives nothing",
+			model: ModelWithContext{}, wantDerived: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := withDerivedOutputBudget(applyModelLimits(test.model, test.limits), test.providerDerived)
+			if got.DerivedMaxOutputTokens != test.wantDerived || got.MaxOutputTokens != test.wantMaxOutput {
+				t.Fatalf("derived/max = %d/%d, want %d/%d",
+					got.DerivedMaxOutputTokens, got.MaxOutputTokens, test.wantDerived, test.wantMaxOutput)
+			}
+		})
 	}
 }
 
@@ -320,9 +415,9 @@ func TestResolveModelCapabilitiesDerivesOneEffectiveOutputLimit(t *testing.T) {
 			want:  provider.ModelCapabilities{ContextWindowTokens: 100000, MaxOutputTokens: 20000},
 		},
 		{
-			name:  "huge window derives the flat cap",
+			name:  "huge window derives an eighth",
 			model: "huge-context",
-			want:  provider.ModelCapabilities{ContextWindowTokens: 400000, MaxOutputTokens: 20000},
+			want:  provider.ModelCapabilities{ContextWindowTokens: 400000, MaxOutputTokens: 50000},
 		},
 		{
 			name:  "explicit live limit wins over derivation",

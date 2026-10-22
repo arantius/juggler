@@ -35,8 +35,8 @@ func TestGetContextWindow(t *testing.T) {
 
 // TestGetMaxOutputTokens pins the output ceiling every current Gemini text
 // model shares. Without it, a listing that could not be fetched leaves the
-// output limit unknown and admission falls back to a derived 20k reserve —
-// less than a third of what these models will actually write.
+// output limit unknown and admission falls back to the reserve derived from the
+// window, which is sized for the window rather than for what these models write.
 func TestGetMaxOutputTokens(t *testing.T) {
 	for _, model := range []string{
 		"gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-pro", "models/gemini-3.1-pro-preview",
