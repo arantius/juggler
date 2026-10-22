@@ -2450,6 +2450,7 @@ class Composer extends JugglerElement {
             <composer-box-wrapper>
                 <composer-config-strip></composer-config-strip>
                 <composer-box-attachments></composer-box-attachments>
+                <div class="paste-mirror" aria-hidden="true" hidden></div>
                 <textarea
                     aria-label="${escapeHtml(t('Message input'))}"
                     autocorrect="off"

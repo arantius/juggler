@@ -28,6 +28,7 @@ of changes; this project follows semantic versioning.
 - Extension shell ops take camelCase ids (`taskId`, `shellId`, `convId`); snake_case still works
 - Packagers can set `JUGGLER_UPDATES_MANAGED_BY` to hand updates to their package manager
 - WebSearch retries when DuckDuckGo rate-limits it, and says so if that persists
+- Firefox: undo now reverts a large paste in the prompt box
 - Extension SDK adds `formatTokens`, menu-keyboard and live-task-output helpers, and `hasStrategy`
 - A failed auto-name toast says why, such as an expired login and how to renew it
 - Usage meters no longer show a reset window's old figure, and flag failed refreshes

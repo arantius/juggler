@@ -540,7 +540,7 @@ function afterTokenMutation(composer, textarea) {
 
 /**
  * Rebuild or tear down the backdrop mirror to match the current text. With no
- * tokens the mirror is removed and the textarea is a plain, fully ordinary
+ * tokens the mirror is hidden and the textarea is a plain, fully ordinary
  * textarea — all mirror risk is confined to the moments a placeholder exists.
  * @param {any} composer - Composer instance
  */
@@ -558,23 +558,21 @@ export function syncPasteMirror(composer) {
 }
 
 /**
- * Create the mirror div (once) behind the textarea, switch the textarea to
- * transparent-text mode, disable spellcheck (squiggles on invisible text), and
- * wire the resize + selection-snapping listeners.
+ * Show the mirror div render() places behind the textarea, switch the textarea
+ * to transparent-text mode, and wire the resize + selection-snapping listeners.
+ * Nothing here may change the textarea's layout or its siblings: it runs right
+ * after the capture's undoable insert, and Gecko drops a textarea's undo
+ * history whenever it rebuilds its frame.
  * @param {any} composer - Composer instance
  * @param {HTMLTextAreaElement} textarea
  */
 function ensurePasteMirror(composer, textarea) {
   if (composer._pasteMirror) return;
-  const mirror = document.createElement('div');
-  mirror.className = 'paste-mirror';
-  mirror.setAttribute('aria-hidden', 'true');
-  // Insert as the textarea's previous sibling so it sits behind it in the
-  // wrapper's stacking context.
-  textarea.parentElement?.insertBefore(mirror, textarea);
+  const mirror = /** @type {HTMLElement|null} */ (composer.querySelector('.paste-mirror'));
+  if (!mirror) return;
+  mirror.hidden = false;
   composer._pasteMirror = mirror;
   textarea.classList.add('paste-mirrored');
-  textarea.spellcheck = false;
   if (typeof ResizeObserver === 'function') {
     composer._pasteMirrorRO = new ResizeObserver(() => syncMirrorMetrics(composer, textarea));
     composer._pasteMirrorRO.observe(textarea);
@@ -587,7 +585,7 @@ function ensurePasteMirror(composer, textarea) {
 }
 
 /**
- * Remove the mirror and restore the plain-textarea state. Idempotent.
+ * Hide and empty the mirror and restore the plain-textarea state. Idempotent.
  * @param {any} composer - Composer instance
  * @param {HTMLTextAreaElement} [textarea]
  */
@@ -602,12 +600,12 @@ export function teardownPasteMirror(composer, textarea) {
     composer._pasteSelectionListener = null;
   }
   if (composer._pasteMirror) {
-    composer._pasteMirror.remove();
+    composer._pasteMirror.hidden = true;
+    composer._pasteMirror.textContent = '';
     composer._pasteMirror = null;
   }
   if (ta) {
     ta.classList.remove('paste-mirrored');
-    ta.spellcheck = false; // matches the render() attribute default
     if (ta.style.cursor) ta.style.cursor = ''; // drop any hover pointer cursor
   }
 }

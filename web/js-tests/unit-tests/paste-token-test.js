@@ -431,6 +431,40 @@ export async function runTests() {
     }
   });
 
+  // Gecko discards a textarea's undo history when its frame is rebuilt, and a
+  // positioning change or a sibling inserted into the flex wrapper rebuilds it.
+  // The mirror is raised right after the capture's undoable insert, so in
+  // Firefox raising it must touch neither, or Cmd+Z has nothing to undo.
+  await test('raising the mirror leaves the textarea\'s positioning and siblings untouched', () => {
+    const { box, container } = mountComposer();
+    try {
+      setValue(box, '');
+      const textarea = box.querySelector('textarea');
+      const wrapper = textarea.parentElement;
+      const layout = () => {
+        const cs = getComputedStyle(textarea);
+        return `${cs.position}/${cs.zIndex}`;
+      };
+      const sameChildren = (/** @type {Element[]} */ was) => {
+        const now = [...wrapper.children];
+        return now.length === was.length && now.every((c, i) => c === was[i]);
+      };
+      const was = layout();
+      assert(was === 'relative/1', `the textarea must already sit above the mirror's layer before any paste: ${was}`);
+      const children = [...wrapper.children];
+      box._capturePaste('L'.repeat(3000));
+      assert(box._pasteMirror, 'precondition: the capture must raise the mirror');
+      assert(layout() === was, `raising the mirror must not change positioning: ${was} -> ${layout()}`);
+      assert(sameChildren(children), 'raising the mirror must not insert or remove any of the wrapper\'s children');
+      setValue(box, '');
+      box._syncPasteMirror();
+      assert(box._pasteMirror === null, 'precondition: the mirror must tear down with no tokens');
+      assert(sameChildren(children), 'tearing the mirror down must not insert or remove any of the wrapper\'s children');
+    } finally {
+      container.remove();
+    }
+  });
+
   // ── 8. Immutability (caret can't enter, edits can't corrupt) ───────────────
 
   await test('a collapsed caret is snapped OUT of a token, in the travel direction', () => {

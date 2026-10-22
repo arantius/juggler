@@ -128,6 +128,12 @@ composer-box composer-box-wrapper {
 composer-box textarea:not(.field-input) {
     flex: none;
     width: 100%;
+
+    /* Always above the paste-placeholder mirror's layer, not just while one is
+       shown: Gecko rebuilds a textarea whose positioning changes and drops its
+       undo history with it, which would swallow the undo of a captured paste. */
+    position: relative;
+    z-index: 1;
     background: transparent;
     border: none;
     color: var(--bubble-user-text);
@@ -380,8 +386,11 @@ composer-box textarea::placeholder {
    A large paste collapses to an inline "[Pasted #N · size]" pill. The textarea
    can't style a character run, so a backdrop mirror renders the same text with
    each token wrapped in a styled span, while the textarea's own text goes
-   transparent (caret preserved). The mirror is present ONLY while a token
-   exists; a token-free composer is a plain textarea. */
+   transparent (caret preserved). The mirror is rendered with the composer and
+   shown ONLY while a token exists; a token-free composer is a plain textarea.
+   It is shown and hidden rather than inserted and removed because Gecko
+   rebuilds the textarea when a sibling joins the flex wrapper, dropping its
+   undo history. */
 composer-box .paste-mirror {
     position: absolute;
     margin: 0;
@@ -399,10 +408,9 @@ composer-box .paste-mirror {
 }
 
 /* While mirrored: the textarea's glyphs go transparent so the pills behind show
-   through, but the caret and native selection highlight stay visible. */
+   through, but the caret and native selection highlight stay visible. Paint
+   properties only: a layout change here would rebuild the textarea in Gecko. */
 composer-box textarea.paste-mirrored {
-    position: relative;
-    z-index: 1;
     color: transparent;
     caret-color: var(--bubble-user-text);
     background: transparent;
