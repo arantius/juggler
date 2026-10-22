@@ -99,6 +99,18 @@ class ActionConfirmation extends JugglerElement {
      * @type {Record<number, {rules?: any, allowedPaths?: string[], patterns?: string[], pattern?: string}>} @private
      */
     this._editSnapshots = {};
+
+    /**
+     * Times this widget has left the DOM; a focusout handler compares it
+     * across a microtask to tell a move from a click-away.
+     * @type {number} @private
+     */
+    this._disconnects = 0;
+  }
+
+  disconnectedCallback() {
+    this._disconnects++;
+    super.disconnectedCallback();
   }
 
   connectedCallback() {
@@ -285,12 +297,21 @@ class ActionConfirmation extends JugglerElement {
     // before the focus-ring cleanup below so it also fires when focus moves to
     // another control INSIDE this widget (e.g. clicking the No button). Enter
     // never reaches here — it approves and removes the widget's listeners first.
+    //
+    // Chromium (WebView2) also blurs a focused element as it is removed, so a
+    // move sends this focusout from inside the removal, before the disconnect.
+    // A move keeps the edit (see connectedCallback), so the cancel waits a
+    // microtask and stands down if the widget was disconnected meanwhile.
     const losing = /** @type {HTMLElement|null} */ (event.target);
     if (losing && losing.classList && losing.classList.contains('pattern-edit-input')) {
-      const editingRow = losing.closest('.action-approval-option');
-      if (editingRow && editingRow.classList.contains('editing')) {
-        this._exitEditMode(Number(losing.dataset.editIndex), { revert: true });
-      }
+      const disconnects = this._disconnects;
+      queueMicrotask(() => {
+        if (this._disconnects !== disconnects) return;
+        const editingRow = losing.closest('.action-approval-option');
+        if (editingRow && editingRow.classList.contains('editing')) {
+          this._exitEditMode(Number(losing.dataset.editIndex), { revert: true });
+        }
+      });
     }
     const next = /** @type {Node|null} */ (event.relatedTarget);
     if (next && this.contains(next)) return;

@@ -1163,7 +1163,10 @@ export async function runTests(_ctx) {
     // Simulate focus leaving the input for somewhere outside the widget.
     // A focusout with no relatedTarget reads as "focus left the widget", which
     // is the click-away case (the handler treats null relatedTarget as outside).
+    // The cancel lands a microtask later, once a move has had its chance to
+    // disconnect the widget.
     input.dispatchEvent(new Event('focusout', { bubbles: true }));
+    await Promise.resolve();
 
     assert(field.hidden && !row.classList.contains('editing'), 'blur leaves edit mode');
     assert(options[0].rules[0].value === 'git push *', 'blur reverts the grant to its pre-edit value');

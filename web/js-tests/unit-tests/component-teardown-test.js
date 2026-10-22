@@ -948,6 +948,17 @@ export async function runTests() {
         throw new Error('a move threw away the pattern being typed');
       }
       if (!widget.querySelector('.action-approval-option.editing')) throw new Error('a move ended the edit');
+      // Chromium (WebView2) blurs a focused element as it is removed, so the
+      // input's focusout arrives inside the move; WebKit sends none. Send it
+      // by hand so every engine sees what Chromium does.
+      input.dispatchEvent(new Event('focusout', { bubbles: true }));
+      column.appendChild(widget);
+      await Promise.resolve();
+      if (!widget.querySelector('.action-approval-option.editing')) throw new Error('the focusout Chromium sends during a move ended the edit');
+      // The same focusout with the widget left in place is a click-away.
+      input.dispatchEvent(new Event('focusout', { bubbles: true }));
+      await Promise.resolve();
+      if (widget.querySelector('.action-approval-option.editing')) throw new Error('a click-away left the edit open');
       widget.remove();
       elsewhere.appendChild(widget);
       widget.querySelector('.action-confirmation-button[data-value="yes"]').click();
