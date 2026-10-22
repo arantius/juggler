@@ -131,7 +131,8 @@ func TestLicensingBoundaryAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := string(src)
+	// A Windows checkout gives LICENSING.md CRLF; the rendering is LF.
+	doc := strings.ReplaceAll(string(src), "\r\n", "\n")
 	start := strings.Index(doc, boundaryBegin)
 	end := strings.Index(doc, boundaryEnd)
 	if start < 0 || end < start {

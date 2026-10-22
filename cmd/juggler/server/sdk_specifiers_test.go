@@ -182,6 +182,7 @@ func renderSDKWorkerTwins() string {
 
 // TestSDKWorkerTwinsFixture keeps the twin list unit:sdk-facade-parity checks
 // equal to the one the engine worker actually loads. UPDATE=1 rewrites it.
+// Line endings aside: a Windows checkout gives the fixture CRLF.
 func TestSDKWorkerTwinsFixture(t *testing.T) {
 	got := renderSDKWorkerTwins()
 	if os.Getenv("UPDATE") == "1" {
@@ -192,7 +193,7 @@ func TestSDKWorkerTwinsFixture(t *testing.T) {
 		return
 	}
 	want, err := os.ReadFile(sdkTwinsFixture)
-	if err != nil || string(want) != got {
+	if err != nil || strings.ReplaceAll(string(want), "\r\n", "\n") != got {
 		t.Errorf("%s is stale (%v) — run UPDATE=1 make check RUN='TestSDKWorkerTwinsFixture' to rewrite it. Want:\n%s",
 			strings.TrimPrefix(sdkTwinsFixture, "../../../"), errOrDiffers(err), got)
 	}

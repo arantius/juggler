@@ -14,7 +14,8 @@ import (
 
 // CompareGolden holds a rendering to the checked-in file at rel (relative to
 // the module root). With UPDATE=1 in the environment it writes the file
-// instead, and the test passes.
+// instead, and the test passes. Line endings aside: a Windows checkout gives
+// the file CRLF (.gitattributes' `* text=auto`), and renderings are LF.
 func CompareGolden(t testing.TB, rel, got string) {
 	t.Helper()
 	root, _ := ModuleRoot()
@@ -36,8 +37,8 @@ func CompareGolden(t testing.TB, rel, got string) {
 	if err != nil {
 		t.Fatalf("%s: %v — run UPDATE=1 make test RUN='TestWireTypedefs' to write it", rel, err)
 	}
-	if string(want) != got {
-		t.Errorf("%s is stale — run UPDATE=1 make test RUN='TestWireTypedefs' to rewrite it:\n%s", rel, lineDiff(string(want), got))
+	if w := strings.ReplaceAll(string(want), "\r\n", "\n"); w != got {
+		t.Errorf("%s is stale — run UPDATE=1 make test RUN='TestWireTypedefs' to rewrite it:\n%s", rel, lineDiff(w, got))
 	}
 }
 
