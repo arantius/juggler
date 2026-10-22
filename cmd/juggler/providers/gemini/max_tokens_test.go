@@ -46,6 +46,25 @@ func TestPrepareRequestUsesAdmissionMaxOutputTokens(t *testing.T) {
 	}
 }
 
+func TestPrepareRequestHonorsARaise(t *testing.T) {
+	c := &Client{model: "gemini-test", maxOutputTokens: 12345}
+	msgs := []provider.Message{{Type: "user", Content: "hello"}}
+	config, _, err := c.prepareRequest(provider.MessageRequest{Messages: msgs, RaiseMaxOutputTokens: 30000})
+	if err != nil {
+		t.Fatalf("prepareRequest: %v", err)
+	}
+	if config.MaxOutputTokens != 30000 {
+		t.Fatalf("MaxOutputTokens = %d, want the raise 30000", config.MaxOutputTokens)
+	}
+	config, _, err = c.prepareRequest(provider.MessageRequest{Messages: msgs, RaiseMaxOutputTokens: 30000, MaxOutputTokens: 1000})
+	if err != nil {
+		t.Fatalf("prepareRequest: %v", err)
+	}
+	if config.MaxOutputTokens != 1000 {
+		t.Fatalf("MaxOutputTokens = %d, want the lowering cap 1000", config.MaxOutputTokens)
+	}
+}
+
 func TestPrepareRequestLeavesMaxOutputTokensUnsetWithoutCapability(t *testing.T) {
 	c := &Client{model: "gemini-test"}
 	config, _, err := c.prepareRequest(provider.MessageRequest{

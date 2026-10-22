@@ -41,6 +41,7 @@ import { CONVERSATION_RULES_KEY, CONVERSATION_PATHS_KEY } from './message-thread
 import {
   waitForApproval as orchestrationWaitForApproval,
   continueThread as orchestrationContinueThread,
+  retryTruncatedTurn as orchestrationRetryTruncatedTurn,
 } from './conversation-orchestration.js';
 
 /**
@@ -678,6 +679,13 @@ class Conversation {
    * @returns {Promise<boolean>} True when a continuation was dispatched
    */
   async continueThread(mt, beforeContinue) { return orchestrationContinueThread(this, mt, beforeContinue); }
+
+  /**
+   * @param {import('./message-thread.js').default} mt
+   * @param {string} noticeId - The truncation notice's item id
+   * @returns {Promise<boolean>} True when the retry was sent
+   */
+  async retryTruncatedTurn(mt, noticeId) { return orchestrationRetryTruncatedTurn(this, mt, noticeId); }
 
   /** @private */
   _initBuiltInContextItems() {

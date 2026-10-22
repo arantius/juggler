@@ -387,6 +387,11 @@ func (c *Client) buildMessageParams(req provider.MessageRequest) anthropicsdk.Be
 	// snapshot value. Admission charged reserve = snapshot value, so a wire value
 	// at or below it keeps admission conservative (it over-reserves) — acceptable.
 	maxTokens := c.maxOutputTokens
+	// A one-off raise lifts the client value before the catalog clamp, so a
+	// model's known ceiling still bounds it.
+	if req.RaiseMaxOutputTokens > maxTokens {
+		maxTokens = req.RaiseMaxOutputTokens
+	}
 	if catalogMax, known := catalogMaxOutputTokens(c.model); known {
 		if maxTokens <= 0 || int64(catalogMax) < maxTokens {
 			maxTokens = int64(catalogMax)

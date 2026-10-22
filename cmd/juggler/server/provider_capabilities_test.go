@@ -234,9 +234,9 @@ func TestWindowResolverReportsAssumedWindow(t *testing.T) {
 	// None of the three states an output limit, so every reserve is derived.
 	resolve := s.createWindowResolver()
 	for model, want := range map[string]worker.ContextWindowInfo{
-		"guessed":   {WindowTokens: 8192, ReserveTokens: int(provider.ContextSafetyReserve(8192)), Assumed: true, ReserveDerived: true},
-		"corrected": {WindowTokens: 256000, ReserveTokens: int(provider.ContextSafetyReserve(256000)), ReserveDerived: true},
-		"reported":  {WindowTokens: 131072, ReserveTokens: int(provider.ContextSafetyReserve(131072)), ReserveDerived: true},
+		"guessed":   {WindowTokens: 8192, ReserveTokens: int(provider.ContextSafetyReserve(8192)), Assumed: true, ReserveDerived: true, OutputRaiseCeiling: 4096},
+		"corrected": {WindowTokens: 256000, ReserveTokens: int(provider.ContextSafetyReserve(256000)), ReserveDerived: true, OutputRaiseCeiling: 128000},
+		"reported":  {WindowTokens: 131072, ReserveTokens: int(provider.ContextSafetyReserve(131072)), ReserveDerived: true, OutputRaiseCeiling: 65536},
 	} {
 		if got := resolve(worker.ModelConfig{Provider: providerName, Model: model}); got != want {
 			t.Errorf("%s: resolver = %+v, want %+v", model, got, want)
@@ -281,11 +281,11 @@ func TestWindowResolverReportsDerivedReserve(t *testing.T) {
 
 	resolve := s.createWindowResolver()
 	for model, want := range map[string]worker.ContextWindowInfo{
-		"unreported":       {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true},
-		"provider-derived": {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true},
-		"reported":         {WindowTokens: 262144, ReserveTokens: 16384},
-		"user-set":         {WindowTokens: 262144, ReserveTokens: 50000},
-		"over-ceiling":     {WindowTokens: 100000, ReserveTokens: 20000, ReserveDerived: true},
+		"unreported":       {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true, OutputRaiseCeiling: 131072},
+		"provider-derived": {WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true, OutputRaiseCeiling: 131072},
+		"reported":         {WindowTokens: 262144, ReserveTokens: 16384, OutputRaiseCeiling: 16384},
+		"user-set":         {WindowTokens: 262144, ReserveTokens: 50000, OutputRaiseCeiling: 131072},
+		"over-ceiling":     {WindowTokens: 100000, ReserveTokens: 20000, ReserveDerived: true, OutputRaiseCeiling: 50000},
 	} {
 		if got := resolve(worker.ModelConfig{Provider: providerName, Model: model}); got != want {
 			t.Errorf("%s: resolver = %+v, want %+v", model, got, want)
@@ -295,6 +295,48 @@ func TestWindowResolverReportsDerivedReserve(t *testing.T) {
 	// claim to have been derived.
 	if got := resolve(worker.ModelConfig{Provider: providerName, Model: "unlisted"}); got.ReserveDerived {
 		t.Errorf("unlisted model with no window claims a derived reserve: %+v", got)
+	}
+}
+
+// TestWindowResolverReportsHowFarMaxOutputCanRise pins the ceiling a one-off
+// retry may raise Max output to: the limit the provider itself states, even
+// beneath a lower user override; half the window when it states none; and
+// nothing at all on a provider whose transport has no per-request output knob.
+func TestWindowResolverReportsHowFarMaxOutputCanRise(t *testing.T) {
+	userpathstest.Isolate(t)
+	const raisable, fixed = "test_capability_raise", "test_capability_raise_fixed"
+	provider.RegisterProvider(provider.ProviderInfo{Name: raisable},
+		func(provider.Config) (provider.Provider, error) { return nil, nil })
+	provider.RegisterProvider(provider.ProviderInfo{Name: fixed, FixedOutputCap: true},
+		func(provider.Config) (provider.Provider, error) { return nil, nil })
+
+	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
+		Limits: map[string]map[string]core.ModelLimits{raisable: {
+			"lowered": {MaxOutputTokens: 8000},
+		}},
+	}}); err != nil {
+		t.Fatalf("SaveGlobalSettings: %v", err)
+	}
+	s := &Server{settings: newSettingsStore()}
+	settings := s.settings.get()
+	published := []ModelWithContext{
+		{ID: "lowered", ContextWindow: 200000, MaxOutputTokens: 64000, FromAPI: true},
+	}
+	for i, m := range published {
+		published[i] = withDerivedOutputBudget(applyModelLimits(m, settings.ModelLimitsFor(raisable, m.ID)), false)
+	}
+	providers := []ProviderStatus{
+		{Name: raisable, ModelsWithContext: published},
+		{Name: fixed, ModelsWithContext: []ModelWithContext{{ID: "local", ContextWindow: 262144}}},
+	}
+	s.providersList.Store(&providers)
+
+	resolve := s.createWindowResolver()
+	if got := resolve(worker.ModelConfig{Provider: raisable, Model: "lowered"}); got.ReserveTokens != 8000 || got.OutputRaiseCeiling != 64000 {
+		t.Errorf("lowered: resolver = %+v, want reserve 8000 under the provider's own 64000 ceiling", got)
+	}
+	if got := resolve(worker.ModelConfig{Provider: fixed, Model: "local"}); got.OutputRaiseCeiling != 0 {
+		t.Errorf("fixed-cap provider offers a raise: %+v", got)
 	}
 }
 

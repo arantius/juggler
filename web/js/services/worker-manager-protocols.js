@@ -1031,6 +1031,19 @@ export function retryToolAction(wm, conversationId, toolUseId) {
 }
 
 /**
+ * Re-run a turn that ran out of Max output, once, at the larger figure its
+ * truncation notice offered. The worker checks the notice is still the thread's
+ * last item before it removes the cut-off turn and continues.
+ * @param {any} wm
+ * @param {string} conversationId
+ * @param {string|null} threadItemId - The thread the notice is in; null for the root
+ * @param {string} noticeId - The truncation notice's item id
+ */
+export function retryTruncatedTurn(wm, conversationId, threadItemId, noticeId) {
+  wm.sendToWorker(conversationId, { type: 'retry-truncated-turn', threadItemId: threadItemId || undefined, noticeId });
+}
+
+/**
  * Update tool action for retry: set approvalOptions and displayData.
  * Called when retrying an action — worker resets to pending, main updates options.
  * @param {any} wm

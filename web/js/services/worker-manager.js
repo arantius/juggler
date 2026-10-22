@@ -803,6 +803,16 @@ export class WorkerManager {
     protocols.retryToolAction(this, conversationId, toolUseId);
   }
 
+  /**
+   * Re-run a turn that ran out of Max output, once, at the figure its notice offered.
+   * @param {string} conversationId
+   * @param {string|null} threadItemId - The thread the notice is in; null for the root
+   * @param {string} noticeId - The truncation notice's item id
+   */
+  retryTruncatedTurn(conversationId, threadItemId, noticeId) {
+    protocols.retryTruncatedTurn(this, conversationId, threadItemId, noticeId);
+  }
+
 
   /**
    * Update tool action for retry (set approvalOptions and displayData)

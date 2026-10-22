@@ -2,12 +2,13 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-import BaseMessage from './base-message.js';
+import BaseMessage, { FINAL_ITEM_ATTR } from './base-message.js';
 import { renderResultStatusMessage } from '../../sdk/lib/html.js';
 import { wrapWithIcon, TYPE_ICONS } from '../utils/icon-message-renderer.js';
 import { NOTICE_TYPE_NAME } from '../utils/item-badge.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { formatTokens } from '../utils/format.js';
 
 /**
  * Notice message component — a durable record of something that happened to a
@@ -23,15 +24,17 @@ import { t } from '../../sdk/lib/i18n.js';
  * beside it carries the meaning. The rest (the measured values, the provider's
  * verbatim reason) is read by selecting the row, in the properties panel.
  *
- * The one exception is a notice whose cause is a setting the user can correct —
- * a context window Juggler had to assume. Such a notice carries a
+ * The exceptions are notices that come with a fix. One whose cause is a setting
+ * the user can correct — a context window Juggler had to assume — carries a
  * `notice-settings` target, and the row gains a single link to that field, so
  * the fix is one click from the explanation rather than a hunt through
- * Settings.
+ * Settings. One reporting a turn cut off at its Max output may carry
+ * `notice-retry-max-output`, and while it is the thread's last item the row
+ * offers to run that turn again, once, with Max output raised to that figure.
  */
 class NoticeMessage extends BaseMessage {
   static get observedAttributes() {
-    return ['notice-text', 'notice-settings'];
+    return ['notice-text', 'notice-settings', 'notice-retry-max-output', FINAL_ITEM_ATTR];
   }
 
   /** @returns {string} The notice's one-line explanation */
@@ -60,6 +63,16 @@ class NoticeMessage extends BaseMessage {
   }
 
   /**
+   * The Max output a retry of the cut-off turn would run at, or 0 when this
+   * notice offers none.
+   * @returns {number} Tokens
+   */
+  get retryMaxOutput() {
+    const tokens = Number(this.getAttribute('notice-retry-max-output'));
+    return Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
+  }
+
+  /**
    * Render the message
    * @override
    */
@@ -80,7 +93,25 @@ class NoticeMessage extends BaseMessage {
     }));
 
     const target = this.settingsTarget;
-    if (target) {
+    const retryMaxOutput = this.isFinalItem ? this.retryMaxOutput : 0;
+    if (retryMaxOutput) {
+      const actions = document.createElement('div');
+      actions.className = 'notice-message-actions message-row-body';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'message-action-btn notice-retry-btn';
+      button.textContent = t('Retry with {count} tokens', { count: formatTokens(retryMaxOutput) });
+      button.title = t('Run this turn again once, with Max output raised to {count} tokens. Settings stay as they are.',
+        { count: formatTokens(retryMaxOutput) });
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = this.itemId;
+        if (id) this._getMessageThread()?.retryTruncatedTurn(id);
+      });
+      actions.appendChild(button);
+      article.appendChild(actions);
+    } else if (target) {
       const actions = document.createElement('div');
       actions.className = 'notice-message-actions message-row-body';
       const button = document.createElement('button');

@@ -8,11 +8,13 @@
 
 package worker
 
+import "encoding/json"
+
 // mockScript holds nothing in a release build: no worker carries a script.
 type mockScript struct{}
 
 // callScriptedLLM never answers in a release build; every call goes to the
 // provider.
-func (r *run) callScriptedLLM(string, func(StreamChunk)) (scripted bool, response *LLMResponse, err error) {
+func (r *run) callScriptedLLM(json.RawMessage, string, func(StreamChunk)) (scripted bool, response *LLMResponse, err error) {
 	return false, nil, nil
 }

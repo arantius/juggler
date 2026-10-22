@@ -1438,6 +1438,55 @@ func (w *ConversationWorker) handleRetryToolAction(payload json.RawMessage) {
 	})
 }
 
+// handleRetryTruncatedTurn re-runs a turn that ran out of Max output, once, at
+// the larger figure its truncation notice offered (truncationNoticeData). The
+// cut-off turn's own output and the notice are removed first, so the retry is
+// sent the same history the cut-off turn was rather than its unfinished
+// thinking, and reads in the transcript as the turn it replaces. The rest is an
+// ordinary Continue, which lifts the pause and rate-limit marks as a human
+// request does.
+//
+// Only the notice the thread ends on is honoured: anything after it means the
+// conversation has moved on, and a retry would rewrite history under it.
+func (r *run) handleRetryTruncatedTurn(payload json.RawMessage) {
+	var m struct {
+		ThreadItemID string `json:"threadItemId"`
+		NoticeID     string `json:"noticeId"`
+	}
+	if !r.decodePayload("retry-truncated-turn", payload, &m) {
+		return
+	}
+	dest, ok := r.resolveThread(m.ThreadItemID)
+	if !ok || r.threadBusy(m.ThreadItemID) {
+		return
+	}
+	items := r.itemsIn(dest)
+	if len(items) == 0 {
+		return
+	}
+	notice := items[len(items)-1]
+	if notice.ItemID != m.NoticeID || notice.Type != ItemTypeNotice || len(notice.Data) == 0 {
+		return
+	}
+	var offer truncationNoticeData
+	if json.Unmarshal(notice.Data, &offer) != nil || offer.RetryMaxOutput <= 0 {
+		return
+	}
+
+	r.tracker.StopCapturing()
+	r.tracker.RemoveItemsByID(m.ThreadItemID, append(offer.Discard, notice.ItemID))
+	r.batcher.Flush()
+
+	continuation, _ := json.Marshal(SendMessageMessage{Type: msgSendMessage, ThreadItemID: m.ThreadItemID, IsContinuation: true})
+	r.handleSendMessage(continuation)
+	// Marked only once the Continue has queued the turn — one refused (no model,
+	// say) must not leave a raise waiting for whatever turn comes next. The
+	// reducer has not run yet, so the queued turn is the one that takes it.
+	if r.threadActivity(m.ThreadItemID) == ActivityAwaitingLLM {
+		r.markRaiseMaxOutput(m.ThreadItemID, offer.RetryMaxOutput)
+	}
+}
+
 // handleUpdateToolActionForRetry updates approval options and display data for retry
 func (w *ConversationWorker) handleUpdateToolActionForRetry(payload json.RawMessage) {
 	var msg struct {

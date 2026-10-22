@@ -863,18 +863,28 @@ type modelLimitProvenance struct {
 	// from the window (provider.ContextSafetyReserve): neither the provider nor
 	// the user stated a usable one.
 	outputDerived bool
+	// raiseCeiling is the most a one-off retry may raise the output limit to:
+	// the limit the provider itself states for the model, whatever the user
+	// overrode it to, or half the window when it states none. 0 when the
+	// provider cannot set a request's output length (FixedOutputCap) or no
+	// window is known.
+	raiseCeiling int64
 }
 
 // resolveModelLimits is resolveModelCapabilities together with the provenance
 // of its window and output limit.
 func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelCapabilities, modelLimitProvenance) {
 	assumed, outputDerived := false, false
+	// stated is the output limit the provider itself gives for the model, before
+	// any user override; 0 when it gives none.
+	var stated int64
 	info, hasInfo := provider.GetProviderInfo(providerName)
 	capabilities := provider.ModelCapabilities{}
 	if hasInfo {
 		if info.ResolveModelCapabilities != nil {
 			if resolved, found := info.ResolveModelCapabilities(model); found {
 				capabilities = resolved
+				stated = resolved.MaxOutputTokens
 			}
 		}
 		if capabilities.ContextWindowTokens <= 0 {
@@ -898,6 +908,18 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 			}
 			if candidate.MaxOutputTokens > 0 {
 				capabilities.MaxOutputTokens = int64(candidate.MaxOutputTokens)
+			}
+			// The provider's own figure sits under an override when there is one;
+			// a figure it derived from the window is not a limit it stated.
+			own := candidate.MaxOutputTokens
+			if candidate.ProviderMaxOutputTokens != nil {
+				own = *candidate.ProviderMaxOutputTokens
+			}
+			switch {
+			case candidate.DerivedMaxOutputTokens > 0:
+				stated = 0
+			case own > 0:
+				stated = int64(own)
 			}
 			// The entry derived its budget unless the user overrode it, and unless a
 			// static resolver supplied a stated limit the entry left blank.
@@ -932,7 +954,25 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 	if normalized.MaxOutputTokens != capabilities.MaxOutputTokens {
 		outputDerived = true
 	}
-	return normalized, modelLimitProvenance{windowAssumed: assumed, outputDerived: outputDerived}
+	return normalized, modelLimitProvenance{
+		windowAssumed: assumed,
+		outputDerived: outputDerived,
+		raiseCeiling:  outputRaiseCeiling(info, normalized.ContextWindowTokens, stated),
+	}
+}
+
+// outputRaiseCeiling is how far a one-off retry may raise a model's output
+// limit (modelLimitProvenance.raiseCeiling). A stated limit that the window
+// cannot hold is the same catalogue artifact normalizeOutputLimit discards, so
+// it is treated as no statement at all.
+func outputRaiseCeiling(info provider.ProviderInfo, window, stated int64) int64 {
+	if info.FixedOutputCap || window <= 0 {
+		return 0
+	}
+	if stated > 0 && int64(utils.ClampOutputToWindow(int(window), int(stated))) == stated {
+		return stated
+	}
+	return window / 2
 }
 
 // normalizeOutputLimit fills the derived safety reserve when the window is

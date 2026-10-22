@@ -68,7 +68,7 @@ var workerInboundTypedefs = []wireschema.Entry{
 var workerInboundUntyped = []wireMsgType{
 	msgInjectThreadMessage, msgDeliveryEnded, msgPause, msgUnpause, msgUndo, msgRedo, msgClearHistory,
 	msgStopUndoCapturing, msgBeginUndoCoalesce, msgEndUndoCoalesce, msgRetryToolApproval,
-	msgRetryToolAction, msgUpdateToolActionForRetry, msgBackgroundTaskSnapshot, msgRequestFullState,
+	msgRetryToolAction, msgRetryTruncatedTurn, msgUpdateToolActionForRetry, msgBackgroundTaskSnapshot, msgRequestFullState,
 	msgResyncToOrigin, msgToolExecutionReport, msgEngineTrace, msgRenameLog, msgFlushPersistence,
 }
 

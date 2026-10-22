@@ -201,11 +201,16 @@ func (r *run) processStreamChunk(chunk StreamChunk) {
 		// every peer renders the same digit off the doc (no point-to-point WS
 		// frame — a second browser view would never receive it). Throttled
 		// because text deltas can arrive ~30/sec on a fast provider; one
-		// Yjs broadcast per delta would dominate the sync channel.
+		// Yjs broadcast per delta would dominate the sync channel. The call's
+		// Max output goes with it, so the count is read against its limit.
 		now := time.Now().UnixMilli()
 		if now-r.t.lastProgressWriteMs >= 200 {
 			r.t.lastProgressWriteMs = now
-			r.mergeProcessingTokens(chunk.OutputTokens, 0, 0)
+			maxOutput := r.t.maxOutputTokens
+			r.patchLiveRun(func(entry runEntry) {
+				entry.mergeTokens(chunk.OutputTokens, 0, 0)
+				entry.setMaxOutputTokens(maxOutput)
+			})
 		}
 	case provider.ContentBlockTypeUsage:
 		// Surface input/cached tokens on the live spinner status text
@@ -550,6 +555,14 @@ func (r *run) insertProviderNotice(notice *StreamNotice) {
 	})
 }
 
+// truncationNoticeData is the Data payload of a truncation notice that offers a
+// one-off retry: the Max output to retry at, and the items the cut-off turn left
+// that the retry replaces. Absent when no larger Max output can be had.
+type truncationNoticeData struct {
+	RetryMaxOutput int      `json:"retryMaxOutput,omitempty"`
+	Discard        []string `json:"discard,omitempty"`
+}
+
 // insertTruncationNotice records that the provider ended a turn at its output
 // budget, at the point in the conversation where it happened.
 //
@@ -569,9 +582,20 @@ func (r *run) insertProviderNotice(notice *StreamNotice) {
 // A budget Juggler derived from the window is the one a user cannot trace to
 // anything they or their server set, so that case names the figure as Juggler's
 // default, the window it came from, and what raising it costs.
-func (r *run) insertTruncationNotice(response *LLMResponse) {
+//
+// When endsRun is true the run stops here, with nothing of the turn worth
+// keeping beyond what the retry would redo, and a larger Max output can be had,
+// the notice also offers a one-off retry at double the figure that ran out —
+// capped where the provider's own limit, or half the window, says it must be.
+func (r *run) insertTruncationNotice(response *LLMResponse, endsRun bool) {
 	limits := r.resolveContextWindow()
 	reserve := limits.ReserveTokens
+	// A raised retry that ran out too is quoted at the figure it was sent with,
+	// which is no longer the derived default.
+	if r.t.maxOutputTokens > reserve {
+		reserve = r.t.maxOutputTokens
+		limits.ReserveDerived = false
+	}
 
 	// The measured figures say whichever of the budget and its use are known.
 	budget := "none"
@@ -589,21 +613,21 @@ func (r *run) insertTruncationNotice(response *LLMResponse) {
 	// because the transcript shows thinking and then nothing, which reads like a
 	// crash rather than a budget.
 	content := msg.New("The model hit its output limit before it finished, so this turn stops mid-reply."+
-		"{thinkingOnly, select, yes { It spent the whole budget thinking, so there is no answer to show.} other {}}\n\n"+
-		"{budget, select, both {Output budget: {reserve} tokens; this turn used {used}. } reserve {Output budget: {reserve} tokens. } used {This turn produced {used} output tokens. } other {}}"+
-		"Thinking counts against that budget. To allow longer replies, raise this model's "+
+		"{thinkingOnly, select, yes { It used all of that on thinking, so there is no answer to show.} other {}}\n\n"+
+		"{budget, select, both {Max output: {reserve} tokens; this turn used {used}. } reserve {Max output: {reserve} tokens. } used {This turn produced {used} output tokens. } other {}}"+
+		"Thinking counts against it. To allow longer replies, raise this model's "+
 		"Max output tokens under its provider's \"Models and token limits\" in Settings. Unless you set it there, "+
-		"the budget comes from the model's own limit or is derived from its context window, so a window smaller "+
-		"than the one your server really serves shrinks replies too.",
+		"Juggler uses the limit your provider reports for the model, or derives one from its context window, so a "+
+		"window smaller than the one your server really serves shrinks replies too.",
 		"thinkingOnly", yesNo(!hasAssistantText(response)), "budget", budget,
 		"reserve", reserve, "used", response.OutputTokens)
 	if limits.ReserveDerived && reserve > 0 && limits.WindowTokens > 0 {
 		content = msg.New("The model hit its output limit before it finished, so this turn stops mid-reply."+
-			"{thinkingOnly, select, yes { It spent the whole budget thinking, so there is no answer to show.} other {}}\n\n"+
-			"{budget, select, both {Output budget: {reserve} tokens; this turn used {used}. } other {Output budget: {reserve} tokens. }}"+
+			"{thinkingOnly, select, yes { It used all of that on thinking, so there is no answer to show.} other {}}\n\n"+
+			"{budget, select, both {Max output: {reserve} tokens; this turn used {used}. } other {Max output: {reserve} tokens. }}"+
 			"Neither you nor the provider set a limit for this model, so that is Juggler's default, derived from its "+
 			"{window}-token context window. Thinking counts against it. To allow longer replies, set this model's "+
-			"Max output tokens under its provider's \"Models and token limits\" in Settings. The budget is held back "+
+			"Max output tokens under its provider's \"Models and token limits\" in Settings. Max output is held back "+
 			"inside the context window, so a larger one leaves less room for conversation history.",
 			"thinkingOnly", yesNo(!hasAssistantText(response)), "budget", budget,
 			"reserve", reserve, "used", response.OutputTokens, "window", limits.WindowTokens)
@@ -618,6 +642,15 @@ func (r *run) insertTruncationNotice(response *LLMResponse) {
 		ItemID:    generateItemID(),
 		Source:    source,
 		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	if retry := min(2*reserve, limits.OutputRaiseCeiling); endsRun && reserve > 0 && retry > reserve {
+		data := truncationNoticeData{
+			RetryMaxOutput: retry,
+			Discard:        append([]string(nil), r.t.attemptOutput...),
+		}
+		if raw, err := json.Marshal(data); err == nil {
+			notice.Data = raw
+		}
 	}
 	// The lead alone is the row: it already says what happened in one line, and
 	// the measured numbers that follow it are the panel's business.

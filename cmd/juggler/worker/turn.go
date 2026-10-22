@@ -161,6 +161,16 @@ type turnState struct {
 	// history. Cleared as each attempt starts.
 	attemptOutput []string
 
+	// maxOutputTokens is the Max output the current LLM call is sent with —
+	// the model's resolved reserve, or a retry's raised figure — published
+	// beside the running output count so the spinner can show how near the
+	// limit the reply is. 0 when unknown. Set as each turn builds its request.
+	maxOutputTokens int
+
+	// raiseMaxOutputTokens is the one-off Max output the current request asks
+	// for (strategyRunState.raiseMaxOutputTokens); 0 when it asks for none.
+	raiseMaxOutputTokens int
+
 	// retryStatusActive is true while the spinner is showing "retrying" and no
 	// content has arrived since. It keeps the honest label up for the whole of
 	// the next attempt — which may itself spend minutes backing off — until real

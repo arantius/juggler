@@ -702,6 +702,12 @@ func (cv *admissionConversation) Submit(ctx context.Context, req MessageRequest,
 	if reserve <= 0 {
 		reserve = ContextSafetyReserve(window)
 	}
+	// A one-off raise (a retry of a turn that ran out of Max output) is charged
+	// in full: a raised reply that cannot fit beside the input is advised to
+	// compact below rather than dispatched to be cut off again.
+	if req.RaiseMaxOutputTokens > reserve {
+		reserve = req.RaiseMaxOutputTokens
+	}
 	// A per-request output cap (F1: hidden compaction map calls) only ever lowers
 	// the wire max_tokens, so charge the smaller reserve to match — the reserve
 	// admission charges must never exceed what the wire actually reserves. The

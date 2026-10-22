@@ -84,6 +84,8 @@ func (s *Server) createWindowResolver() worker.WindowResolverFunc {
 			ReserveTokens:  int(caps.MaxOutputTokens),
 			Assumed:        provenance.windowAssumed,
 			ReserveDerived: provenance.outputDerived,
+			// The most a one-off "retry with a larger Max output" may ask for.
+			OutputRaiseCeiling: int(provenance.raiseCeiling),
 		}
 	}
 }
@@ -183,6 +185,7 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 			TransactionID        string               `json:"transactionId"`
 			ToolChoice           *provider.ToolChoice `json:"toolChoice,omitempty"`
 			MaxOutputTokens      int64                `json:"maxOutputTokens,omitempty"`
+			RaiseMaxOutputTokens int64                `json:"raiseMaxOutputTokens,omitempty"`
 			BypassContextGuard   bool                 `json:"bypassContextGuard,omitempty"`
 			SyntheticTranscript  bool                 `json:"syntheticTranscript,omitempty"`
 			ExplicitContinuation bool                 `json:"explicitContinuation,omitempty"`
@@ -274,6 +277,7 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 			// F1: per-request wire output cap (hidden compaction map calls). 0 =
 			// use the client/model default; adapters apply it as a min().
 			MaxOutputTokens:        req.MaxOutputTokens,
+			RaiseMaxOutputTokens:   req.RaiseMaxOutputTokens,
 			BypassContextGuard:     req.BypassContextGuard,
 			SyntheticTranscript:    req.SyntheticTranscript,
 			ContextCeilingFraction: req.ContextCeilingFraction,

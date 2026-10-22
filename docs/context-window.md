@@ -88,14 +88,14 @@ one model's maximum output ranged from 16K to 943K under a single name — so fo
 a gateway only what that gateway reports means anything, and a built-in figure
 is a last resort rather than a fact.
 
-## The output reserve
+## Max output
 
-Every request must leave room for the answer. Juggler reserves, in order of
-preference: the Max output you set for the model in Settings, the model's
-reported maximum output, or — when only the window is known — a derived
-reserve that grows with the window:
+Every request must leave room for the answer, and Max output is how much.
+Juggler takes, in order of preference: the Max output you set for the model in
+Settings, the model's reported maximum output, or — when only the window is
+known — a derived figure that grows with the window:
 
-| Context window | Derived output budget |
+| Context window | Derived Max output |
 |---|---|
 | up to 100k | a fifth of the window (32k → 6,400) |
 | 100k – 160k | 20,000 |
@@ -104,17 +104,26 @@ reserve that grows with the window:
 
 The same number is sent to the provider as the wire output cap and held back
 inside the window before sending, so the two never diverge. That is the
-trade-off in raising it: a larger budget allows longer replies — a reasoning
-model's thinking counts against it — but leaves less room for conversation
-history, so compaction starts sooner. Compaction is suggested once the input
-plus the budget passes 85% of the window; at 262,144 tokens with the derived
-32,768 that is at about 190k tokens of input.
+trade-off in raising it: a larger Max output allows longer replies — a
+reasoning model's thinking counts against it — but leaves less room for
+conversation history, so compaction starts sooner. Compaction is suggested once
+the input plus Max output passes 85% of the window; at 262,144 tokens with the
+derived 32,768 that is at about 190k tokens of input.
 
-Settings → Providers → *Models and token limits* shows a derived budget as
+Settings → Providers → *Models and token limits* shows a derived Max output as
 **auto (32,768)**, with a tooltip saying where it came from. Type a number in
 the Max output field to replace it; clear the field to go back to auto. When a
-turn stops at a derived budget, the notice in the conversation says so and
+turn stops at a derived Max output, the notice in the conversation says so and
 names the window it was derived from.
+
+While a reply streams, the status line shows its tokens against Max output
+(**1.2k / 32k tokens**), so a reply nearing the limit is visible before it hits
+it. When one does stop there, and a larger Max output can be had, the notice
+offers **Retry with N tokens**: the cut-off turn is replaced and run once more
+at double the limit, capped at the limit the provider states for the model or,
+when it states none, half the window. Settings are left as they are. Providers
+that cannot set a reply's length per request (Claude Code, ACP agents, Codex)
+offer no retry.
 
 ## What is checked before each call
 

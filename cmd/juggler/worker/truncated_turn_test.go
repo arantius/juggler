@@ -161,7 +161,7 @@ func TestTruncationNoticeExplainsADerivedBudget(t *testing.T) {
 		t.Fatalf("got %d notice items, want exactly 1", len(notices))
 	}
 	content := notices[0].Content
-	for _, want := range []string{"Output budget: 32768", "Juggler's default", "262144-token context window",
+	for _, want := range []string{"Max output: 32768", "Juggler's default", "262144-token context window",
 		"Models and token limits", "less room"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("derived-budget notice lacks %q: %q", want, content)
@@ -190,8 +190,129 @@ func TestTruncationNoticeDoesNotCallAReportedBudgetDerived(t *testing.T) {
 	if len(notices) != 1 {
 		t.Fatalf("got %d notice items, want exactly 1", len(notices))
 	}
-	if content := notices[0].Content; strings.Contains(content, "Juggler's default") || !strings.Contains(content, "Output budget: 16384") {
+	if content := notices[0].Content; strings.Contains(content, "Juggler's default") || !strings.Contains(content, "Max output: 16384") {
 		t.Errorf("reported-budget notice misdescribes its budget: %q", content)
+	}
+}
+
+// onlyNotice returns the run's single notice, failing unless there is exactly one.
+func onlyNotice(t *testing.T, w *ConversationWorker) ConversationItem {
+	t.Helper()
+	notices := itemsByType(w)[ItemTypeNotice]
+	if len(notices) != 1 {
+		t.Fatalf("got %d notice items, want exactly 1", len(notices))
+	}
+	return notices[0]
+}
+
+// retryOffer decodes the one-off retry a truncation notice offers; zero when it
+// offers none.
+func retryOffer(t *testing.T, notice ConversationItem) truncationNoticeData {
+	t.Helper()
+	var data truncationNoticeData
+	if len(notice.Data) > 0 {
+		if err := json.Unmarshal(notice.Data, &data); err != nil {
+			t.Fatalf("notice data %s: %v", notice.Data, err)
+		}
+	}
+	return data
+}
+
+// raisesSent reports the raiseMaxOutputTokens each scripted request carried, 0
+// for one that carried none.
+func raisesSent(t *testing.T, w *ConversationWorker) []int {
+	t.Helper()
+	var raises []int
+	for _, raw := range w.mock().sentRequests() {
+		var req struct {
+			Raise int `json:"raiseMaxOutputTokens"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			t.Fatalf("request %s: %v", raw, err)
+		}
+		raises = append(raises, req.Raise)
+	}
+	return raises
+}
+
+// The reported case, recovered: a thinking-only turn cut off at a derived
+// 32,768 offers a one-off retry at double that. Taking it removes the barren
+// thinking and the notice, sends exactly one request with the raise, and the
+// turn after it goes back to the model's own Max output.
+func TestTruncationRetryRaisesMaxOutputForOneRequest(t *testing.T) {
+	w := newTruncationWorker(t, "conv-truncated-retry")
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "llamacpp", "model": "local"})
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo {
+		return ContextWindowInfo{WindowTokens: 262144, ReserveTokens: 32768, ReserveDerived: true, OutputRaiseCeiling: 131072}
+	})
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{thinkingBlock("pondering")}, StopReason: "max_tokens", OutputTokens: 32768},
+	})
+	w.driveStrategyLoop(t, "write the whole app", false)
+
+	notice := onlyNotice(t, w)
+	offer := retryOffer(t, notice)
+	if offer.RetryMaxOutput != 65536 {
+		t.Fatalf("retry offered at %d, want double the 32768 that ran out", offer.RetryMaxOutput)
+	}
+	thinking := itemsByType(w)[ItemTypeThinking]
+	if len(thinking) != 1 || len(offer.Discard) != 1 || offer.Discard[0] != thinking[0].ItemID {
+		t.Fatalf("retry would discard %v, want exactly the cut-off thinking %v", offer.Discard, thinking)
+	}
+
+	// A notice that is not the one on screen asks for nothing.
+	stale, _ := json.Marshal(map[string]any{"threadItemId": "", "noticeId": "no-such-notice"})
+	w.currentRun().handleRetryTruncatedTurn(stale)
+	if got := w.threadActivity(""); got != ActivityNone {
+		t.Fatalf("a retry of an unknown notice started work: activity %q", got)
+	}
+
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{textBlock("here is the app")}, StopReason: "end_turn"},
+		{Blocks: []LLMResponseBlock{textBlock("and the tests")}, StopReason: "end_turn"},
+	})
+	payload, _ := json.Marshal(map[string]any{"threadItemId": "", "noticeId": notice.ItemID})
+	w.currentRun().handleRetryTruncatedTurn(payload)
+
+	items := itemsByType(w)
+	if n := len(items[ItemTypeThinking]) + len(items[ItemTypeNotice]); n != 0 {
+		t.Fatalf("the cut-off turn is still on screen after its retry: %d thinking/notice items", n)
+	}
+	if got := w.threadActivity(""); got != ActivityAwaitingLLM {
+		t.Fatalf("activity after retry = %q, want the thread queued for dispatch", got)
+	}
+
+	w.driveStrategyLoop(t, "", true)
+	w.driveStrategyLoop(t, "now the tests", false)
+
+	if !assistantContains(itemsByType(w), "here is the app") {
+		t.Fatal("the retried turn's answer did not land")
+	}
+	if got := raisesSent(t, w); len(got) != 2 || got[0] != 65536 || got[1] != 0 {
+		t.Fatalf("raises sent = %v, want [65536 0]: the retry alone is raised", got)
+	}
+}
+
+// No retry is offered where a larger Max output cannot be had: a provider that
+// cannot set a request's output length, or a model already at the limit its
+// provider states.
+func TestTruncationOffersNoRetryItCannotHonour(t *testing.T) {
+	for name, info := range map[string]ContextWindowInfo{
+		"fixed-cap provider":     {WindowTokens: 200000, ReserveTokens: 32000},
+		"at the stated limit":    {WindowTokens: 200000, ReserveTokens: 64000, OutputRaiseCeiling: 64000},
+		"unknown window and cap": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newTruncationWorker(t, "conv-truncated-no-retry")
+			w.SetWindowResolver(func(ModelConfig) ContextWindowInfo { return info })
+			w.setMockResponses([]MockResponse{
+				{Blocks: []LLMResponseBlock{thinkingBlock("pondering")}, StopReason: "max_tokens", OutputTokens: 100},
+			})
+			w.driveStrategyLoop(t, "write the whole app", false)
+			if offer := retryOffer(t, onlyNotice(t, w)); offer.RetryMaxOutput != 0 {
+				t.Fatalf("offered a retry at %d it cannot honour", offer.RetryMaxOutput)
+			}
+		})
 	}
 }
 

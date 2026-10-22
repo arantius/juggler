@@ -18,6 +18,7 @@ import NoticeMessage from '../../js/components/notice-message.js';
 import { buildPrefixFingerprint, classifyContextCacheImpact } from '../../js/services/context-cache-impact.js';
 import { typeNameForItem } from '../../js/utils/item-badge.js';
 import { registerSettingsOpener } from '../../js/services/settings-launcher.js';
+import { formatTokens } from '../../js/utils/format.js';
 
 /**
  * @returns {{box: any, container: HTMLElement, metadata: Map<string, any>, notify: (key: string) => void}} Mounted composer and metadata controls
@@ -183,6 +184,35 @@ export async function runTests() {
     }
   });
 
+  // A notice offering a one-off retry at a larger Max output carries that one
+  // action, and only while it is the thread's last item: once the conversation
+  // has moved on, re-running the turn would rewrite history under it.
+  test('a truncation notice offers its retry while it is the last word', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    /** @type {string[]} */
+    const retried = [];
+    try {
+      const el = /** @type {any} */ (document.createElement('notice-message'));
+      el.setAttribute('message-id', 'NOTICE_RETRY');
+      el.setAttribute('notice-text', 'The model hit its output limit before it finished, so this turn stops mid-reply.');
+      el.setAttribute('notice-retry-max-output', '65536');
+      el._getMessageThread = () => ({ retryTruncatedTurn: (/** @type {string} */ id) => { retried.push(id); } });
+      container.appendChild(el);
+      assert(!el.querySelector('.notice-retry-btn'), 'a notice the thread has moved past offers no retry');
+
+      el.setAttribute('item-final', '');
+      const button = /** @type {HTMLButtonElement|null} */ (el.querySelector('.notice-retry-btn'));
+      assert(!!button, 'the last-word truncation notice must offer its retry');
+      assert((button.textContent || '').includes(formatTokens(65536)),
+        `the action must name the Max output it retries at, got ${JSON.stringify(button.textContent)}`);
+      button.click();
+      assert(retried.length === 1 && retried[0] === 'NOTICE_RETRY', `retry asked for ${JSON.stringify(retried)}`);
+    } finally {
+      container.remove();
+    }
+  });
+
   test('the panel labels a notice the same way the row does', () => {
     const notice = item({ type: 'notice', summary: 'Cache miss happened', content: 'lead\n\nReason: diverged' });
     assert(typeNameForItem(notice) === 'Warning',
@@ -233,6 +263,15 @@ export async function runTests() {
         container.appendChild(el);
         assert(!!el.querySelector('.notice-settings-btn'), 'no settings link');
         assertPseudoLocalized(el, { atLeast: 4, where: 'notice with a settings link' });
+
+        const retry = /** @type {any} */ (document.createElement('notice-message'));
+        retry.setAttribute('message-id', 'NOTICE_XA_RETRY');
+        retry.setAttribute('notice-text', pseudoLocalize('Something happened'));
+        retry.setAttribute('notice-retry-max-output', '1');
+        retry.setAttribute('item-final', '');
+        container.appendChild(retry);
+        assert(!!retry.querySelector('.notice-retry-btn'), 'no retry button');
+        assertPseudoLocalized(retry, { atLeast: 3, where: 'notice with a retry' });
         const lozenge = typeNameForItem(item({ type: 'notice' }));
         assert(isPseudoLocalized(lozenge), `panel lozenge ${JSON.stringify(lozenge)}`);
       } finally {

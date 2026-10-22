@@ -41,5 +41,7 @@ func Info() provider.ProviderInfo {
 		// Each agent is spawned over stdio, in the conversation's own directory,
 		// so it can only serve a workspace this machine is able to spawn into.
 		SpawnsLocalProcess: true,
+		// The protocol has no per-request output length either.
+		FixedOutputCap: true,
 	}
 }

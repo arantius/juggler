@@ -209,5 +209,21 @@ export async function runTests() {
     });
   });
 
+  // A truncation notice that offers a one-off retry hands its figure to the row,
+  // which draws the button only while the notice is the thread's last word.
+  await run('a truncation notice carries its retry figure to the row', async () => {
+    const list = document.createElement('div');
+    const footer = document.createElement('div');
+    list.appendChild(footer);
+    positionElements({}, list, footer, [item({
+      type: 'notice', itemId: 'n-retry', summary: 'The model hit its output limit before it finished, so this turn stops mid-reply.',
+      data: { retryMaxOutput: 65536, discard: ['t1'] },
+    })], new Map());
+    const row = list.querySelector('notice-message');
+    assert(!!row, 'the notice drew no row');
+    assert(row?.getAttribute('notice-retry-max-output') === '65536',
+      `retry figure on the row = ${JSON.stringify(row?.getAttribute('notice-retry-max-output'))}, want "65536"`);
+  });
+
   return { passed, failed, errors };
 }

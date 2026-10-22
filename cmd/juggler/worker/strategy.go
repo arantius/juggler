@@ -124,6 +124,10 @@ type strategyRunState struct {
 	// bypassContextGuard skips the pre-flight ceiling for the next attempt
 	// only, after an overflow verdict asked to retry without it.
 	bypassContextGuard bool
+	// raiseMaxOutputTokens is a retry's one-off Max output, taken from the run
+	// entry when the run starts and held until a request carrying it is
+	// answered — so a compaction or restart before then does not spend it.
+	raiseMaxOutputTokens int
 }
 
 // runOneTurn runs a single pass of the strategy loop: promote queued messages,
@@ -255,7 +259,18 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	txnID := generateTransactionID()
 	r.t.txnID = txnID
 
+	if raise := r.consumeRaiseMaxOutput(r.t.thread.itemID); raise > 0 {
+		st.raiseMaxOutputTokens = raise
+	}
+	r.t.raiseMaxOutputTokens = st.raiseMaxOutputTokens
+
 	llmRequest := r.buildLLMRequestWithIntent(ctxResult, tools, txnID, st.bypassContextGuard, explicitContinuation)
+
+	// The Max output this call is admitted against, for the spinner's running
+	// count and the truncation notice. A provider catalogue that knows a lower
+	// ceiling may clamp the wire value below it; the reserve is still what the
+	// user set, was given, or asked for in a retry.
+	r.t.maxOutputTokens = max(r.resolveContextWindow().ReserveTokens, st.raiseMaxOutputTokens)
 
 	// Stamp the originating user message before the call. The transaction
 	// blob is written below regardless of outcome, so on LLM failure the
@@ -290,6 +305,9 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	}
 
 	st.bypassContextGuard = false
+	// The raise was for this one answered request; later turns use the model's
+	// own Max output.
+	st.raiseMaxOutputTokens = 0
 	// A successful dispatch closes this context-pressure incident: a later
 	// overflow in the same (possibly very long) strategy run gets a fresh
 	// bounded recovery budget instead of inheriting an exhausted one. This
@@ -379,7 +397,7 @@ func (r *run) settleTurn(st *strategyRunState, response *LLMResponse, shouldCont
 	// starts nearer the limit than the last. Surface it once, here, naming the
 	// budget that ended it.
 	if response.StopReason == provider.StopReasonMaxTokens {
-		r.insertTruncationNotice(response)
+		r.insertTruncationNotice(response, !hasToolUse(response))
 		r.batcher.Flush()
 		// Truncated before it emitted anything usable: there is nothing to
 		// react to and nothing a further turn could add, so rest.
@@ -665,6 +683,16 @@ func (w *ConversationWorker) turnProducedAction(response *LLMResponse) bool {
 	if hasAssistantText(response) {
 		return true
 	}
+	for _, block := range response.Blocks {
+		if block.Type == provider.ContentBlockTypeToolUse {
+			return true
+		}
+	}
+	return false
+}
+
+// hasToolUse reports whether the response asked for any tool call.
+func hasToolUse(response *LLMResponse) bool {
 	for _, block := range response.Blocks {
 		if block.Type == provider.ContentBlockTypeToolUse {
 			return true
@@ -975,7 +1003,7 @@ func (r *run) callLLMWithSink(request json.RawMessage, sink func(StreamChunk)) (
 		}
 	}
 
-	if scripted, response, err := r.callScriptedLLM(turnID, correlatedSink); scripted {
+	if scripted, response, err := r.callScriptedLLM(request, turnID, correlatedSink); scripted {
 		return response, err
 	}
 

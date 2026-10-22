@@ -157,6 +157,10 @@ func (r *run) buildLLMRequestWithIntent(ctxResult *ContextResult, tools []ToolDe
 	if explicitContinuation {
 		request["explicitContinuation"] = true
 	}
+	// A retry of a turn that ran out of Max output asks for more, once.
+	if r.t.raiseMaxOutputTokens > 0 {
+		request["raiseMaxOutputTokens"] = r.t.raiseMaxOutputTokens
+	}
 	if bypassContextGuard {
 		request["bypassContextGuard"] = true
 	}

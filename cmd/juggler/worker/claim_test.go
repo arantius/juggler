@@ -503,6 +503,38 @@ func TestNewStatusFrameDropsPreviousPhaseFields(t *testing.T) {
 	}
 }
 
+// TestProgressCarriesTheTurnsMaxOutput: the running output count is drawn
+// against the Max output the turn was sent with, so a viewer can see a reply
+// approaching its limit rather than only learning of it from the notice after.
+// The figure rides the same entry as the count, and is dropped with it at the
+// next phase.
+func TestProgressCarriesTheTurnsMaxOutput(t *testing.T) {
+	w := NewConversationWorker("test-progress-max-output", "user:test")
+	t.Cleanup(func() { w.doc.Destroy() })
+
+	r := w.currentRun()
+	r.t.maxOutputTokens = 32768
+	r.sendStatus("streaming", "")
+	r.processStreamChunk(StreamChunk{Type: provider.ContentBlockTypeProgress, OutputTokens: 1200})
+
+	state := w.readProcessingState()
+	entry := runEntryOf(state, "")
+	if got, _ := entry["outputTokens"].(int); got != 1200 {
+		t.Fatalf("entry outputTokens = %v, want 1200", entry["outputTokens"])
+	}
+	if got, _ := entry["maxOutputTokens"].(int); got != 32768 {
+		t.Fatalf("entry maxOutputTokens = %v, want the turn's 32768", entry["maxOutputTokens"])
+	}
+	if got, _ := state["maxOutputTokens"].(int); got != 32768 {
+		t.Fatalf("projected maxOutputTokens = %v, want 32768", state["maxOutputTokens"])
+	}
+
+	r.sendStatus("processing_tools", "")
+	if v, ok := runEntryOf(w.readProcessingState(), "")["maxOutputTokens"]; ok {
+		t.Fatalf("maxOutputTokens survived the phase change: %v", v)
+	}
+}
+
 // TestAwaitingToolsRepublishesRunStatus: a turn that ends on async tool calls
 // hands the loop back through transitionToAwaitingLLM, and the run's own entry —
 // which the UI reads — must say "processing_tools" from then on, without the

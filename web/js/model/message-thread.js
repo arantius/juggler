@@ -1249,6 +1249,16 @@ export default class MessageThread {
   }
 
   /**
+   * Re-run the turn a truncation notice reports, once, at the larger Max output
+   * the notice offered. The worker replaces the cut-off turn and continues.
+   * @param {string} noticeId - The truncation notice's item id
+   * @returns {Promise<boolean>} True when the retry was sent.
+   */
+  async retryTruncatedTurn(noticeId) {
+    return this.conversation.retryTruncatedTurn(this, noticeId);
+  }
+
+  /**
    * Create a child thread, run it to completion, and return the result.
    * This is the public API for plugins to create sub-threads — callers
    * do not need to know about the worker or execution engine.

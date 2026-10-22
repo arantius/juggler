@@ -593,6 +593,11 @@ const fallbackMaxOutputTokens = 8192
 
 func (c *Client) effectiveMaxOutputTokens(req provider.MessageRequest) int {
 	maxTokens := c.maxOutputTokens
+	// A one-off raise lifts the snapshot before the catalogue clamp, so a
+	// model's known ceiling still bounds it.
+	if req.RaiseMaxOutputTokens > 0 && int(req.RaiseMaxOutputTokens) > maxTokens {
+		maxTokens = int(req.RaiseMaxOutputTokens)
+	}
 	// The catalog is authoritative for the wire ceiling of a model it knows, so
 	// clamp the snapshot down to it (min). Unknown models keep the snapshot. This
 	// keeps admission conservative: it charged reserve = snapshot, and the wire

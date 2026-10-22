@@ -603,6 +603,57 @@ func TestAdmissionChargesRequestOutputCapAsReserve(t *testing.T) {
 	})
 }
 
+// TestAdmissionChargesARaisedReserve: a one-off raise is charged in full, so a
+// request the raised reply cannot fit beside is advised to compact rather than
+// dispatched to be cut off again, and a raise as large as the window is refused.
+func TestAdmissionChargesARaisedReserve(t *testing.T) {
+	req := MessageRequest{Messages: []Message{{Type: "user", Content: "x"}}}
+	estimated := EstimateMessageRequestTokens(req)
+	caps := ModelCapabilities{ContextWindowTokens: estimated + 100_000, MaxOutputTokens: 100}
+
+	t.Run("a raise that fits is admitted", func(t *testing.T) {
+		wrapped, conversation := openAdmissionTestConversation(t, Config{ModelCapabilities: caps})
+		raised := req
+		raised.RaiseMaxOutputTokens = 1000
+		if _, err := conversation.Submit(context.Background(), raised, nil); err != nil {
+			t.Fatalf("raised submit rejected: %v", err)
+		}
+		if wrapped.submits != 1 {
+			t.Fatalf("wrapped submits = %d, want 1", wrapped.submits)
+		}
+	})
+
+	t.Run("a raise past the ceiling is advised, not dispatched", func(t *testing.T) {
+		wrapped, conversation := openAdmissionTestConversation(t, Config{ModelCapabilities: caps})
+		raised := req
+		raised.RaiseMaxOutputTokens = 99_000
+		_, err := conversation.Submit(context.Background(), raised, nil)
+		var advisory *ContextCompactionAdvisory
+		if !errors.As(err, &advisory) {
+			t.Fatalf("error = %T %v, want ContextCompactionAdvisory", err, err)
+		}
+		if advisory.OutputReserveTokens != 99_000 {
+			t.Fatalf("charged reserve = %d, want the raise 99000", advisory.OutputReserveTokens)
+		}
+		if wrapped.submits != 0 {
+			t.Fatalf("wrapped submits = %d, want none", wrapped.submits)
+		}
+	})
+
+	t.Run("a lowering cap still wins over a raise", func(t *testing.T) {
+		wrapped, conversation := openAdmissionTestConversation(t, Config{ModelCapabilities: caps})
+		both := req
+		both.RaiseMaxOutputTokens = 99_000
+		both.MaxOutputTokens = 50
+		if _, err := conversation.Submit(context.Background(), both, nil); err != nil {
+			t.Fatalf("capped submit rejected: %v", err)
+		}
+		if wrapped.submits != 1 {
+			t.Fatalf("wrapped submits = %d, want 1", wrapped.submits)
+		}
+	})
+}
+
 func TestAdmissionDerivesOutputReserveFromKnownContext(t *testing.T) {
 	tests := []struct {
 		name    string

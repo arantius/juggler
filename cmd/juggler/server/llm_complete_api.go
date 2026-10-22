@@ -155,7 +155,7 @@ func emptyReplyError(res QuickCompleteResult) error {
 	if strings.TrimSpace(res.Text) != "" || res.StopReason != provider.StopReasonMaxTokens {
 		return nil
 	}
-	return msg.NewError("The model used its whole output budget reasoning and gave no answer. Lower its reasoning level in Settings → Defaults → Cheap model.")
+	return msg.NewError("The model ran out of output tokens while reasoning and gave no answer. Lower its reasoning level in Settings → Defaults → Cheap model.")
 }
 
 // resolveLLMCompleteModel resolves the request's `model` union to a concrete

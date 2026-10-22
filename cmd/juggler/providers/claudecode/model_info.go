@@ -60,6 +60,8 @@ func Info() provider.ProviderInfo {
 		// The provider IS a subprocess, run in the conversation's own directory,
 		// so it can only serve a workspace this machine is able to spawn into.
 		SpawnsLocalProcess: true,
+		// The CLI has no per-request max_tokens knob (see streamMessage).
+		FixedOutputCap: true,
 	}
 }
 

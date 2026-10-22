@@ -169,6 +169,9 @@ func Register(d Descriptor) {
 		// honor a named tool_choice, so the worker runs those turns unforced
 		// rather than send a choice the upstream rejects.
 		ForcedToolChoiceUnsupported: !d.Quirks.ForcedToolChoiceSupported,
+		// An endpoint that rejects max_output_tokens is sent none, so it cannot
+		// be sent a raised one either.
+		FixedOutputCap: d.Quirks.OmitResponsesMaxOutputTokens,
 		// The OpenAI-compatible wire reports authoritative per-call prompt usage,
 		// which the stream loop re-emits as a transient usage chunk; the footer
 		// meter can grow against it live. On by default, opt-out per descriptor.

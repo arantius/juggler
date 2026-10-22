@@ -112,6 +112,11 @@ func (c *Client) prepareRequest(req provider.MessageRequest) (*genai.GenerateCon
 	if c.maxOutputTokens > 0 {
 		config.MaxOutputTokens = c.maxOutputTokens
 	}
+	// A one-off raise lifts the client value; the lowering cap below still
+	// wins over it.
+	if req.RaiseMaxOutputTokens > int64(config.MaxOutputTokens) && req.RaiseMaxOutputTokens <= math.MaxInt32 {
+		config.MaxOutputTokens = int32(req.RaiseMaxOutputTokens)
+	}
 	// A per-request wire output cap (F1: hidden compaction map calls) may only
 	// lower the effective max output — apply it as a min() against the client
 	// value (0 = unset means "no client cap", so the request cap wins there).

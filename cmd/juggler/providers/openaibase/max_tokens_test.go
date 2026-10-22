@@ -58,6 +58,39 @@ func TestEffectiveMaxOutputTokensClampsToCatalog(t *testing.T) {
 	}
 }
 
+// TestEffectiveMaxOutputTokensHonorsARaise: a one-off raise lifts the wire cap
+// above the snapshot, but a model's catalogued ceiling still bounds it and a
+// per-request lowering cap still wins over it.
+func TestEffectiveMaxOutputTokensHonorsARaise(t *testing.T) {
+	catalog := func(model string) (int, bool) {
+		if model == "known" {
+			return 50000, true
+		}
+		return 0, false
+	}
+	cases := []struct {
+		name   string
+		model  string
+		raise  int64
+		reqCap int64
+		want   int
+	}{
+		{"raise lifts above snapshot", "other", 40000, 0, 40000},
+		{"raise below snapshot changes nothing", "other", 10000, 0, 20000},
+		{"catalogue ceiling bounds a raise", "known", 80000, 0, 50000},
+		{"a lowering cap still wins", "other", 40000, 4096, 4096},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Client{model: tc.model, maxOutputTokens: 20000, catalogMaxOutput: catalog}
+			req := provider.MessageRequest{RaiseMaxOutputTokens: tc.raise, MaxOutputTokens: tc.reqCap}
+			if got := c.effectiveMaxOutputTokens(req); got != tc.want {
+				t.Fatalf("effectiveMaxOutputTokens() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResponsesRequestUsesConfiguredMaxOutputTokens(t *testing.T) {
 	var got float64
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

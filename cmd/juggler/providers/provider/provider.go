@@ -102,6 +102,16 @@ type MessageRequest struct {
 	// the smaller reserve so the wire cap and the admission reserve never diverge.
 	MaxOutputTokens int64
 
+	// RaiseMaxOutputTokens optionally raises this one request's output length
+	// above the model's resolved Max output: a user's one-off retry of a turn
+	// that ran out of it. 0 means no raise. Adapters apply it before the
+	// catalogue clamp, so a model's known ceiling still wins, and before
+	// MaxOutputTokens, which still only lowers. Admission charges the raised
+	// reserve, so the wire cap and the reserve never diverge. A provider whose
+	// transport has no per-request output knob declares FixedOutputCap and is
+	// never sent one.
+	RaiseMaxOutputTokens int64
+
 	// BypassContextGuard explicitly permits this request to dispatch when its
 	// estimate is over the admission ceiling. The worker sets it only for one
 	// visible fallback attempt after structured compaction cannot progress, and
@@ -931,6 +941,12 @@ type ProviderInfo struct {
 	// such a provider runs the turn unforced instead of spending it on a call it
 	// cannot make.
 	ForcedToolChoiceUnsupported bool
+	// FixedOutputCap marks a provider whose transport cannot set one request's
+	// output length — a CLI or agent protocol with no max_tokens knob, or an
+	// endpoint that rejects the field. Such a provider cannot honour
+	// MessageRequest.RaiseMaxOutputTokens, so nothing offers a retry with a
+	// larger Max output on it. The zero value is a provider that can.
+	FixedOutputCap bool
 	// StreamsLiveUsage marks a provider that reports authoritative per-step input
 	// usage mid-turn that maps onto our context meter — i.e. its transient `usage`
 	// stream chunks carry a real, monotonic prompt-token total the footer bar can

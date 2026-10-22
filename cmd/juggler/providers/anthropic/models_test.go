@@ -700,6 +700,24 @@ func TestBuildMessageParamsClampsCapabilityToCatalog(t *testing.T) {
 	}
 }
 
+// TestBuildMessageParamsHonorsARaise: a one-off raise lifts max_tokens above
+// the client's resolved value, up to the catalogue ceiling, and a per-request
+// lowering cap still wins over it.
+func TestBuildMessageParamsHonorsARaise(t *testing.T) {
+	msgs := []provider.Message{{Type: "user", Content: "hi"}}
+
+	c := &Client{model: "claude-sonnet-4-5-20250929", maxOutputTokens: 16000}
+	if got := c.buildMessageParams(provider.MessageRequest{Messages: msgs, RaiseMaxOutputTokens: 32000}).MaxTokens; got != 32000 {
+		t.Fatalf("MaxTokens = %d, want the raise 32000", got)
+	}
+	if got := c.buildMessageParams(provider.MessageRequest{Messages: msgs, RaiseMaxOutputTokens: 1_000_000}).MaxTokens; got != 64000 {
+		t.Fatalf("MaxTokens = %d, want catalogue 64000 bounding the raise", got)
+	}
+	if got := c.buildMessageParams(provider.MessageRequest{Messages: msgs, RaiseMaxOutputTokens: 32000, MaxOutputTokens: 4096}).MaxTokens; got != 4096 {
+		t.Fatalf("MaxTokens = %d, want the lowering cap 4096", got)
+	}
+}
+
 // TestBuildMessageParamsHonorsRequestOutputCap pins F1a: a per-request
 // MaxOutputTokens only ever lowers the wire max_tokens (min against the client/
 // catalog value), and the thinking budget follows the tightened value.

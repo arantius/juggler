@@ -39,6 +39,7 @@ const (
 	msgEndUndoCoalesce             wireMsgType = "end-undo-coalesce"
 	msgRetryToolApproval           wireMsgType = "retry-tool-approval"
 	msgRetryToolAction             wireMsgType = "retry-tool-action"
+	msgRetryTruncatedTurn          wireMsgType = "retry-truncated-turn"
 	msgUpdateToolActionForRetry    wireMsgType = "update-tool-action-for-retry"
 	msgBackgroundTaskSnapshot      wireMsgType = "background-task-snapshot"
 	msgCreateThread                wireMsgType = "create-thread"
@@ -82,7 +83,7 @@ var allWorkerInbound = []wireMsgType{
 	msgInit, msgSendMessage, msgInjectThreadMessage, msgDeliveryEnded, msgCancel, msgPause, msgUnpause,
 	msgProviderTurn, msgRenderContextItemsResponse, msgToolsResult, msgStrategyHookResponse,
 	msgBuildSubthreadSpecResponse, msgYjsSync, msgUndo, msgRedo, msgClearHistory, msgStopUndoCapturing,
-	msgBeginUndoCoalesce, msgEndUndoCoalesce, msgRetryToolApproval, msgRetryToolAction,
+	msgBeginUndoCoalesce, msgEndUndoCoalesce, msgRetryToolApproval, msgRetryToolAction, msgRetryTruncatedTurn,
 	msgUpdateToolActionForRetry, msgBackgroundTaskSnapshot, msgCreateThread,
 	msgResummarizeCompactionThread, msgRequestFullState, msgResyncRequest, msgResyncToOrigin,
 	msgToolExecutionReport, msgEngineTrace, msgRenameLog, msgRequestAutoName, msgClearUndoStacks,

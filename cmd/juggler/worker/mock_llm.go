@@ -11,6 +11,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 
@@ -29,12 +30,13 @@ type mockScript struct {
 func (w *ConversationWorker) mock() *mockLLMCaller { return w.script.caller.Load() }
 
 // callScriptedLLM answers a provider call from the worker's script when a test
-// has installed one. scripted is false when none is, and the call goes to the
-// provider.
-func (r *run) callScriptedLLM(turnID string, sink func(StreamChunk)) (scripted bool, response *LLMResponse, err error) {
+// has installed one, recording the request it was asked. scripted is false when
+// none is, and the call goes to the provider.
+func (r *run) callScriptedLLM(request json.RawMessage, turnID string, sink func(StreamChunk)) (scripted bool, response *LLMResponse, err error) {
 	if r.mock() == nil {
 		return false, nil, nil
 	}
+	r.mock().recordRequest(request)
 	response, err = r.callLLMMockWithSink(turnID, sink)
 	return true, response, err
 }
@@ -53,6 +55,34 @@ type mockLLMCaller struct {
 	// pause announcement. One-shot: the goroutine takes it, so a script with
 	// several paused responses gates only the first.
 	gate atomic.Pointer[announceGate]
+
+	// requests is every request the script was asked to answer, in order, for a
+	// test asserting on what a turn sent rather than on what came back. Replaced
+	// whole on each append, as several turns may record at once.
+	requests atomic.Pointer[[]json.RawMessage]
+}
+
+// recordRequest keeps a copy of a request the script is answering.
+func (m *mockLLMCaller) recordRequest(request json.RawMessage) {
+	kept := append(json.RawMessage(nil), request...)
+	for {
+		old := m.requests.Load()
+		next := []json.RawMessage{kept}
+		if old != nil {
+			next = append(append([]json.RawMessage(nil), *old...), kept)
+		}
+		if m.requests.CompareAndSwap(old, &next) {
+			return
+		}
+	}
+}
+
+// sentRequests returns the requests the script has answered so far.
+func (m *mockLLMCaller) sentRequests() []json.RawMessage {
+	if requests := m.requests.Load(); requests != nil {
+		return *requests
+	}
+	return nil
 }
 
 // announceGate stops the delivery goroutine immediately before it announces a
@@ -74,13 +104,15 @@ func newMockLLMCaller() *mockLLMCaller {
 	return m
 }
 
-// setResponses installs a fresh script. Called between turns, never beside one.
+// setResponses installs a fresh script, forgetting the requests the last one
+// answered. Called between turns, never beside one.
 func (m *mockLLMCaller) setResponses(r []MockResponse) {
 	queue := make(chan MockResponse, len(r)+1)
 	for _, response := range r {
 		queue <- response
 	}
 	m.responses.Store(&queue)
+	m.requests.Store(nil)
 }
 
 // pop takes the next scripted response, reporting how many are left behind it.

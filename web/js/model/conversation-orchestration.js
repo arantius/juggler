@@ -86,3 +86,27 @@ export async function continueThread(conversation, messageThread, beforeContinue
   conversation.showWarning(t('Still connecting to the engine — try again in a moment.'), 5000);
   return false;
 }
+
+/**
+ * Re-run the turn a truncation notice reports, once, at the larger Max output
+ * the notice offered. The same guards as a Continue apply: the worker would
+ * refuse a busy thread anyway, but refusing here keeps the button from looking
+ * as though it did something.
+ * @param {import('./conversation.js').default} conversation
+ * @param {import('./message-thread.js').default} messageThread
+ * @param {string} noticeId - The truncation notice's item id
+ * @returns {Promise<boolean>} True when the retry was sent.
+ */
+export async function retryTruncatedTurn(conversation, messageThread, noticeId) {
+  const { default: actionExecutor } = await import('../services/action-executor.js');
+  if (messageThread.isProcessing || actionExecutor.hasRunningActionsFor(conversation.id) || messageThread.hasBusyItems()) {
+    return false;
+  }
+  if (!workerManager.isWorkerReady(conversation.id)) {
+    conversation.showWarning(t('Still connecting to the engine — try again in a moment.'), 5000);
+    return false;
+  }
+  conversation.announceTurnRequested();
+  workerManager.retryTruncatedTurn(conversation.id, messageThread.threadItemId, noticeId);
+  return true;
+}

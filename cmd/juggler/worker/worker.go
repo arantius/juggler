@@ -914,6 +914,7 @@ var workerInbound = map[wireMsgType]inboundHandler{
 
 	msgRetryToolApproval:        func(r *run, m workerMessage) { r.handleRetryToolApproval(m.Payload) },
 	msgRetryToolAction:          func(r *run, m workerMessage) { r.handleRetryToolAction(m.Payload) },
+	msgRetryTruncatedTurn:       func(r *run, m workerMessage) { r.handleRetryTruncatedTurn(m.Payload) },
 	msgUpdateToolActionForRetry: func(r *run, m workerMessage) { r.handleUpdateToolActionForRetry(m.Payload) },
 	msgBackgroundTaskSnapshot:   func(r *run, m workerMessage) { r.handleBackgroundTaskSnapshot(m.Payload) },
 	msgToolExecutionReport:      func(r *run, m workerMessage) { r.handleToolExecutionReport(m.Payload, m.OriginClient) },

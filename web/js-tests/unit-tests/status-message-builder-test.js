@@ -15,7 +15,7 @@
 
 import LLMState from '../../js/services/llm-state.js';
 import { StatusMessageBuilder } from '../../js/services/status-message-builder.js';
-import { formatDuration } from '../../js/utils/format.js';
+import { formatDuration, formatTokens } from '../../js/utils/format.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { assert } from '../utilities/test-helpers.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
@@ -76,6 +76,9 @@ export async function runTests() {
       see('streaming 5 out', B.buildStreamingStatus({ outputTokens: 5, elapsedTime: 3000 }));
       see('streaming in→out', B.buildStreamingStatus({ inputTokens: 1200, outputTokens: 30 }));
       see('streaming cached', B.buildStreamingStatus({ inputTokens: 1200, cachedTokens: 900, outputTokens: 30, elapsedTime: 3000 }));
+      see('streaming out/max', B.buildStreamingStatus({ outputTokens: 1200, maxOutputTokens: 32768 }));
+      see('streaming in→out/max', B.buildStreamingStatus({ inputTokens: 1200, outputTokens: 30, maxOutputTokens: 32768 }));
+      see('streaming cached/max', B.buildStreamingStatus({ inputTokens: 1200, cachedTokens: 900, outputTokens: 30, maxOutputTokens: 32768 }));
 
       // LLMState's own fallbacks, through the frames that reach them.
       const llm = /** @type {any} */ (new LLMState());
@@ -97,6 +100,8 @@ export async function runTests() {
         see('llm preparing', llm.getStatusMessage(convId));
         publish({ status: 'streaming', startedAt, outputTokens: 12 });
         see('llm streaming', llm.getStatusMessage(convId));
+        publish({ status: 'streaming', startedAt, outputTokens: 12, maxOutputTokens: 32768 });
+        see('llm streaming/max', llm.getStatusMessage(convId));
         publish({ status: 'retrying', startedAt });
         see('llm retrying fallback', llm.getStatusMessage(convId));
         publish({ status: 'compacting', startedAt });
@@ -120,6 +125,31 @@ export async function runTests() {
       }
       assert(raw.length === 0, `plain English under en-XA:\n  ${raw.join('\n  ')}`);
     });
+  });
+
+  // The worker publishes the call's Max output beside the running count; the
+  // line draws the count against it, so a reply nearing its limit shows it.
+  await run('a frame carrying maxOutputTokens draws the count against it', async () => {
+    const llm = /** @type {any} */ (new LLMState());
+    const convId = 'conv-status-builder-max-output';
+    llm._conversations.set(convId, {
+      showWarning: () => {},
+      restorePendingMessage: () => {},
+      trySelfHealMissingModel: () => false,
+      armSelfHeal: () => {},
+    });
+    try {
+      const startedAt = Date.now();
+      llm._handleProcessingStateChange(convId, { status: 'streaming', startedAt, outputTokens: 1200, maxOutputTokens: 32768 });
+      const line = llm.getStatusMessage(convId);
+      const want = `${formatTokens(1200)}\u00A0/ ${formatTokens(32768)}\u00A0tokens`;
+      assert(line.includes(want), `status line = "${line}", want it to include "${want}"`);
+      llm._handleProcessingStateChange(convId, { status: 'streaming', startedAt, outputTokens: 1200 });
+      const bare = llm.getStatusMessage(convId);
+      assert(!bare.includes('/'), `status line = "${bare}", want no limit drawn when the frame carries none`);
+    } finally {
+      llm.stop(convId);
+    }
   });
 
   return { passed, failed, errors };

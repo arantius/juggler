@@ -495,6 +495,31 @@ func (w *ConversationWorker) consumeExplicitContinuation(threadItemID string) bo
 	)
 }
 
+// markRaiseMaxOutput records a one-shot Max output for the given thread's next
+// LLM request: the user's retry of a turn that ran out of it. The turn that
+// sends that request consumes it (consumeRaiseMaxOutput), so the raise reaches
+// exactly one request and every turn after it reverts to the model's own limit.
+func (w *ConversationWorker) markRaiseMaxOutput(threadItemID string, tokens int) {
+	w.patchRunIf(threadItemID,
+		anyEntry,
+		func(entry runEntry, _ map[string]any) { entry.setRaiseMaxOutputTokens(tokens) },
+	)
+}
+
+// consumeRaiseMaxOutput returns and clears the one-shot Max output pending on
+// the thread, 0 when there is none.
+func (w *ConversationWorker) consumeRaiseMaxOutput(threadItemID string) int {
+	tokens := 0
+	w.patchRunIf(threadItemID,
+		func(entry runEntry) bool { return entry.raiseMaxOutputTokens() > 0 },
+		func(entry runEntry, _ map[string]any) {
+			tokens = entry.raiseMaxOutputTokens()
+			entry.clearRaiseMaxOutputTokens()
+		},
+	)
+	return tokens
+}
+
 // requestLLM marks the given thread "awaiting_llm", signaling that an LLM call
 // should be dispatched on it once all its work is terminal. The threadItemID
 // identifies which thread needs dispatch ("" = root).

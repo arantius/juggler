@@ -37,6 +37,8 @@ const (
 	runFieldInputTokens          = "inputTokens"
 	runFieldOutputTokens         = "outputTokens"
 	runFieldCachedTokens         = "cachedTokens"
+	runFieldMaxOutputTokens      = "maxOutputTokens"
+	runFieldRaiseMaxOutputTokens = "raiseMaxOutputTokens"
 )
 
 // runProjectedFields are the spinner fields a run owns: what it is doing, since
@@ -47,6 +49,7 @@ const (
 var runProjectedFields = []string{
 	runFieldStatus, runFieldMessage, runFieldCode, runFieldStartedAt,
 	runFieldDescription, runFieldPhase, runFieldInputTokens, runFieldOutputTokens, runFieldCachedTokens,
+	runFieldMaxOutputTokens,
 }
 
 // runEntryFromLegacy is the one run a frame describes through its top-level
@@ -165,6 +168,14 @@ func (e runEntry) setExplicitContinuation() { e[runFieldExplicitContinuation] = 
 
 func (e runEntry) clearExplicitContinuation() { delete(e, runFieldExplicitContinuation) }
 
+// raiseMaxOutputTokens is the one-shot Max output a retry of a cut-off turn asked
+// for (markRaiseMaxOutput); 0 when none is pending.
+func (e runEntry) raiseMaxOutputTokens() int { return int(docInt64(e[runFieldRaiseMaxOutputTokens])) }
+
+func (e runEntry) setRaiseMaxOutputTokens(tokens int) { e[runFieldRaiseMaxOutputTokens] = tokens }
+
+func (e runEntry) clearRaiseMaxOutputTokens() { delete(e, runFieldRaiseMaxOutputTokens) }
+
 // setPolitePending marks, or unmarks, the entry as work a pause is waiting on.
 // Unmarking removes the key, which is how the client reads "not pending".
 func (e runEntry) setPolitePending(pending bool) {
@@ -233,12 +244,22 @@ func (e runEntry) mergeTokens(outputTokens, inputTokens, cachedTokens int) {
 	}
 }
 
+// setMaxOutputTokens records the Max output the streaming call was sent with,
+// the denominator the spinner draws the running output count against. A
+// non-positive figure is unknown and leaves the field absent.
+func (e runEntry) setMaxOutputTokens(tokens int) {
+	if tokens > 0 {
+		e[runFieldMaxOutputTokens] = tokens
+	}
+}
+
 // phaseProgressFields are the mid-stream progress fields, which belong to the
 // phase that produced them: a token count from the last stream means nothing
 // beside "Running tools", and a provider activity line describes a call that
 // has ended.
 var phaseProgressFields = []string{
 	runFieldDescription, runFieldPhase, runFieldInputTokens, runFieldOutputTokens, runFieldCachedTokens,
+	runFieldMaxOutputTokens,
 }
 
 // dropPhaseProgress clears the mid-stream progress fields, as every change of
@@ -250,11 +271,11 @@ func (e runEntry) dropPhaseProgress() {
 }
 
 // isSpent reports whether the entry has nothing left worth storing: no
-// activity and no pending continuation marker. Such entries are dropped so an
+// activity and no pending one-shot marker. Such entries are dropped so an
 // idle conversation's runs map is absent entirely, exactly as an idle
 // conversation's activity field is.
 func (e runEntry) isSpent() bool {
-	return e.activity() == ActivityNone && !e.explicitContinuation()
+	return e.activity() == ActivityNone && !e.explicitContinuation() && e.raiseMaxOutputTokens() <= 0
 }
 
 // isLive reports whether the entry's own status is one that is still working.

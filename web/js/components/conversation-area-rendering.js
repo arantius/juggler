@@ -955,8 +955,14 @@ function createNoticeBubble(message, itemIndex) {
   // A notice whose cause is a correctable setting names it in its data; the
   // row turns that into its one link. See notice-message.js.
   const data = message.get('data');
-  const settings = (data && typeof data.toJSON === 'function' ? data.toJSON() : data)?.settings;
+  const plain = data && typeof data.toJSON === 'function' ? data.toJSON() : data;
+  const settings = plain?.settings;
   if (settings) attributes['notice-settings'] = JSON.stringify(settings);
+  // A turn cut off at its Max output may offer a one-off retry at a larger one.
+  const retryMaxOutput = plain?.retryMaxOutput;
+  if (typeof retryMaxOutput === 'number' && retryMaxOutput > 0) {
+    attributes['notice-retry-max-output'] = String(retryMaxOutput);
+  }
   return createMessageElement('notice-message', {
     itemId: message.get('itemId'),
     itemIndex,

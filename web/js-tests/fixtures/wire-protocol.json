@@ -13,7 +13,7 @@
       "provider-turn", "render-context-items-response", "tools-result", "strategy-hook-response",
       "build-subthread-spec-response", "yjs-sync", "undo", "redo", "clear-history", "stop-undo-capturing",
       "begin-undo-coalesce", "end-undo-coalesce", "retry-tool-approval", "retry-tool-action",
-      "update-tool-action-for-retry", "background-task-snapshot", "create-thread",
+      "retry-truncated-turn", "update-tool-action-for-retry", "background-task-snapshot", "create-thread",
       "resummarize-compaction-thread", "request-full-state", "resync-request", "resync-to-origin",
       "tool-execution-report", "engine-trace", "rename-log", "request-auto-name", "clear-undo-stacks",
       "get-transaction", "flush-persistence", "compact"
@@ -114,7 +114,7 @@
       "processingState": [
         "status", "message", "code", "text", "startedAt", "threadItemId", "activity", "claimedAt", "runs",
         "politeStops", "politePending", "explicitContinuation", "description", "phase", "inputTokens",
-        "outputTokens", "cachedTokens"
+        "outputTokens", "cachedTokens", "maxOutputTokens", "raiseMaxOutputTokens"
       ]
     }
   },
