@@ -199,14 +199,18 @@ export async function runTests() {
   // ── Test 3: a mention read that throws still releases the latch ───────────
   {
     const { box, textarea, container, sent, thread, openGate } = mountGatedComposer();
+    const realFetch = window.fetch;
     try {
       openGate(); // the snapshot is not what fails here
       thread.executeContextItem = async () => {
         throw new Error('read exploded');
       };
 
-      // A mention carrying a slash is trusted without an existence check, so
-      // this reaches executeContextItem directly.
+      // The existence check admits the path, so the mention reaches
+      // executeContextItem — the read is what fails, not the lookup.
+      window.fetch = /** @type {any} */ (async () => ({
+        ok: true, status: 200, json: async () => ({ existing: ['/tmp/gone.txt'] }),
+      }));
       textarea.value = 'look at @/tmp/gone.txt';
       const first = /** @type {any} */ (box).sendMessage();
       // The click and keydown handlers never await this, so attach a sink of
@@ -229,6 +233,7 @@ export async function runTests() {
       failed++;
       errors.push('latch-releases-on-throw: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
+      window.fetch = realFetch;
       container.remove();
     }
   }

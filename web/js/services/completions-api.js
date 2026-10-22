@@ -29,11 +29,12 @@ function workspaceParam(workspaceId) {
  * expanded server-side.
  *
  * Runs on the send path, between the button press and the message going out, so
- * it is time-boxed: a link too slow to answer yields an empty set (barewords
- * simply make no context item) rather than holding the send open indefinitely.
+ * it is time-boxed: a link too slow to answer yields null rather than holding
+ * the send open indefinitely, so the caller can tell "none exist" from "could
+ * not ask".
  * @param {string[]} paths - Candidate paths to check
  * @param {string} [workspaceId] - The tree to check in, '' for the project
- * @returns {Promise<Set<string>>} The subset of inputs that exist
+ * @returns {Promise<Set<string>|null>} The subset of inputs that exist, or null when the check failed
  */
 export async function fetchExistingPaths(paths, workspaceId = '') {
   if (!paths || paths.length === 0) return new Set();
@@ -43,7 +44,7 @@ export async function fetchExistingPaths(paths, workspaceId = '') {
     fallback: null,
     timeoutMs: SEND_LOOKUP_TIMEOUT_MS,
   });
-  return new Set(data?.existing || []);
+  return data ? new Set(data.existing || []) : null;
 }
 
 /**

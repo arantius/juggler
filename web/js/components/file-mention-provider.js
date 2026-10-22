@@ -153,24 +153,57 @@ const fileMentionProviderBase = {
   },
 };
 
+/** A fence opener or closer: up to three spaces, then a run of ``` or ~~~. */
+const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Blank out Markdown code — fenced blocks and inline code spans — so the
+ * mention scan never sees an `@` that is quoted rather than meant. Follows
+ * CommonMark where it matters here: a fence closes on a line of at least as
+ * many of the same character and nothing else, an unclosed fence runs to the
+ * end of the text, and a span opened by N backticks closes on a run of exactly
+ * N. Code is replaced by a space, so the text on either side stays apart.
+ * @param {string} text
+ * @returns {string} The text with every code region replaced by a space
+ */
+function stripCode(text) {
+  /** @type {string|null} */
+  let fence = null;
+  const prose = text.split('\n').map((line) => {
+    const m = FENCE_RE.exec(line);
+    const run = m?.[1] ?? '';
+    if (fence === null) {
+      if (m) fence = run;
+      return m ? ' ' : line;
+    }
+    if (m && run[0] === fence[0] && run.length >= fence.length && line.slice(m[0].length).trim() === '') {
+      fence = null;
+    }
+    return ' ';
+  }).join('\n');
+  return prose.replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, ' ');
+}
+
 /**
  * Extract all file-mention paths from a message string.
  *
- * Two gates filter out stray `@`s (pasted crash dumps, email addresses,
- * Python decorators inside string literals, …):
+ * Gates that filter out stray `@`s (pasted plans, crash dumps, email
+ * addresses, decorators, scoped npm packages, …):
  *
- *  1. **Boundary** — the `@` must be at start-of-text or directly after
+ *  1. **Code** — an `@` inside a code span or fenced block is quoted text,
+ *     never a mention.
+ *  2. **Boundary** — the `@` must be at start-of-text or directly after
  *     whitespace. `"foo"@bar`, `email@host`, `a@b` are skipped.
- *  2. **Structural** — the token must contain a `/`. A bare identifier
- *     (`@TODO`, `@param`, `@1.2.3`) is rejected unless it also exists on
- *     disk; that final existence check is async, so callers use
- *     {@link extractFileMentionsAsync} to apply it.
+ *  3. **Existence** — the path must exist in the tree it will be read from.
+ *     That check is async, so callers use {@link extractFileMentionsAsync}
+ *     to apply it.
  * @param {string} text
  * @returns {string[]} Unique candidate paths in order of first appearance
  */
 function extractFileMentions(text) {
   const seen = new Set();
   const paths = [];
+  text = stripCode(text);
 
   // Boundary char preceding `@` must be start-of-text or whitespace.
   // We use lookbehind to keep the match.index aligned with the `@`.
@@ -191,13 +224,16 @@ function extractFileMentions(text) {
 }
 
 /**
- * Like {@link extractFileMentions} but additionally drops candidates that look
- * like identifiers (no `/`) and do not exist on disk. This is the form the send
- * pipeline should use.
+ * Like {@link extractFileMentions} but additionally drops candidates that do
+ * not exist on disk. This is the form the send pipeline should use. A mention
+ * is frozen at send, so one naming a missing path could only ever hand the
+ * model "File does not exist" — and a slash is no evidence of a path:
+ * `@scope/package` has one too.
  *
  * "On disk" means in the tree the mentions will be read from, so callers pass
  * the conversation's working workspace — the one its file-content items resolve
- * against.
+ * against. When that tree cannot be asked, a candidate with a `/` is kept (the
+ * likelier reading) and a bare word (`@TODO`, `@param`) is dropped.
  * @param {string} text
  * @param {string} [workspaceId] - The tree the mentions will be read from, '' for the project
  * @returns {Promise<string[]>} Unique verified paths in order
@@ -206,19 +242,7 @@ export async function extractFileMentionsAsync(text, workspaceId = '') {
   const candidates = extractFileMentions(text);
   if (candidates.length === 0) return [];
 
-  // Anything with a slash we trust as the user's intent (they typed a path,
-  // not an identifier). Bareword candidates need an exists check.
-  const trusted = [];
-  const needCheck = [];
-  for (const p of candidates) {
-    if (p.includes('/')) trusted.push(p);
-    else needCheck.push(p);
-  }
-  if (needCheck.length === 0) return candidates;
-
-  const existing = await fetchExistingPaths(needCheck, workspaceId);
-  const verified = needCheck.filter(p => existing.has(p));
-  // Preserve original order: walk candidates again, keep ones we accept.
-  const accept = new Set([...trusted, ...verified]);
-  return candidates.filter(p => accept.has(p));
+  const existing = await fetchExistingPaths(candidates, workspaceId);
+  if (existing === null) return candidates.filter(p => p.includes('/'));
+  return candidates.filter(p => existing.has(p));
 }

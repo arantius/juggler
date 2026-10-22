@@ -5,18 +5,18 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch
+- Windows and Linux: the “…” menu has app commands and Exit, which restores all windows
+- Quitting, or signing out of Windows, reopens every window next launch, not just some
+- `@` mentions skip code and paths that don't exist, so `@scope/package` attaches nothing
 - Large images are scaled down before they're sent, so photo batches no longer stall
 - Long image-heavy conversations leave out their oldest images to keep requests sendable
 - A request over the provider's size limit no longer compacts history trying to fit
 - Models reporting no output limit get larger budgets on large windows, up to 64k
 - Settings shows the output budget "auto" resolves to, and how it was derived
 - An output-limit notice explains a derived budget and the context window it came from
-- Windows and Linux: the “…” menu has app commands and Exit, which restores all windows
-- Quitting, or signing out of Windows, reopens every window next launch, not just some
 - Auto-approve can judge tool calls with a decision model chosen in Settings
 - Extension op `decide` asks a decision model yes/no, choice and score questions
-- Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch
-- Windows on another server show its host in the network button and window title
 - Theme and zoom are per machine, and survive reconnecting to another server
 - Long-pressing text on Android no longer opens a Copy menu over the selection
 - Resizing a column no longer resizes every other column; widths are kept per depth

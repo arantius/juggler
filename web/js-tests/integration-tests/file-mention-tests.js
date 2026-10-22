@@ -318,6 +318,70 @@ export const sendMessageHandlesPunctuationAndBareAt = {
   }
 };
 
+// A token that only looks like a path — a scoped npm package in a pasted plan —
+// must not become a mention. Frozen at send, its item could only ever say "File
+// does not exist", and the model spends its reasoning on that phantom file.
+/** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
+export const sendMessageDropsMentionOfMissingPath = {
+  name: 'send-message-drops-mention-of-missing-path',
+  description: 'An @-token containing a slash that names no existing path makes no file-content item',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse('Got it.')
+  ],
+
+  operations: [
+    {
+      type: 'send-message',
+      message: 'Install @acme/widgets and @types/node, then read @src/main.go'
+    }
+  ],
+
+  customAssertions(conversation) {
+    const fileItems = conversation.rootMessageThread.contextItems.filter(
+      item => item.type === 'file-content'
+    );
+    const paths = /** @type {any[]} */ (fileItems).map(f => f.data.path);
+    if (JSON.stringify(paths) !== JSON.stringify(['src/main.go'])) {
+      throw new Error(`Expected only ["src/main.go"] but got ${JSON.stringify(paths)}`);
+    }
+  }
+};
+
+// Code is quoted text, not a request: an `@` inside a code span or a fenced
+// block is never a mention, even when it names a file that exists.
+/** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
+export const sendMessageSkipsMentionsInCode = {
+  name: 'send-message-skips-mentions-in-code',
+  description: '@-tokens inside inline code spans and fenced code blocks make no file-content item',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse('Got it.')
+  ],
+
+  operations: [
+    {
+      type: 'send-message',
+      message: 'Read @README.md, then run `cat @src/main.go` and this:\n' +
+        '```sh\n@src/main.go\n```\n' +
+        '~~~\n  @docs/notes\\ with\\ spaces.md\n~~~\n' +
+        'and ``a `tick` then @src/main.go`` too.'
+    }
+  ],
+
+  customAssertions(conversation) {
+    const fileItems = conversation.rootMessageThread.contextItems.filter(
+      item => item.type === 'file-content'
+    );
+    const paths = /** @type {any[]} */ (fileItems).map(f => f.data.path);
+    if (JSON.stringify(paths) !== JSON.stringify(['README.md'])) {
+      throw new Error(`Expected only ["README.md"] but got ${JSON.stringify(paths)}`);
+    }
+  }
+};
+
 // A deliberate pin (the file picker) must:
 //   (a) reach the LLM with the file's current on-disk bytes (resolved live), and
 //   (b) leave no copy of those bytes in the Yjs document (only the path).
@@ -395,6 +459,8 @@ export const tests = [
   queuedAtMentionOfFileAlreadyInContextReusesIt,
   sendMessageCreatesFileItemsForAllMentions,
   sendMessageHandlesPunctuationAndBareAt,
+  sendMessageDropsMentionOfMissingPath,
+  sendMessageSkipsMentionsInCode,
   atMentionIsFrozenAtSend,
   atMentionOfChangedFileReplacesSnapshot,
   pinResolvesLiveAndPersistsNoBytes,
