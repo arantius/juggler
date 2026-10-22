@@ -158,6 +158,12 @@ type ConversationWorker struct {
 	// wants a shorter wait sets it on its own worker before the worker runs.
 	strategyHookTimeout time.Duration
 
+	// retryBackoffLimit caps the backoff the turn loop computes between
+	// attempts (defaultRetryBackoffLimit); a wait the provider stated is not
+	// subject to it. Set at construction; a test that drives a whole retry
+	// sequence sets it to zero on its own worker before the worker runs.
+	retryBackoffLimit time.Duration
+
 	done    chan struct{}
 	stopped chan struct{}
 	// stopOnce closes done exactly once, whichever of Stop and a cancelled
@@ -313,6 +319,7 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		inbox: newWorkerInbox(done),
 
 		strategyHookTimeout: defaultStrategyHookTimeout,
+		retryBackoffLimit:   defaultRetryBackoffLimit,
 	}
 	w.injected.Store(&workerDeps{})
 	// The actor-only seams hold the worker's guard, which exists only once w does.

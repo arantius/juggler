@@ -55,8 +55,3 @@ func (e *AuthError) Error() string {
 
 // Unwrap exposes the originating error so the usual chain walkers keep working.
 func (e *AuthError) Unwrap() error { return e.Cause }
-
-// Retryable marks this terminal for generic classifiers. Retrying is pointless
-// until a human re-establishes the credential, and a retry loop against an
-// expired login is how a rate limit gets earned on top of the original problem.
-func (e *AuthError) Retryable() bool { return false }

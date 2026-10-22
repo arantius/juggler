@@ -15,7 +15,6 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/providers/provider"
-	providerutils "juggler/cmd/juggler/providers/utils"
 	"juggler/cmd/juggler/worker"
 	"juggler/internal/jlog"
 )
@@ -439,7 +438,7 @@ func (s *Server) autoNameConversation(convID, firstMessage, customSystem string,
 // re-attempting. Three shapes qualify:
 //
 //   - A transient provider failure (an upstream overload, a dropped stream) —
-//     classified by the same providerutils rule the worker's turn loop uses.
+//     classified by provider.ClassifyFailure, as the worker's turn loop is.
 //   - ErrQuickCompleteBusy — the out-of-band channel was momentarily saturated,
 //     which is a fast retryable rejection by construction, not a naming failure.
 //   - Our own per-call deadline (autoNameCompleteTimeout) elapsing, which says
@@ -455,7 +454,7 @@ func autoNameTransient(ctx context.Context, err error) bool {
 	if errors.Is(err, ErrQuickCompleteBusy) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	return providerutils.TransientMessage(err.Error())
+	return provider.ClassifyFailure(err).Kind.Transient()
 }
 
 // sleepCtx waits for d, reporting false if ctx ended first (the caller should

@@ -12,9 +12,6 @@ import (
 	"testing"
 
 	"juggler/cmd/juggler/providers/provider"
-
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -38,19 +35,22 @@ func messageSSE(events ...[2]string) string {
 // streamingClient returns a Client whose transport answers with a fixed SSE
 // body. NewClient hardcodes its HTTP client, so the struct is built directly.
 func streamingClient(body string) *Client {
-	sdk := anthropicsdk.NewClient(
-		option.WithAPIKey("test"),
-		option.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			header := make(http.Header)
-			header.Set("Content-Type", "text/event-stream")
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     header,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Request:    r,
-			}, nil
-		})}),
-	)
+	return respondingClient(func(r *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "text/event-stream")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     header,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
+	})
+}
+
+// respondingClient returns a Client whose transport answers every request with
+// respond, configured as NewClient configures the SDK.
+func respondingClient(respond roundTripFunc) *Client {
+	sdk := newSDKClient("test", &http.Client{Transport: respond})
 	return &Client{client: &sdk, model: "claude-sonnet-4-6", maxOutputTokens: 1024}
 }
 

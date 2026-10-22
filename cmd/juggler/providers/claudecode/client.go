@@ -6,6 +6,7 @@ package claudecode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync/atomic"
@@ -437,7 +438,16 @@ func (c *Client) dispatchTurnWithRetry(ctx context.Context, req provider.Message
 			c.consecutiveStalls++
 		}
 
-		if err == nil || attempt >= cliMaxRetries {
+		if err == nil {
+			return res, nil
+		}
+		if attempt >= cliMaxRetries {
+			// Surfaced with its retries spent: the worker reads that and does
+			// not retry it again.
+			var te *transientCLIError
+			if errors.As(err, &te) {
+				te.retried = true
+			}
 			return res, err
 		}
 		if isRejectedTranscriptError(err) && !rebuilt && !streamed && ctx.Err() == nil {

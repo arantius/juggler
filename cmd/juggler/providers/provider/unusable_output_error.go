@@ -12,9 +12,8 @@ package provider
 // and was answered, but the answer went somewhere nothing could follow — tool
 // calls to names the session does not serve, say — and the model did not find
 // its own way back. Another sample of the same request usually does, so a
-// caller retries it as it would a dropped connection. Whatever the abandoned
-// attempt already streamed stays where it landed; only the turn's result is
-// discarded.
+// caller retries it as it would a dropped connection, discarding whatever the
+// abandoned attempt streamed.
 type UnusableOutputError struct {
 	// Message says what was wrong with the output, for the log and for the user
 	// if every retry fails the same way.

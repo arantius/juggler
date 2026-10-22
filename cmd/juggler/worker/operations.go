@@ -293,6 +293,41 @@ func (t *OperationTracker) AppendMessageToThread(threadItemID string, messages .
 	return true
 }
 
+// RemoveItemsByID deletes the items whose ids are in ids from the thread
+// threadItemID, or from the root when threadItemID is "", and reports how many
+// it removed. It is the undo-tracked counterpart of AppendMessage and
+// AppendMessageToThread — same origin, and no new undo group, so removing what
+// a turn appended stays part of that turn's group. A thread that has gone
+// removes nothing.
+func (t *OperationTracker) RemoveItemsByID(threadItemID string, ids []string) int {
+	if len(ids) == 0 {
+		return 0
+	}
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	arr := t.doc.getItems()
+	if threadItemID != "" {
+		arr = findThreadItemsArray(arr, threadItemID)
+	}
+	if arr == nil {
+		return 0
+	}
+	removing := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		removing[id] = true
+	}
+	removed := 0
+	ycrdt.Transact(t.doc.doc, func(_ *ycrdt.Transaction) {
+		for i := int(arr.GetLength()) - 1; i >= 0; i-- {
+			if m, ok := arr.Get(ycrdt.Number(i)).(*ycrdt.YMap); ok && removing[yMapString(m, keyItemID)] {
+				arr.Delete(ycrdt.Number(i), 1)
+				removed++
+			}
+		}
+	}, t.doc.authorID, true)
+	return removed
+}
+
 // AppendRunStarterToThread appends starter to the thread threadItemID unless a
 // run is already open there, reporting whether it wrote. The thread is found,
 // its trailing run read, and the starter appended in one hold: a send into the

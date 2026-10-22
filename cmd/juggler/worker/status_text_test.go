@@ -36,6 +36,7 @@ func processingStateNow(w *ConversationWorker) map[string]any {
 func TestRetryingStatusCarriesAMessage(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	defer w.doc.Destroy()
+	fastRetries(w)
 	w.turn.retrySpent = time.Minute
 
 	frames := make(chan map[string]any, 32)
@@ -51,7 +52,7 @@ func TestRetryingStatusCarriesAMessage(t *testing.T) {
 	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
 		calls++
 		if calls == 1 {
-			return nil, &TransientError{Wait: time.Nanosecond, Message: "overloaded"}
+			return nil, failing(provider.FailureConnectionDropped, "connection reset by peer")
 		}
 		seen = processingStateNow(w)
 		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "recovered"}}}, nil

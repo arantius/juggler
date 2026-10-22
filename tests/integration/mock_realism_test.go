@@ -137,12 +137,13 @@ func TestMockStreamedToolUseDeliversFinalArgs(t *testing.T) {
 
 // TestMockMidStreamErrorFailsCleanly asserts that MidStreamError emits any
 // prelude chunks and then aborts the call with the supplied error, letting
-// the worker reach idle without hanging.
+// the worker reach idle without hanging. The error is one that ends the turn;
+// a retryable one would send the request again.
 func TestMockMidStreamErrorFailsCleanly(t *testing.T) {
 	t.Parallel()
 	ts := strategyPreamble(t)
 	ts.SetMockSequence(helpers.MidStreamError(
-		errors.New("mock: stream truncated"),
+		errors.New("mock: invalid request rejected mid-stream"),
 		worker.StreamChunk{Type: "text", Content: "partial..."},
 	))
 

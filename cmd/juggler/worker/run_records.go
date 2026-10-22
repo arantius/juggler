@@ -63,7 +63,7 @@ const (
 	// runBarrenNote is the run result for a run that settled without a reply.
 	runBarrenNote = "The run ended without producing a reply."
 	// runTransientErrorNote is appended to a run that stopped on a provider
-	// failure a fresh attempt usually clears (isTransientMsg) — one that says
+	// failure a fresh attempt usually clears (FailureKind.Transient) — one that says
 	// nothing about the task itself, which the caller would otherwise have no
 	// way to tell from the bare transport error.
 	runTransientErrorNote = "[The model provider failed during this run; this is not an answer to the task. The worker's own retries were used up. Calling the tool again may well succeed.]"
@@ -771,7 +771,7 @@ func resolveRunOutcome(items []ConversationItem, cancelled bool, resultLimit int
 			capped, full := capRunResult(last.Content, resultLimit)
 			// Appended after the cap, like runCancelledNote, so a trim can never
 			// take it off the end.
-			if isTransientMsg(last.Content) {
+			if provider.ClassifyFailureText(last.Content).Kind.Transient() {
 				capped += "\n\n" + runTransientErrorNote
 			}
 			return runStatusError, capped, full

@@ -362,6 +362,7 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	// also carries the running output-token estimate behind the UI spinner.
 	sess, streamCtx := utils.NewStreamSession(ctx, c.providerName, callback)
 	defer sess.Close()
+	streamCtx, sawDone := withDoneSentinel(streamCtx)
 
 	stream := c.client.Chat.Completions.NewStreaming(streamCtx, params, option.WithJSONSet(c.quirks.MaxTokensParamName, maxTokens))
 
@@ -469,7 +470,15 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 		if stall := sess.StallError(); stall != nil {
 			return nil, stall
 		}
-		return nil, sess.Annotate(err) // Don't enhance - let retry wrapper handle it
+		return nil, c.streamEventFailure(sess.Annotate(err))
+	}
+	// The body ended without either of the two things that end a complete
+	// answer: a choice's finish_reason or the [DONE] sentinel. Servers are
+	// allowed to omit one of them, never both, so this is a cut-off — and
+	// acting on what arrived would run a half reply or a half-formed tool call.
+	if lastFinishReason == "" && !sawDone.Load() {
+		return nil, provider.NewFailureError(provider.FailureTruncated,
+			sess.Annotate(fmt.Errorf("%s stream ended with neither a finish_reason nor [DONE]", c.providerName)).Error(), nil)
 	}
 
 	// Log the response summary

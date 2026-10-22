@@ -116,11 +116,12 @@ func (s *StreamSession) StallError() error {
 // neither the log nor the error item records which it was. The cause stays
 // wrapped (%w), so errors.As/Is are unaffected.
 //
-// The worker classifies errors by their text, and this suffix becomes part of
-// it, so its wording is constrained: no counts (isRateLimitMsg matches any
-// "429"), only durations rounded to 100ms (which cannot spell one), and neither
-// "in " nor "after " (parseRetryWaitFromMsg reads a number of seconds following
-// either as a server-stated wait).
+// An error with no type the classifier recognises is classified by its text
+// (provider.ClassifyFailureText), and this suffix becomes part of it, so its
+// wording is constrained: no counts (the text rules match any "429"), only
+// durations rounded to 100ms (which cannot spell one), and neither "in " nor
+// "after " (the worker's parseRetryWaitFromMsg reads a number of seconds
+// following either as a server-stated wait).
 //
 // A caller's own cancel is returned untouched: it is not a stream failure, and
 // callers compare it against context.Canceled. So is a watchdog stall, which

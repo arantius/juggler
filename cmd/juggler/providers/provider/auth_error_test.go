@@ -76,8 +76,8 @@ func TestAuthErrorText(t *testing.T) {
 // An expired credential does not heal by being asked again, and a retry loop
 // against one earns a rate limit on top of the original problem.
 func TestAuthErrorIsTerminal(t *testing.T) {
-	if (&AuthError{Provider: "claudecode"}).Retryable() {
-		t.Error("Retryable() = true, want false")
+	if got := ClassifyFailure(&AuthError{Provider: "claudecode"}).Kind; got != FailureAuth || got.Transient() {
+		t.Errorf("ClassifyFailure = %v, want the terminal auth kind", got)
 	}
 }
 

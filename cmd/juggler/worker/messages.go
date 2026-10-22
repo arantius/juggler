@@ -53,6 +53,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/providers/provider"
+	providerutils "juggler/cmd/juggler/providers/utils"
 )
 
 // ErrCancelled is returned when an operation is interrupted by user cancellation
@@ -81,15 +82,18 @@ var ErrPolitelyStopped = errors.New("politely stopped")
 // because both preserve the cause via Unwrap()/%w.
 var ErrProviderUnavailable = errors.New("provider not configured")
 
-// retryableError is implemented by provider errors that callLLMWithRetry
-// should transparently retry after a short wait rather than surface to the
-// user. New retryable categories satisfy this interface and need no changes
-// in the retry loop itself — the loop classifies purely by behaviour, never
-// by a concrete-type switch.
+// retryableError is implemented by the classified provider errors callLLM
+// returns, which callLLMWithRetry asks whether — and after how long — to try
+// again rather than surface the failure. The loop decides by asking, never by
+// a concrete-type switch; what each kind of failure is worth lives in
+// retryPolicy.
 type retryableError interface {
 	error
-	// retryWait is how long the loop should park before the next attempt.
-	retryWait() time.Duration
+	// retryPlan says whether retry number n (1 for the first) may be made,
+	// how long to wait before it, and how many attempts this failure allows
+	// in all, the first included. A wait the loop computes rather than one
+	// the provider stated is no longer than backoffLimit.
+	retryPlan(n int, backoffLimit time.Duration) (wait time.Duration, attempts int, ok bool)
 	// retryStatus is the user-facing "retrying" status for this attempt, saying
 	// how long has gone on retries once that is a minute or more.
 	retryStatus(attempt, max int, spent time.Duration) msg.Message
@@ -109,46 +113,49 @@ type RateLimitError struct {
 	Cause   error
 }
 
-func (e *RateLimitError) Error() string            { return e.Message }
-func (e *RateLimitError) Unwrap() error            { return e.Cause }
-func (e *RateLimitError) retryWait() time.Duration { return e.Wait }
+func (e *RateLimitError) Error() string { return e.Message }
+func (e *RateLimitError) Unwrap() error { return e.Cause }
+func (e *RateLimitError) retryPlan(n int, _ time.Duration) (time.Duration, int, bool) {
+	rule, _ := retryRuleFor(provider.FailureRateLimited)
+	return e.Wait, rule.attempts, n < rule.attempts
+}
 func (e *RateLimitError) retryStatus(a, max int, spent time.Duration) msg.Message {
-	return msg.New("Rate limited, retrying ({attempt}/{max}){hasSpent, select, yes { — {spent} so far} other {}}", retryParams(a, max, spent)...)
+	return rateLimitedStatus(a, max, spent)
 }
 
-// TransientError is returned by callLLM when the provider failed for a
-// transport reason that a fresh attempt usually clears — most commonly the
-// claude CLI stream stalling because the upstream connection dropped (machine
-// slept mid-request, a network blip). Unlike a RateLimitError there is no
-// server-suggested delay, so Wait is a fixed short backoff.
-type TransientError struct {
-	Wait    time.Duration
+// LLMError is every failed provider call other than a rate limit, as callLLM
+// returns it: the provider's error, classified. Its kind decides what the turn
+// loop does next (retryRuleFor); Cause keeps the provider's own error reachable,
+// so the typed failures with paths of their own — an auth refusal, a context
+// overflow — are still found beneath it with errors.As.
+type LLMError struct {
+	Failure provider.Failure
 	Message string
 	Cause   error
 }
 
-func (e *TransientError) Error() string            { return e.Message }
-func (e *TransientError) Unwrap() error            { return e.Cause }
-func (e *TransientError) retryWait() time.Duration { return e.Wait }
-func (e *TransientError) retryStatus(a, max int, spent time.Duration) msg.Message {
-	return msg.New("Connection dropped, retrying ({attempt}/{max}){hasSpent, select, yes { — {spent} so far} other {}}", retryParams(a, max, spent)...)
+func (e *LLMError) Error() string { return e.Message }
+func (e *LLMError) Unwrap() error { return e.Cause }
+
+// retryPlan follows the failure kind's rule (retryRuleFor). A kind with no
+// rule is never retried, and nor is a failure the provider already retried
+// itself.
+func (e *LLMError) retryPlan(n int, backoffLimit time.Duration) (time.Duration, int, bool) {
+	rule, ok := retryRuleFor(e.Failure.Kind)
+	if !ok || e.Failure.ProviderRetried || n >= rule.attempts {
+		return 0, rule.attempts, false
+	}
+	if e.Failure.RetryAfter > 0 {
+		return min(e.Failure.RetryAfter, providerutils.MaxRateLimitHint), rule.attempts, true
+	}
+	return min(rule.backoff(n), backoffLimit), rule.attempts, true
 }
 
-// UnusableOutputError is returned by callLLM when the provider abandoned a turn
-// whose output could not be acted on (provider.UnusableOutputError). The same
-// request is sent again, since a fresh sample usually lands where the last one
-// did not.
-type UnusableOutputError struct {
-	Wait    time.Duration
-	Message string
-	Cause   error
-}
-
-func (e *UnusableOutputError) Error() string            { return e.Message }
-func (e *UnusableOutputError) Unwrap() error            { return e.Cause }
-func (e *UnusableOutputError) retryWait() time.Duration { return e.Wait }
-func (e *UnusableOutputError) retryStatus(a, max int, spent time.Duration) msg.Message {
-	return msg.New("Unusable response, retrying ({attempt}/{max}){hasSpent, select, yes { — {spent} so far} other {}}", retryParams(a, max, spent)...)
+func (e *LLMError) retryStatus(a, max int, spent time.Duration) msg.Message {
+	if rule, ok := retryRuleFor(e.Failure.Kind); ok {
+		return rule.status(a, max, spent)
+	}
+	return unknownFailureStatus(a, max, spent)
 }
 
 // LLMCallFunc is the signature for direct LLM calls from the worker.

@@ -253,9 +253,6 @@ func (e *DecisionTooLargeError) Error() string {
 	return fmt.Sprintf("the decision request is estimated at %d input tokens, over the model's %d-token context window", e.EstimatedInputTokens, e.ContextWindowTokens)
 }
 
-// Retryable allows generic error classifiers to identify this as terminal.
-func (e *DecisionTooLargeError) Retryable() bool { return false }
-
 // EstimateDecisionRequestTokens conservatively estimates the input of req with
 // the same heuristic chat admission uses. Unmarshalable question data saturates
 // it rather than being counted as free.

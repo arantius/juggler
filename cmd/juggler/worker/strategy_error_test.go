@@ -6,9 +6,15 @@ package worker
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -64,18 +70,131 @@ func TestCallLLMWithRetryDoesNotRetryContextLimitError(t *testing.T) {
 	}
 }
 
+// fastRetries takes the backoff out of w's retry sequences, so a test can drive
+// a whole one without sleeping through it. The attempts are the real policy's.
+func fastRetries(w *ConversationWorker) {
+	w.retryBackoffLimit = 0
+}
+
+// failing builds the turn loop's error for a provider failure of kind.
+func failing(kind provider.FailureKind, message string) *LLMError {
+	return &LLMError{Failure: provider.Failure{Kind: kind}, Message: "LLM error: " + message}
+}
+
+// TestCallLLMWithRetryFollowsThePolicy drives each shape of provider failure
+// through the turn loop against a provider that never recovers, and counts the
+// calls. A retryable kind makes as many as its retryPolicy row allows; a
+// terminal one makes exactly one. The errors are what the providers actually
+// return, not the worker's own types, so the classification is under test too.
+func TestCallLLMWithRetryFollowsThePolicy(t *testing.T) {
+	attempts := func(kind provider.FailureKind) int {
+		rule, ok := retryRuleFor(kind)
+		if !ok {
+			t.Fatalf("%v has no retry rule", kind)
+		}
+		return rule.attempts
+	}
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		// The reported case: a stream that died mid-body.
+		{"unexpected EOF mid-stream", fmt.Errorf("anthropic streaming error: %w (the stream ran for 41.2s; its last event came 0.3s before the failure)", io.ErrUnexpectedEOF), attempts(provider.FailureConnectionDropped)},
+		{"connection reset", &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}, attempts(provider.FailureConnectionDropped)},
+		{"stall", providerutils.StallError("anthropic", 90*time.Second), attempts(provider.FailureStalled)},
+		{"truncated stream", provider.NewFailureError(provider.FailureTruncated, "stream ended before message_stop", nil), attempts(provider.FailureTruncated)},
+		{"500", &provider.APIError{Provider: "anthropic", Status: 500, Type: "api_error", Message: "Internal server error"}, attempts(provider.FailureServerError)},
+		{"529", &provider.APIError{Provider: "anthropic", Status: 529, Type: "overloaded_error", Message: "Overloaded"}, attempts(provider.FailureOverloaded)},
+		{"refused dial", &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}, attempts(provider.FailureUnreachable)},
+		{"unusable output", &provider.UnusableOutputError{Message: "no usable tool call"}, attempts(provider.FailureUnusableOutput)},
+		{"unrecognised", errors.New("something odd happened"), attempts(provider.FailureUnknown)},
+		{"rate limit with a stated wait", &provider.RateLimitedError{RetryAfter: time.Nanosecond, Message: "429"}, attempts(provider.FailureRateLimited)},
+
+		{"bad request", &provider.APIError{Provider: "openai", Status: 400, Message: "max_tokens too large"}, 1},
+		{"out of credit", &provider.APIError{Provider: "openai", Status: 429, Type: "insufficient_quota"}, 1},
+		{"server says do not retry", &provider.APIError{Provider: "anthropic", Status: 500, ShouldRetry: new(bool)}, 1},
+		{"safety refusal", errors.New("gemini blocked response due to safety filters"), 1},
+		{"certificate", &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}, 1},
+		{"provider already retried", &provider.FailureError{Failure: provider.Failure{Kind: provider.FailureOverloaded, ProviderRetried: true}, Message: "ladder exhausted"}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := NewConversationWorker("test-conv", "user:test")
+			defer w.doc.Destroy()
+			fastRetries(w)
+			calls := 0
+			w.SetLLMCaller(func(context.Context, json.RawMessage, func(StreamChunk)) (*LLMResponse, error) {
+				calls++
+				return nil, tt.err
+			})
+			if _, err := w.currentRun().callLLMWithRetry(nil); err == nil {
+				t.Fatal("callLLMWithRetry succeeded against a provider that always fails")
+			} else if !errors.Is(err, tt.err) {
+				t.Errorf("surfaced error %v does not wrap the provider's %v", err, tt.err)
+			}
+			if calls != tt.want {
+				t.Fatalf("provider calls = %d, want %d", calls, tt.want)
+			}
+		})
+	}
+}
+
+// TestRetryBackoffGrows pins the backoff curve: doubling from the base, capped
+// at the ceiling, with no more than a quarter added as jitter.
+func TestRetryBackoffGrows(t *testing.T) {
+	rule := retryRule{base: 2 * time.Second, ceiling: 30 * time.Second}
+	for _, tc := range []struct {
+		retry int
+		want  time.Duration
+	}{{1, 2 * time.Second}, {2, 4 * time.Second}, {3, 8 * time.Second}, {4, 16 * time.Second}, {5, 30 * time.Second}, {12, 30 * time.Second}} {
+		for range 20 {
+			if got := rule.backoff(tc.retry); got < tc.want || got > tc.want+tc.want/4 {
+				t.Fatalf("backoff(%d) = %v, want %v plus at most a quarter", tc.retry, got, tc.want)
+			}
+		}
+	}
+}
+
+// TestRetryPlanPrefersTheStatedWait: a provider that said how long to wait is
+// believed over the backoff curve.
+func TestRetryPlanPrefersTheStatedWait(t *testing.T) {
+	err := &LLMError{Failure: provider.Failure{Kind: provider.FailureOverloaded, RetryAfter: 7 * time.Second}}
+	// A limit far below the stated wait: the limit governs only computed waits.
+	if wait, _, ok := err.retryPlan(1, time.Millisecond); !ok || wait != 7*time.Second {
+		t.Fatalf("retryPlan(1) = %v, %v; want the stated 7s", wait, ok)
+	}
+}
+
+// TestCallLLMSurfacesARacedCancelAsCancellation: the provider can report the
+// user's cancel (context.Canceled) before the cancel reaches the wait. That is
+// the Stop the user asked for, not an error to show them.
+func TestCallLLMSurfacesARacedCancelAsCancellation(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	r := w.currentRun()
+	w.SetLLMCaller(func(context.Context, json.RawMessage, func(StreamChunk)) (*LLMResponse, error) {
+		r.storeState(StateCancelling)
+		return nil, fmt.Errorf("anthropic streaming error: %w", context.Canceled)
+	})
+	if _, err := r.callLLMWithRetry(nil); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("error = %v, want ErrCancelled", err)
+	}
+}
+
 func TestCallLLMWithRetryRetriesRateAndTransientErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
 	}{
 		{name: "rate limit", err: &RateLimitError{Wait: time.Nanosecond, Message: "rate limited in 0.001s"}},
-		{name: "transient", err: &TransientError{Wait: time.Nanosecond, Message: "connection dropped"}},
+		{name: "transient", err: failing(provider.FailureConnectionDropped, "connection dropped")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			w := NewConversationWorker("test-conv", "user:test")
 			defer w.doc.Destroy()
+			fastRetries(w)
 			calls := 0
 			w.SetLLMCaller(func(context.Context, json.RawMessage, func(StreamChunk)) (*LLMResponse, error) {
 				calls++
@@ -105,6 +224,7 @@ func TestCallLLMWithRetryRetriesRateAndTransientErrors(t *testing.T) {
 func TestCallLLMWithRetryResendsUnusableOutput(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	defer w.doc.Destroy()
+	fastRetries(w)
 
 	calls := 0
 	w.SetLLMCaller(func(context.Context, json.RawMessage, func(StreamChunk)) (*LLMResponse, error) {
@@ -139,7 +259,7 @@ func TestCallLLMWithRetryStopsWhenRetryBudgetSpent(t *testing.T) {
 	calls := 0
 	w.SetLLMCaller(func(context.Context, json.RawMessage, func(StreamChunk)) (*LLMResponse, error) {
 		calls++
-		return nil, &TransientError{Wait: time.Nanosecond, Message: "overloaded"}
+		return nil, failing(provider.FailureOverloaded, "overloaded")
 	})
 
 	// Earlier attempts in this sequence already used the whole allowance.
@@ -165,11 +285,11 @@ func TestCallLLMWithRetryStopsWhenRetryBudgetSpent(t *testing.T) {
 func TestCallLLMWithRetryChargesOnlyTheSilentTail(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	defer w.doc.Destroy()
+	fastRetries(w)
 
-	// Less budget left than the first attempt spends streaming, but enough to
-	// cover the TransientRetryWait the retry then asks for.
+	// Less budget left than the first attempt spends streaming.
 	const streaming = 2 * time.Second
-	w.turn.retrySpent = MaxLLMRetryWindow - TransientRetryWait - 500*time.Millisecond
+	w.turn.retrySpent = MaxLLMRetryWindow - 500*time.Millisecond
 
 	calls := 0
 	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, sink func(StreamChunk)) (*LLMResponse, error) {
@@ -177,7 +297,7 @@ func TestCallLLMWithRetryChargesOnlyTheSilentTail(t *testing.T) {
 		if calls == 1 {
 			time.Sleep(streaming)
 			sink(StreamChunk{Type: provider.ContentBlockTypeThinking, Content: "still working"})
-			return nil, &TransientError{Wait: time.Nanosecond, Message: "stream error: stream ID 5; INTERNAL_ERROR; received from peer"}
+			return nil, errors.New("stream error: stream ID 5; INTERNAL_ERROR; received from peer")
 		}
 		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "recovered"}}}, nil
 	})
@@ -204,7 +324,7 @@ func TestCallLLMWithRetryChargesSilentAttemptInFull(t *testing.T) {
 		calls++
 		time.Sleep(100 * time.Millisecond)
 		sink(StreamChunk{Type: provider.ContentBlockTypeStatus, Content: "Waiting for response"})
-		return nil, &TransientError{Wait: time.Nanosecond, Message: "overloaded"}
+		return nil, failing(provider.FailureOverloaded, "overloaded")
 	})
 
 	if _, err := w.currentRun().callLLMWithRetry(nil); err == nil {
@@ -244,11 +364,12 @@ func TestClassifyLLMErrorPreservesTypedCause(t *testing.T) {
 	tests := []struct {
 		name string
 		msg  string
-		want any
+		want provider.FailureKind
 	}{
-		{name: "rate limit", msg: "HTTP 429 rate limited", want: (*RateLimitError)(nil)},
-		{name: "transient", msg: providerutils.StallMarker, want: (*TransientError)(nil)},
-		{name: "upstream overload", msg: `{"type":"service_unavailable_error","code":"server_is_overloaded"}`, want: (*TransientError)(nil)},
+		{name: "rate limit", msg: "HTTP 429 rate limited", want: provider.FailureRateLimited},
+		{name: "stall", msg: providerutils.StallMarker, want: provider.FailureStalled},
+		{name: "upstream overload", msg: `{"type":"service_unavailable_error","code":"server_is_overloaded"}`, want: provider.FailureOverloaded},
+		{name: "unexpected eof", msg: "unexpected EOF", want: provider.FailureConnectionDropped},
 	}
 
 	for _, tt := range tests {
@@ -258,17 +379,16 @@ func TestClassifyLLMErrorPreservesTypedCause(t *testing.T) {
 			if !errors.Is(err, cause) {
 				t.Fatalf("classified error %v does not preserve cause", err)
 			}
-			switch tt.want.(type) {
-			case *RateLimitError:
+			if tt.want == provider.FailureRateLimited {
 				var got *RateLimitError
 				if !errors.As(err, &got) {
 					t.Fatalf("error = %T %v, want RateLimitError", err, err)
 				}
-			case *TransientError:
-				var got *TransientError
-				if !errors.As(err, &got) {
-					t.Fatalf("error = %T %v, want TransientError", err, err)
-				}
+				return
+			}
+			var got *LLMError
+			if !errors.As(err, &got) || got.Failure.Kind != tt.want {
+				t.Fatalf("error = %T %v, want an LLMError of kind %v", err, err, tt.want)
 			}
 		})
 	}

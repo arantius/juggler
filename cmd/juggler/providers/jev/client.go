@@ -303,8 +303,17 @@ func statusError(resp *http.Response, body string) error {
 			Message:    fmt.Sprintf("Jev rate limit reached (HTTP 429): %s", body),
 		}
 	case 529:
-		// "overloaded" is the marker the shared transient classifier retries on.
-		return fmt.Errorf("jev is overloaded (HTTP 529), try again shortly: %s", body)
+		return &provider.APIError{
+			Provider:   Name,
+			Status:     resp.StatusCode,
+			RetryAfter: utils.ParseRateLimitHint(resp.Header, body),
+			Message:    fmt.Sprintf("jev is overloaded (HTTP 529), try again shortly: %s", body),
+		}
 	}
-	return fmt.Errorf("jev returned HTTP %d: %s", resp.StatusCode, body)
+	return &provider.APIError{
+		Provider:   Name,
+		Status:     resp.StatusCode,
+		RetryAfter: utils.ParseRateLimitHint(resp.Header, body),
+		Message:    fmt.Sprintf("jev returned HTTP %d: %s", resp.StatusCode, body),
+	}
 }

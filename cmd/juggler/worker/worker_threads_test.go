@@ -598,9 +598,9 @@ func TestThreadErrorReturnsToParent(t *testing.T) {
 		Content: "Hello",
 	})
 
-	// Mock: parent calls create_thread, the thread's LLM call fails (simulated
-	// dropped connection), and the parent's continuation turn runs on the error
-	// it gets back.
+	// Mock: parent calls create_thread, the thread's LLM call fails with an
+	// error no retry can clear, and the parent's continuation turn runs on the
+	// error it gets back.
 	w.setMockResponses([]MockResponse{
 		// Parent turn 1: calls create_thread
 		{
@@ -609,9 +609,9 @@ func TestThreadErrorReturnsToParent(t *testing.T) {
 			},
 			StopReason: "tool_use",
 		},
-		// Thread turn: the provider errors (e.g. a dropped connection).
+		// Thread turn: the provider rejects the request.
 		{
-			Error: "connection reset by peer",
+			Error: "invalid request: the prompt was rejected",
 		},
 		// Parent turn 2: runs on the error the child returned.
 		{
@@ -678,7 +678,7 @@ func TestThreadErrorReturnsToParent(t *testing.T) {
 	threadItems := w.doc.GetItemsFromArray(threadArr)
 	foundErr := false
 	for _, it := range threadItems {
-		if it.Type == ItemTypeError && strings.Contains(it.Content, "connection reset by peer") {
+		if it.Type == ItemTypeError && strings.Contains(it.Content, "the prompt was rejected") {
 			foundErr = true
 			break
 		}
@@ -707,7 +707,7 @@ func TestThreadErrorReturnsToParent(t *testing.T) {
 	if status != runStatusError {
 		t.Errorf("run status = %q, want %q", status, runStatusError)
 	}
-	if !strings.Contains(runResult, "connection reset by peer") {
+	if !strings.Contains(runResult, "the prompt was rejected") {
 		t.Errorf("run result = %q, want the provider error text", runResult)
 	}
 	var resumed bool

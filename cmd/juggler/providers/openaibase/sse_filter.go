@@ -7,9 +7,11 @@ package openaibase
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/openai/openai-go/v3/option"
 )
@@ -48,8 +50,24 @@ func sseEmptyFrameFilterMiddleware(req *http.Request, next option.MiddlewareNext
 	if !strings.HasPrefix(ct, "text/event-stream") {
 		return resp, err
 	}
-	resp.Body = newSSEEmptyFrameFilter(resp.Body)
+	filter := newSSEEmptyFrameFilter(resp.Body)
+	filter.done, _ = req.Context().Value(sseDoneKey{}).(*atomic.Bool)
+	resp.Body = filter
 	return resp, nil
+}
+
+// sseDoneKey carries, in a streaming request's context, the flag the filter
+// sets when the body delivers its `data: [DONE]` sentinel. The SDK ends the
+// stream silently on that sentinel and on a bare end of body alike, so this is
+// the only way a caller can tell a stream that finished from one that was cut
+// off.
+type sseDoneKey struct{}
+
+// withDoneSentinel returns ctx carrying a flag that reports whether the stream
+// requested under it delivered `data: [DONE]`.
+func withDoneSentinel(ctx context.Context) (context.Context, *atomic.Bool) {
+	done := new(atomic.Bool)
+	return context.WithValue(ctx, sseDoneKey{}, done), done
 }
 
 // sseEmptyFrameFilter is an io.ReadCloser that passes an SSE byte stream through
@@ -66,6 +84,7 @@ type sseEmptyFrameFilter struct {
 	hasData  bool         // current frame carries at least one non-whitespace data byte
 	scanDone bool
 	scanErr  error
+	done     *atomic.Bool // set on the `data: [DONE]` sentinel; nil when no caller asked
 }
 
 func newSSEEmptyFrameFilter(body io.ReadCloser) *sseEmptyFrameFilter {
@@ -119,6 +138,9 @@ func (f *sseEmptyFrameFilter) fill() {
 			}
 			if len(bytes.TrimSpace(value)) > 0 {
 				f.hasData = true
+			}
+			if f.done != nil && bytes.HasPrefix(value, []byte("[DONE]")) {
+				f.done.Store(true)
 			}
 		}
 	}

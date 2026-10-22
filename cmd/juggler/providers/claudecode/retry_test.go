@@ -88,6 +88,11 @@ func TestRetry_TransientCLIExitGivesUp(t *testing.T) {
 	if got, want := len(trace), cliMaxRetries+1; got != want {
 		t.Fatalf("spawned %d times, want exactly %d (one initial + %d retries)", got, want, cliMaxRetries)
 	}
+	// The retries are spent, and the error says so: the worker must not
+	// multiply them by its own.
+	if f := provider.ClassifyFailure(err); !f.ProviderRetried {
+		t.Errorf("ClassifyFailure = %+v, want ProviderRetried after the retry budget was spent", f)
+	}
 	c.dropSession(convID)
 }
 
@@ -141,6 +146,11 @@ func TestRetry_OverloadedUpstreamSurfacesWithoutColdStart(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "overloaded") {
 		t.Errorf("error should name the overloaded upstream, got: %v", err)
+	}
+	// The CLI spent the whole ladder retrying; another round from the worker
+	// would re-enter the same ladder once per attempt.
+	if f := provider.ClassifyFailure(err); f.Kind != provider.FailureOverloaded || !f.ProviderRetried {
+		t.Errorf("ClassifyFailure = %+v, want overloaded and already retried", f)
 	}
 	if elapsed > 10*time.Second {
 		t.Fatalf("turn 2 took %v — the ladder cap did not bound the wait", elapsed)
@@ -350,7 +360,40 @@ func TestRetry_NoRetryAfterStreamedContent(t *testing.T) {
 	if len(trace) != 1 {
 		t.Fatalf("spawned %d times, want exactly 1 (retry must not replay streamed content)", len(trace))
 	}
+	// Not retried here, so it is the worker's to retry: it discards the
+	// streamed text before sending the request again.
+	if f := provider.ClassifyFailure(err); f.ProviderRetried {
+		t.Errorf("ClassifyFailure = %+v, want a failure the provider did not retry", f)
+	}
 	c.dropSession(convID)
+}
+
+// TestCLIFailuresDeclareTheirKind: each way a CLI turn fails names the kind the
+// worker acts on, because the text alone cannot say it — a stall, a process
+// that died, output nothing could act on, an upstream the CLI already retried.
+func TestCLIFailuresDeclareTheirKind(t *testing.T) {
+	c := &Client{}
+	for _, tc := range []struct {
+		name    string
+		err     error
+		want    provider.FailureKind
+		retried bool
+	}{
+		{"idle stall", c.idleStallError(90 * time.Second), provider.FailureStalled, false},
+		{"exhausted ladder", ladderExhaustedError(), provider.FailureOverloaded, true},
+		{"exit", c.streamClosedError(&turnResult{}, make(chan error)), provider.FailureUnknown, false},
+		{"no usable tool call", noUsableToolCallError(), provider.FailureUnusableOutput, false},
+		{"529 after the CLI's ladder", cliAPIError(529, "Overloaded"), provider.FailureOverloaded, true},
+		{"500 after the CLI's ladder", cliAPIError(500, "Internal server error"), provider.FailureServerError, true},
+		{"400", cliAPIError(400, "messages: text content blocks must be non-empty"), provider.FailureInvalidRequest, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := provider.ClassifyFailure(tc.err)
+			if f.Kind != tc.want || f.ProviderRetried != tc.retried {
+				t.Fatalf("ClassifyFailure(%v) = %+v, want kind %v, ProviderRetried %v", tc.err, f, tc.want, tc.retried)
+			}
+		})
+	}
 }
 
 // TestRetry_CLIDeathAtBootReadsAsAnExit covers the boot-time half of the same

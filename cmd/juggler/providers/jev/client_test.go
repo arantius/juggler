@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/providers/provider"
-	"juggler/cmd/juggler/providers/utils"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -162,16 +161,16 @@ func TestDecideMapsStatusesToTypedErrors(t *testing.T) {
 	}
 
 	_, err = respond(529, nil, `{}`).Decide(context.Background(), req)
-	if err == nil || !utils.TransientMessage(err.Error()) {
-		t.Errorf("529 gave %v, want an error the transient classifier retries", err)
+	if got := provider.ClassifyFailure(err).Kind; got != provider.FailureOverloaded {
+		t.Errorf("529 gave %v (%v), want an overloaded failure", err, got)
 	}
 
 	_, err = respond(http.StatusUnprocessableEntity, nil, `{"detail":"missing field"}`).Decide(context.Background(), req)
 	if err == nil || !strings.Contains(err.Error(), "422") || !strings.Contains(err.Error(), "missing field") {
 		t.Errorf("422 gave %v, want the status and the body", err)
 	}
-	if err != nil && utils.TransientMessage(err.Error()) {
-		t.Errorf("a validation failure was classed transient: %v", err)
+	if got := provider.ClassifyFailure(err).Kind; got != provider.FailureInvalidRequest {
+		t.Errorf("a validation failure was classed %v, want invalid-request: %v", got, err)
 	}
 }
 

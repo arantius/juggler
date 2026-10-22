@@ -64,8 +64,9 @@ func TestErrorRedoOnEmptyStack(t *testing.T) {
 	t.Log("SUCCESS: Redo on empty stack handled gracefully")
 }
 
-// TestLLMErrorRecovery tests that the worker recovers after an LLM error
-// and can process subsequent messages normally.
+// TestLLMErrorRecovery tests that the worker recovers after an LLM error that
+// ends the turn, and can process subsequent messages normally. The error is
+// one no retry clears; a retryable one would be absorbed inside the turn.
 func TestLLMErrorRecovery(t *testing.T) {
 	t.Parallel()
 	ts := helpers.SetupTestSession(t)
@@ -76,7 +77,7 @@ func TestLLMErrorRecovery(t *testing.T) {
 	ts.Worker.SetLLMCaller(func(ctx context.Context, req json.RawMessage, streamCB func(worker.StreamChunk)) (*worker.LLMResponse, error) {
 		n := callCount.Add(1)
 		if n == 1 {
-			return nil, fmt.Errorf("mock LLM error: internal server error")
+			return nil, fmt.Errorf("mock LLM error: invalid request: the prompt was rejected")
 		}
 		// Second call succeeds
 		resp := helpers.TextResponse("Recovery successful")

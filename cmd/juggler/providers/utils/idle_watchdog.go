@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"juggler/cmd/juggler/providers/provider"
 )
 
 // StreamIdleTimeout bounds how long a streaming provider will wait for the next
@@ -136,17 +138,21 @@ func (w *IdleWatchdog) Fired() bool {
 }
 
 // StallMarker and StallDroppedMarker are the two substrings every provider's
-// idle-stall error carries. They form the contract the worker's transient-error
-// classifier (isTransientMsg) matches on, so the message text is built here in
-// one place rather than hand-written per provider.
+// idle-stall error carries, so a stall that reaches the worker as text alone
+// (the claude CLI's, a wire response's) still classifies as one. They are
+// provider.ClassifyFailureText's, re-exported here beside the error that spells
+// them.
 const (
-	StallMarker        = "stream stalled"
-	StallDroppedMarker = "connection may have dropped"
+	StallMarker        = provider.StallMarker
+	StallDroppedMarker = provider.StallDroppedMarker
 )
 
 // StallError builds the canonical idle-stall error a streaming provider returns
-// when its IdleWatchdog fires. providerName is the lowercase provider label
-// ("anthropic", "openai", "gemini") and idle is the elapsed idle window.
+// when its IdleWatchdog fires: a provider.FailureStalled, so the worker retries
+// it by its kind rather than by its words. providerName is the lowercase
+// provider label ("anthropic", "openai", "gemini") and idle is the elapsed idle
+// window.
 func StallError(providerName string, idle time.Duration) error {
-	return fmt.Errorf("%s %s: no data for %s — %s", providerName, StallMarker, idle, StallDroppedMarker)
+	return provider.NewFailureError(provider.FailureStalled,
+		fmt.Sprintf("%s %s: no data for %s — %s", providerName, StallMarker, idle, StallDroppedMarker), nil)
 }

@@ -282,6 +282,7 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 	// also carries the running output-token estimate behind the UI spinner.
 	sess, streamCtx := utils.NewStreamSession(ctx, c.providerName, callback)
 	defer sess.Close()
+	streamCtx, sawDone := withDoneSentinel(streamCtx)
 
 	stream := c.client.Responses.NewStreaming(streamCtx, params, opts...)
 
@@ -316,6 +317,11 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 	// Stop reason reported by a response.incomplete event, applied to a
 	// text-only turn below. Empty until such an event arrives.
 	var incompleteStop provider.StopReason
+	// A response ends with response.completed or response.incomplete (its
+	// failures return from the loop), and a gateway emulating the API may end
+	// it with the [DONE] sentinel instead. A body that ends before any of them
+	// was cut off.
+	sawTerminal := false
 
 	// Process the stream - events are ResponseStreamEventUnion
 	for stream.Next() {
@@ -419,6 +425,7 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 			}
 
 		case "response.completed":
+			sawTerminal = true
 			// Extract token usage from completed response. InputTokens here is
 			// already the TOTAL prompt (incl. cache), per the Responses API
 			// schema, so it matches the provider boundary contract directly.
@@ -465,15 +472,16 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 			// the turn's error the turn returns zero blocks and a clean
 			// end_turn — a conversation that stops with nothing to show for it.
 			e := evt.AsError()
-			return nil, c.enhanceError(fmt.Errorf("openai-responses stream error: %s", responsesErrorText(e.Code, e.Message, e.Param)))
+			return nil, c.inBandFailure(e.Code, fmt.Sprintf("openai-responses stream error: %s", responsesErrorText(e.Code, e.Message, e.Param)))
 
 		case "response.failed":
 			// Terminal failure of the response itself; same silent-stop
 			// reasoning as the error event above.
 			failed := evt.AsResponseFailed().Response.Error
-			return nil, c.enhanceError(fmt.Errorf("openai-responses response failed: %s", responsesErrorText(string(failed.Code), failed.Message, "")))
+			return nil, c.inBandFailure(string(failed.Code), fmt.Sprintf("openai-responses response failed: %s", responsesErrorText(string(failed.Code), failed.Message, "")))
 
 		case "response.incomplete":
+			sawTerminal = true
 			// The response stopped short (token cap, content filter). What
 			// streamed so far stands, so this is a stop reason rather than an
 			// error — but it must not be reported as a clean finish.
@@ -491,7 +499,11 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 		if stall := sess.StallError(); stall != nil {
 			return nil, stall
 		}
-		return nil, sess.Annotate(err) // Don't enhance - let retry wrapper handle it
+		return nil, c.streamEventFailure(sess.Annotate(err))
+	}
+	if !sawTerminal && !sawDone.Load() {
+		return nil, provider.NewFailureError(provider.FailureTruncated,
+			sess.Annotate(fmt.Errorf("%s stream ended before response.completed", c.providerName)).Error(), nil)
 	}
 
 	// Log the response summary

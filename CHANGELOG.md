@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Dropped connections, cut-off streams and provider server errors now retry automatically
+- A retried reply replaces the half-answer the failed attempt had shown
 - Simplified Chinese translation; choose it under Settings → Language
 - Settings has a Language tab, first and marked 文A, listing each language in itself
 - Session ▸ Connect to Server… opens a window onto another machine's server, reopened at launch

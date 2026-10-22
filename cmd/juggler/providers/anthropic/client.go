@@ -7,7 +7,9 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -22,6 +24,10 @@ import (
 
 // defaultMaxOutputTokens is Anthropic's standard per-request output limit.
 const defaultMaxOutputTokens = 8192
+
+// errNoMessageStop is the failure of a stream whose body ended before its
+// message_stop event.
+var errNoMessageStop = errors.New("anthropic stream ended before message_stop")
 
 // toolUseAccumulator tracks a tool_use block being assembled from streaming chunks
 type toolUseAccumulator struct {
@@ -189,16 +195,69 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 
 	// httpx.Client(0) carries the proxy policy with no client-level timeout —
 	// streaming responses need long-lived connections.
-	client := anthropicsdk.NewClient(
-		option.WithAPIKey(cfg.APIKey),
-		option.WithHTTPClient(httpx.Client(0)),
-	)
+	client := newSDKClient(cfg.APIKey, httpx.Client(0))
 
 	return &Client{
 		client:          &client,
 		model:           cfg.Model,
 		maxOutputTokens: cfg.ModelCapabilities.MaxOutputTokens,
 	}, nil
+}
+
+// newSDKClient configures the Anthropic SDK client every Client uses. The SDK's
+// own retries are off: the worker's turn loop owns every retry (its
+// retryRuleFor), so that one policy decides, one budget bounds the time, and
+// the user sees each wait as a "retrying" status instead of a silent stall.
+func newSDKClient(apiKey string, httpClient *http.Client) anthropicsdk.Client {
+	return anthropicsdk.NewClient(
+		option.WithAPIKey(apiKey),
+		option.WithHTTPClient(httpClient),
+		option.WithMaxRetries(0),
+	)
+}
+
+// apiFailure maps the SDK's error onto the provider vocabulary the worker
+// classifies: a 429 becomes a RateLimitedError carrying the wait the response
+// stated, and any other API error an APIError with its status, its error type
+// and the server's own retry verdict. err is returned unchanged when it is not
+// an API error (a transport failure), for the classifier to read from its own
+// types.
+func apiFailure(err error) error {
+	var sdkErr *anthropicsdk.Error
+	if !errors.As(err, &sdkErr) {
+		return err
+	}
+	var header http.Header
+	if sdkErr.Response != nil {
+		header = sdkErr.Response.Header
+	}
+	body := sdkErr.RawJSON()
+	wait := utils.ParseRateLimitHint(header, body)
+	status := sdkErr.StatusCode
+	// An error event inside a stream carries the status of the stream itself,
+	// which had answered 200; its type is the whole of what it says.
+	if status < 400 {
+		status = 0
+	}
+	if status == http.StatusTooManyRequests {
+		return &provider.RateLimitedError{RetryAfter: wait, Message: err.Error(), Cause: err}
+	}
+	failure := &provider.APIError{
+		Provider:   "anthropic",
+		Status:     status,
+		Type:       string(sdkErr.Type()),
+		RetryAfter: wait,
+		Message:    err.Error(),
+		Cause:      err,
+	}
+	switch header.Get("x-should-retry") {
+	case "true":
+		failure.ShouldRetry = new(bool)
+		*failure.ShouldRetry = true
+	case "false":
+		failure.ShouldRetry = new(bool)
+	}
+	return failure
 }
 
 // Name returns the provider name
@@ -675,6 +734,9 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 	var inputTokens, outputTokens int
 	var cacheReadTokens, cacheWriteTokens *int
 	var stopReason provider.StopReason
+	// message_stop is the only proof the message is complete; a body that ends
+	// without it was cut off.
+	sawMessageStop := false
 
 	// Process streaming events in order
 	for stream.Next() {
@@ -820,6 +882,9 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 				}
 			}
 
+		case "message_stop":
+			sawMessageStop = true
+
 		case "message_delta":
 			// Extract stop_reason and output token count
 			if event.Delta.StopReason != "" {
@@ -880,7 +945,13 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 		if stall := sess.StallError(); stall != nil {
 			return nil, stall
 		}
-		return nil, fmt.Errorf("anthropic streaming error: %w", sess.Annotate(err))
+		return nil, apiFailure(fmt.Errorf("anthropic streaming error: %w", sess.Annotate(err)))
+	}
+	// The body ended cleanly, but before the event that says the message is
+	// complete: whatever arrived is a fragment, and acting on it as an answer
+	// would run a cut-off reply or a half-formed tool call.
+	if !sawMessageStop {
+		return nil, provider.NewFailureError(provider.FailureTruncated, sess.Annotate(errNoMessageStop).Error(), nil)
 	}
 
 	// Finalize any remaining block

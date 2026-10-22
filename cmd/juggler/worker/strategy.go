@@ -54,10 +54,10 @@ const (
 	// so this value is never the latency a user actually waits on.
 	LLMTimeout = 30 * time.Minute
 
-	// TransientRetryWait is the fixed backoff before retrying a transient
-	// transport failure (a stalled/dropped CLI stream). Unlike a rate-limit
-	// there is no server-suggested delay; a short pause lets a flaky
-	// connection or just-slept machine settle before the fresh attempt.
+	// TransientRetryWait is the first backoff before retrying a transport
+	// failure (a dropped connection, a stalled or truncated stream; see
+	// retryPolicy). There is no server-suggested delay; a short pause lets a
+	// flaky connection or just-slept machine settle before the fresh attempt.
 	TransientRetryWait = 1 * time.Second
 )
 
@@ -690,11 +690,12 @@ func (r *run) insertBarrenStallPlaceholder() {
 // Returns ErrCancelled if the user cancelled, ErrRestartStrategy if a new user
 // message arrived during a rate-limit wait (caller must continue strategyLoop).
 //
-// Retries are bounded twice over: by MaxLLMRetries (how many) and by
-// MaxLLMRetryWindow (how long in total). The second bound is the load-bearing
-// one whenever a single attempt is expensive.
+// Retries are bounded twice over: by the failure kind's attempts in
+// retryRuleFor (how many) and by MaxLLMRetryWindow (how long in total). The
+// second bound is the load-bearing one whenever a single attempt is expensive.
 func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
-	for attempt := 0; attempt < MaxLLMRetries; attempt++ {
+	for attempt := 0; ; attempt++ {
+		r.t.attemptOutput = nil
 		// Only the first attempt claims to be receiving. A retry keeps the
 		// "retrying" spinner until real content arrives (clearRetryingStatus),
 		// because the fresh attempt may itself spend minutes inside the
@@ -720,7 +721,12 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 		r.t.retrySpent += time.Since(r.failingSince(attemptStart))
 
 		var rErr retryableError
-		if !errors.As(err, &rErr) || attempt == MaxLLMRetries-1 {
+		if !errors.As(err, &rErr) {
+			r.resetLLMRetryBudget()
+			return nil, err
+		}
+		wait, attempts, retry := rErr.retryPlan(attempt+1, r.retryBackoffLimit)
+		if !retry {
 			r.resetLLMRetryBudget()
 			return nil, err
 		}
@@ -731,8 +737,6 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 			r.resetLLMRetryBudget()
 			return nil, err
 		}
-
-		wait := rErr.retryWait()
 
 		// A wait the budget cannot cover is a wall, not a backoff: the attempts
 		// it would buy all land inside the same refusal, and against a usage cap
@@ -746,9 +750,9 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 		}
 
 		r.log.Info("Retryable LLM error (%v), retrying in %v (attempt %d/%d, %v of %v budget spent)",
-			err, wait, attempt+1, MaxLLMRetries, r.t.retrySpent.Round(time.Second), MaxLLMRetryWindow)
+			err, wait.Round(time.Millisecond), attempt+1, attempts, r.t.retrySpent.Round(time.Second), MaxLLMRetryWindow)
 
-		r.sendRetryingStatus(rErr.retryStatus(attempt+1, MaxLLMRetries, r.t.retrySpent))
+		r.sendRetryingStatus(rErr.retryStatus(attempt+1, attempts, r.t.retrySpent))
 		r.batcher.Flush()
 
 		res := r.waitForRetryDelay(wait)
@@ -759,6 +763,10 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 		}
 		if res.NewMessage {
 			// A new user message is a new intent, and gets a fresh allowance.
+			// The failed attempt is abandoned like any other, so whatever it
+			// left (provider state a continuation would chain from) goes too.
+			r.finalizeStreaming()
+			r.discardAttemptOutput()
 			r.t.txnID = ""
 			r.resetLLMRetryBudget()
 			return nil, ErrRestartStrategy
@@ -772,23 +780,36 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 		}
 
 		// The streamed OUTPUT is dropped so the fresh attempt starts clean —
-		// otherwise a partial answer from the failed attempt would be prefixed
-		// to this one. The input measurement deliberately is not: a retry
-		// re-sends `req` unchanged, so a prompt size the failed attempt already
-		// measured describes this attempt's prompt exactly, and it is the only
-		// account available if this attempt is cancelled before reporting its
-		// own. Dropping it would write a blob that reports nothing.
+		// both the accumulated text and the items it landed in, since a
+		// half-answer left in the transcript reads as part of the reply and is
+		// sent back to the model as history. The failed attempt's transaction
+		// blob still records what it produced. The input measurement
+		// deliberately is not dropped: a retry re-sends `req` unchanged, so a
+		// prompt size the failed attempt already measured describes this
+		// attempt's prompt exactly, and it is the only account available if this
+		// attempt is cancelled before reporting its own. Dropping it would write
+		// a blob that reports nothing.
 		//
 		// That is why there is no resetStreamingUsage() here and there is one
 		// in runOneTurn: the strategy loop's next iteration sends a DIFFERENT
 		// prompt, grown by the tool results since. A retry does not.
 		r.finalizeStreaming()
+		r.discardAttemptOutput()
 		r.resetStreamingText()
 		r.resetStreamingThinking()
 		r.t.offeredTools = nil
 		r.t.delegatingTools = nil
 	}
-	return nil, errors.New("unexpected retry loop exit")
+}
+
+// discardAttemptOutput removes the items the failed attempt appended to the
+// run's thread (turnState.attemptOutput). Called after finalizeStreaming, so no
+// throttled write is still owed to them.
+func (r *run) discardAttemptOutput() {
+	if n := r.tracker.RemoveItemsByID(r.t.thread.itemID, r.t.attemptOutput); n > 0 {
+		r.log.Info("Discarded %d item(s) the failed attempt streamed before retrying", n)
+	}
+	r.t.attemptOutput = nil
 }
 
 // failingSince returns when the attempt that began at attemptStart started
@@ -986,12 +1007,25 @@ func (r *run) callLLMWithSink(request json.RawMessage, sink func(StreamChunk)) (
 			return nil, err
 		}
 		// A system-wake cancelled this call: the connection was dropped while
-		// the machine slept. Surface a clear, retryable message instead of the
-		// provider's raw "context canceled".
+		// the machine slept. That is a dropped connection, retried like any
+		// other, and said in words instead of the provider's raw "context
+		// canceled".
 		if r.t.wakeInterrupt.Load() {
-			return nil, fmt.Errorf("LLM request interrupted: the system resumed from sleep and the connection was dropped — please resend")
+			return nil, &LLMError{
+				Failure: provider.Failure{Kind: provider.FailureConnectionDropped},
+				Message: "LLM request interrupted: the system resumed from sleep and the connection was dropped",
+				Cause:   err,
+			}
 		}
-		return nil, classifyLLMError(err.Error(), err)
+		classified := classifyLLMError(err.Error(), err)
+		// The provider can report the caller's cancel before the cancel itself
+		// reaches this wait, which would otherwise surface the user's own Stop
+		// as an error.
+		var llmErr *LLMError
+		if errors.As(classified, &llmErr) && llmErr.Failure.Kind == provider.FailureCancelled && r.loadState() == StateCancelling {
+			return nil, ErrCancelled
+		}
+		return nil, classified
 	}
 
 	if response.Error != "" {
@@ -1001,34 +1035,46 @@ func (r *run) callLLMWithSink(request json.RawMessage, sink func(StreamChunk)) (
 	return response, nil
 }
 
-// classifyLLMError retains legacy message-based rate-limit and transient
-// classification while preserving an in-process provider error as the cause.
-// Wire and scripted responses have no concrete cause and continue to use their
-// LLMResponse.Error text.
+// classifyLLMError turns a failed provider call into the error the turn loop
+// acts on: a RateLimitError, whose wait the rest of the conversation may need to
+// honour, or an LLMError carrying the failure's kind. The judgement itself is
+// provider.ClassifyFailure's, which reads the cause's types before its text;
+// wire and scripted responses arrive as text alone (cause nil) and are
+// classified by it. Either way the cause stays wrapped, so the failures that
+// have paths of their own are still found with errors.As.
 func classifyLLMError(msg string, cause error) error {
-	// A provider that read its own 429 hands us the wait as a number, taken from
-	// the header the message text never carries. Prefer it, and fall through to
-	// reading the text when the provider stated nothing.
-	var limited *provider.RateLimitedError
-	if errors.As(cause, &limited) && limited.RetryAfter > 0 {
-		return newRateLimitError(limited.RetryAfter, true, msg, cause)
+	// Already the turn loop's own error (a test caller, or a nested call
+	// relaying one): it has been classified, and doing it again from its text
+	// could only lose what it says.
+	var limitErr *RateLimitError
+	var llmErr *LLMError
+	if errors.As(cause, &limitErr) || errors.As(cause, &llmErr) {
+		return cause
 	}
-	var unusable *provider.UnusableOutputError
-	if errors.As(cause, &unusable) {
-		return &UnusableOutputError{Wait: TransientRetryWait, Message: "LLM error: " + msg, Cause: cause}
+	// The selected provider cannot run at all; Guard B reports it, and a
+	// classification has nothing to add.
+	if errors.Is(cause, ErrProviderUnavailable) {
+		return fmt.Errorf("LLM error: %w", cause)
 	}
 
-	switch {
-	case isRateLimitMsg(msg):
+	var failure provider.Failure
+	if cause != nil {
+		failure = provider.ClassifyFailure(cause)
+	} else {
+		failure = provider.ClassifyFailureText(msg)
+	}
+
+	if failure.Kind == provider.FailureRateLimited {
+		// A provider that read its own 429 hands us the wait as a number, taken
+		// from the header the message text never carries. Prefer it, and fall
+		// back to reading the text when the provider stated nothing.
+		if failure.RetryAfter > 0 {
+			return newRateLimitError(failure.RetryAfter, true, msg, cause)
+		}
 		wait, stated := parseRetryWaitFromMsg(msg)
 		return newRateLimitError(wait, stated, msg, cause)
-	case isTransientMsg(msg):
-		return &TransientError{Wait: TransientRetryWait, Message: "LLM error: " + msg, Cause: cause}
-	case cause != nil:
-		return fmt.Errorf("LLM error: %w", cause)
-	default:
-		return fmt.Errorf("LLM error: %s", msg)
 	}
+	return &LLMError{Failure: failure, Message: "LLM error: " + msg, Cause: cause}
 }
 
 // newRateLimitError stamps a stated wait with the wall-clock time it expires,

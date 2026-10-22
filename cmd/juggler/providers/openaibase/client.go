@@ -23,6 +23,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/respjson"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 
 // extraStringField pulls a string value out of an SDK ExtraFields map — the
@@ -202,22 +203,29 @@ type Client struct {
 	limitDiscoveryDisabled bool
 }
 
-// enhanceError adds helpful, human-oriented hints to common API errors. It
-// prefers the typed *openai.Error fields (HTTP status, error code) and falls
-// back to substring checks for signals that non-OpenAI-compatible gateways
-// surface only in the raw message text.
+// enhanceError maps a failed call onto the provider vocabulary the worker
+// classifies, adding human-oriented hints to the common cases. A typed
+// *openai.Error becomes a RateLimitedError (a 429 that is not an exhausted
+// quota) or an APIError carrying its status, its code and the server's own
+// retry verdict. Signals that non-OpenAI-compatible gateways surface only in
+// the raw message text fall back to substring checks.
 func (c *Client) enhanceError(err error) error {
+	// Already classified where it was raised: a stall, a cut-off, an in-band
+	// error event.
+	var (
+		classified *provider.APIError
+		declared   provider.FailureDeclarer
+		limited    *provider.RateLimitedError
+	)
+	if errors.As(err, &classified) || errors.As(err, &declared) || errors.As(err, &limited) {
+		return err
+	}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
-		switch apiErr.StatusCode {
-		case http.StatusUnauthorized:
-			return fmt.Errorf("%w (hint: your API key may be invalid)", err)
-		case http.StatusTooManyRequests:
+		if apiErr.StatusCode == http.StatusTooManyRequests && apiErr.Code != "insufficient_quota" && apiErr.Type != "insufficient_quota" {
 			return rateLimited(err, apiErr)
 		}
-		if apiErr.Code == "insufficient_quota" {
-			return fmt.Errorf("%w (hint: your account may be out of credits)", err)
-		}
+		return c.apiFailure(err, apiErr)
 	}
 
 	// Fallback: some providers report these signals only in the message text.
@@ -235,6 +243,74 @@ func (c *Client) enhanceError(err error) error {
 	}
 
 	return err
+}
+
+// apiFailure maps a typed SDK error onto provider.APIError. The hint a reader
+// needs for the two user-fixable cases rides in the message.
+func (c *Client) apiFailure(err error, apiErr *openai.Error) error {
+	var header http.Header
+	if apiErr.Response != nil {
+		header = apiErr.Response.Header
+	}
+	body := apiErr.RawJSON()
+	errType := apiErr.Code
+	if errType == "" {
+		errType = apiErr.Type
+	}
+	message := err.Error()
+	switch {
+	case apiErr.StatusCode == http.StatusUnauthorized:
+		message += " (hint: your API key may be invalid)"
+	case errType == "insufficient_quota":
+		message += " (hint: your account may be out of credits)"
+	}
+	failure := &provider.APIError{
+		Provider:   c.providerName,
+		Status:     apiErr.StatusCode,
+		Type:       errType,
+		RetryAfter: utils.ParseRateLimitHint(header, body),
+		Message:    message,
+		Cause:      err,
+	}
+	switch header.Get("x-should-retry") {
+	case "true":
+		failure.ShouldRetry = new(bool)
+		*failure.ShouldRetry = true
+	case "false":
+		failure.ShouldRetry = new(bool)
+	}
+	return failure
+}
+
+// inBandFailure is the APIError for an error the provider reported inside a
+// stream that had already answered 200, so it has a code and no status.
+func (c *Client) inBandFailure(code, message string) error {
+	return &provider.APIError{Provider: c.providerName, Type: code, Message: message}
+}
+
+// streamEventFailure maps the SDK's error for an `error` frame inside a Chat
+// Completions stream, which carries the provider's error object as JSON text,
+// onto an APIError with the type that object names. Any other stream error is
+// returned unchanged.
+func (c *Client) streamEventFailure(err error) error {
+	var streamErr *ssestream.StreamError
+	if !errors.As(err, &streamErr) {
+		return err
+	}
+	var body struct {
+		Error struct {
+			Type string `json:"type"`
+			Code any    `json:"code"`
+		} `json:"error"`
+	}
+	errType := ""
+	if json.Unmarshal(streamErr.Event.Data, &body) == nil {
+		errType = body.Error.Type
+		if code, ok := body.Error.Code.(string); ok && code != "" {
+			errType = code
+		}
+	}
+	return &provider.APIError{Provider: c.providerName, Type: errType, Message: err.Error(), Cause: err}
 }
 
 // rateLimited builds the typed refusal for a 429, carrying the wait the
@@ -402,6 +478,12 @@ func NewClient(cfg Config) (*Client, error) {
 	// heartbeats) before the SDK's decoder json.Unmarshals them and hard-fails
 	// the stream with "unexpected end of JSON input". No-op on non-SSE responses.
 	opts = append(opts, option.WithMiddleware(sseEmptyFrameFilterMiddleware))
+
+	// The SDK's own retries are off: the worker's turn loop owns every retry
+	// (its retryRuleFor), so that one policy decides, one budget bounds the
+	// time, and the user sees each wait as a "retrying" status instead of a
+	// silent stall.
+	opts = append(opts, option.WithMaxRetries(0))
 
 	client := openai.NewClient(opts...)
 

@@ -137,6 +137,12 @@ func (r *run) handleTurnFailure(st *strategyRunState, err error, llmRequest json
 	for k, v := range compactionErrorData(err) {
 		errorData[k] = v
 	}
+	// The row keys its actions off errorKind and never re-derives it from the
+	// text, so a provider failure carries the kind it was classified as.
+	var llmErr *LLMError
+	if errors.As(err, &llmErr) && llmErr.Failure.Kind != provider.FailureNone {
+		errorData["errorKind"] = llmErr.Failure.Kind.String()
+	}
 
 	var rateLimit *RateLimitError
 	if errors.As(err, &rateLimit) && !rateLimit.ResetAt.IsZero() {

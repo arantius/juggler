@@ -71,9 +71,6 @@ func (e *ContextLimitExceededError) Error() string {
 // deterministic, provider-independent message.
 func (e *ContextLimitExceededError) Unwrap() error { return e.Cause }
 
-// Retryable allows generic error classifiers to identify this as terminal.
-func (e *ContextLimitExceededError) Retryable() bool { return false }
-
 // ContextCompactionAdvisory asks the worker to compact a visible request before
 // dispatch to a provider known to silently truncate oversized input. It is based
 // only on an approximate estimate, is never terminal, and must either lead to
@@ -111,9 +108,6 @@ func (e *UnknownContextLimitError) Error() string {
 	return fmt.Sprintf("cannot admit request: context limits are unknown for this model (context window %d, output reserve %d). Check the model id is one the provider reports, or refresh the provider's model list in settings", e.ContextWindowTokens, e.OutputReserveTokens)
 }
 
-// Retryable allows generic error classifiers to identify this as terminal.
-func (e *UnknownContextLimitError) Retryable() bool { return false }
-
 // InvalidOutputReserveError reports model limits which leave no room for input.
 type InvalidOutputReserveError struct {
 	OutputReserveTokens int64
@@ -123,9 +117,6 @@ type InvalidOutputReserveError struct {
 func (e *InvalidOutputReserveError) Error() string {
 	return fmt.Sprintf("cannot admit request: output reserve %d must be smaller than context window %d", e.OutputReserveTokens, e.ContextWindowTokens)
 }
-
-// Retryable allows generic error classifiers to identify this as terminal.
-func (e *InvalidOutputReserveError) Retryable() bool { return false }
 
 // SaturatingAdd returns a+b clamped to the int64 range instead of overflowing.
 // Exported as the single home for saturating token arithmetic shared by the

@@ -29,8 +29,16 @@ import (
 // one (and nothing has streamed yet). A clean API error — rate-limit
 // exhaustion the CLI reported in-band, a 400 — is a plain error and is never
 // retried.
+//
+// It declares its kind to the worker (DeclaredFailure), since its text cannot:
+// what it was, and whether this client already spent its own retries on it.
 type transientCLIError struct {
 	msg string
+	// kind is what the failure was, as the worker's retry policy reads it.
+	kind provider.FailureKind
+	// retried is set when dispatchTurnWithRetry surfaces the failure after
+	// spending its own retries on it, so the worker does not multiply them.
+	retried bool
 	// processExited is true when the CLI process has terminated (the
 	// "exited unexpectedly" case), so finalizeTurn may enrich the message
 	// with the captured process exit status. False for a stall, where the
@@ -52,6 +60,13 @@ func (e *transientCLIError) Error() string {
 		return e.msg + " (" + e.diag + ")"
 	}
 	return e.msg
+}
+
+// DeclaredFailure is the failure as the worker's retry policy reads it. An
+// exhausted ladder is always reported as already retried: the CLI spent the
+// whole ladder on this request.
+func (e *transientCLIError) DeclaredFailure() provider.Failure {
+	return provider.Failure{Kind: e.kind, ProviderRetried: e.retried || e.ladderExhausted}
 }
 
 // isTransientCLIError reports whether err (or anything it wraps) is a
@@ -389,6 +404,7 @@ func ladderExhaustedError() error {
 	return &transientCLIError{
 		msg: fmt.Sprintf("claude CLI "+utils.StallMarker+": %s of provider retries with no progress (upstream persistently overloaded)",
 			retryLadderCap),
+		kind:            provider.FailureOverloaded,
 		ladderExhausted: true,
 	}
 }
@@ -397,9 +413,23 @@ func ladderExhaustedError() error {
 // words when it wrote any to stderr.
 func (c *Client) idleStallError(idleTimeout time.Duration) error {
 	if stderr := c.drainedStderr(); stderr != "" {
-		return &transientCLIError{msg: fmt.Sprintf(stallNoOutputMsg+": %s", idleTimeout, stderr)}
+		return &transientCLIError{msg: fmt.Sprintf(stallNoOutputMsg+": %s", idleTimeout, stderr), kind: provider.FailureStalled}
 	}
-	return &transientCLIError{msg: fmt.Sprintf(stallNoOutputMsg, idleTimeout)}
+	return &transientCLIError{msg: fmt.Sprintf(stallNoOutputMsg, idleTimeout), kind: provider.FailureStalled}
+}
+
+// cliExitError is the failure of a CLI process that died before completing the
+// turn. Its kind is unknown on purpose: the commonest cause is the account's
+// usage limit, which no retry clears, but a crash or a dropped connection is
+// indistinguishable from here.
+func cliExitError(msg string) *transientCLIError {
+	return &transientCLIError{msg: msg, kind: provider.FailureUnknown, processExited: true}
+}
+
+// noUsableToolCallError is the failure of a turn the CLI stopped for tool_use
+// without a call anything could act on. Another sample usually produces one.
+func noUsableToolCallError() *transientCLIError {
+	return &transientCLIError{msg: "claude CLI stopped for tool_use but emitted no usable tool call", kind: provider.FailureUnusableOutput}
 }
 
 // streamClosedError decides what it means that the reader closed the content
@@ -418,15 +448,9 @@ func (c *Client) streamClosedError(result *turnResult, scanErr <-chan error) err
 		return nil
 	}
 	if stderr := c.drainedStderr(); stderr != "" {
-		return &transientCLIError{
-			msg:           fmt.Sprintf("claude CLI exited unexpectedly: %s", stderr),
-			processExited: true,
-		}
+		return cliExitError(fmt.Sprintf("claude CLI exited unexpectedly: %s", stderr))
 	}
-	return &transientCLIError{
-		msg:           "claude CLI exited unexpectedly without completing the turn (possible usage-limit / quota exhaustion — check `claude` directly)",
-		processExited: true,
-	}
+	return cliExitError("claude CLI exited unexpectedly without completing the turn (possible usage-limit / quota exhaustion — check `claude` directly)")
 }
 
 // drainedStderr is what the CLI has written to stderr since it was last
@@ -628,8 +652,10 @@ func onResultSuccess(msg *StreamMessage, result *turnResult) error {
 // own wording is addressed to someone sitting at its command line, so it is
 // typed (and the login marked expired) for the worker to lead with what to do
 // while still showing this text underneath. A 400 over the transcript's tool
-// sequence is typed too, so the turn can rebuild the session. Anything else is
-// the text itself.
+// sequence is typed too, so the turn can rebuild the session. Any other status
+// becomes an APIError the worker classifies by it; a server-side failure the CLI
+// reports has already been through the CLI's own retries, and says so. With no
+// status, the text is all there is.
 func cliAPIError(status int, text string) error {
 	if authErr := classifyClaudeAuthFailure(status, text); authErr != nil {
 		markClaudeLoginExpired()
@@ -638,7 +664,16 @@ func cliAPIError(status int, text string) error {
 	if isRejectedTranscriptText(status, text) {
 		return &rejectedTranscriptError{text: text}
 	}
-	return errors.New(text)
+	if status == 0 {
+		return errors.New(text)
+	}
+	apiErr := &provider.APIError{Provider: "claudecode", Status: status, Message: text}
+	if status < 500 {
+		return apiErr
+	}
+	failure := provider.ClassifyFailure(apiErr)
+	failure.ProviderRetried = true
+	return &provider.FailureError{Failure: failure, Message: text, Cause: apiErr}
 }
 
 // rejectedTranscriptError is a 400 the API returned over the conversation's

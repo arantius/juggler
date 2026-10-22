@@ -5,69 +5,44 @@
 package gemini
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
-	"juggler/cmd/juggler/providers/utils"
+	"juggler/cmd/juggler/providers/provider"
 
 	"google.golang.org/genai"
 )
 
 // classifyStreamError is the whole of gemini's contract with the worker's retry
-// loop, and that loop reads text. These cases assert the mapping in the terms
-// the loop actually uses — utils.TransientMessage for the capacity failures,
-// and the "429"/"rate limit" substrings the turn loop's isRateLimitMsg matches
-// — so a reworded message that silently stopped being retryable fails here.
+// loop. These cases assert the mapping in the terms the loop actually uses —
+// the kind provider.ClassifyFailure gives the error — so a mapping that
+// silently stopped being retryable fails here.
 
-func TestClassifyStreamErrorMarksCapacityFailuresTransient(t *testing.T) {
+func TestClassifyStreamErrorKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		code int
+		want provider.FailureKind
 	}{
-		{"bad gateway", 502},
-		{"service unavailable", 503},
-		{"gateway timeout", 504},
-		{"overloaded", statusOverloaded},
+		{"internal", 500, provider.FailureServerError},
+		{"bad gateway", 502, provider.FailureServerError},
+		{"service unavailable", 503, provider.FailureOverloaded},
+		{"gateway timeout", 504, provider.FailureServerError},
+		// The non-standard 529 a Google frontend returns for a momentarily
+		// saturated model.
+		{"overloaded", 529, provider.FailureOverloaded},
+		{"rate limit", 429, provider.FailureRateLimited},
+		{"client error", 400, provider.FailureInvalidRequest},
+		{"permission", 403, provider.FailureAuth},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := classifyStreamError(genai.APIError{Code: tc.code, Message: "upstream is busy", Status: "UNAVAILABLE"})
-			if !utils.TransientMessage(err.Error()) {
-				t.Fatalf("code %d must classify as transient, got %q", tc.code, err.Error())
+			err := classifyStreamError(genai.APIError{Code: tc.code, Message: "upstream said no", Status: "UNAVAILABLE"})
+			if got := provider.ClassifyFailure(err).Kind; got != tc.want {
+				t.Fatalf("code %d classified %v, want %v (%q)", tc.code, got, tc.want, err.Error())
 			}
-			if !strings.Contains(err.Error(), "upstream is busy") {
+			if !strings.Contains(err.Error(), "upstream said no") {
 				t.Fatalf("underlying provider text must survive, got %q", err.Error())
-			}
-		})
-	}
-}
-
-func TestClassifyStreamErrorMarksRateLimit(t *testing.T) {
-	err := classifyStreamError(genai.APIError{Code: 429, Message: "quota exceeded", Status: "RESOURCE_EXHAUSTED"})
-	msg := strings.ToLower(err.Error())
-	// Both spellings the worker's isRateLimitMsg accepts.
-	if !strings.Contains(msg, "rate limit") || !strings.Contains(err.Error(), "429") {
-		t.Fatalf("429 must be recognisable as a rate limit, got %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "quota exceeded") {
-		t.Fatalf("underlying provider text must survive, got %q", err.Error())
-	}
-}
-
-func TestClassifyStreamErrorLeavesOtherFailuresTerminal(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		err  error
-	}{
-		{"client error", genai.APIError{Code: 400, Message: "invalid argument"}},
-		{"auth", genai.APIError{Code: 403, Message: "permission denied"}},
-		{"not an API error", errors.New("dial tcp: no route to host")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := classifyStreamError(tc.err)
-			if utils.TransientMessage(err.Error()) {
-				t.Fatalf("%s must not be retried transparently, got %q", tc.name, err.Error())
 			}
 			if !strings.Contains(err.Error(), "gemini") {
 				t.Fatalf("error must name the provider, got %q", err.Error())
@@ -81,7 +56,7 @@ func TestClassifyStreamErrorLeavesOtherFailuresTerminal(t *testing.T) {
 // the retired googleapi.Error branch used) matches neither.
 func TestClassifyStreamErrorUnwrapsWrappedAPIError(t *testing.T) {
 	wrapped := fmt.Errorf("stream failed: %w", genai.APIError{Code: 503, Message: "model overloaded"})
-	if err := classifyStreamError(wrapped); !utils.TransientMessage(err.Error()) {
-		t.Fatalf("a wrapped 503 must still classify as transient, got %q", err.Error())
+	if got := provider.ClassifyFailure(classifyStreamError(wrapped)).Kind; got != provider.FailureOverloaded {
+		t.Fatalf("a wrapped 503 classified %v, want overloaded", got)
 	}
 }

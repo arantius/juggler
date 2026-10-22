@@ -186,9 +186,11 @@ func (r *run) processStreamChunk(chunk StreamChunk) {
 		// visible output, even when it has no content of its own.
 		r.finalizeStreaming()
 		if len(chunk.Metadata) > 0 {
+			id := generateItemID()
+			r.t.attemptOutput = append(r.t.attemptOutput, id)
 			r.appendTargetMessage(ConversationItem{
 				Type:         ItemTypeProviderState,
-				ItemID:       generateItemID(),
+				ItemID:       id,
 				ProviderData: chunk.Metadata,
 				Timestamp:    time.Now().Format(time.RFC3339),
 			})
@@ -338,6 +340,7 @@ func (r *run) processTextChunk(chunk StreamChunk) {
 	// Create new message if needed
 	if r.t.streaming.textMsgID == "" {
 		r.t.streaming.textMsgID = generateItemID()
+		r.t.attemptOutput = append(r.t.attemptOutput, r.t.streaming.textMsgID)
 		msg := ConversationItem{
 			Type:      ItemTypeAssistant,
 			ItemID:    r.t.streaming.textMsgID,
@@ -417,6 +420,7 @@ func (r *run) processThinkingChunk(chunk StreamChunk) {
 	// Create new message if needed
 	if r.t.streaming.thinkingMsgID == "" {
 		r.t.streaming.thinkingMsgID = generateItemID()
+		r.t.attemptOutput = append(r.t.attemptOutput, r.t.streaming.thinkingMsgID)
 		msg := ConversationItem{
 			Type:         ItemTypeThinking,
 			ItemID:       r.t.streaming.thinkingMsgID,
@@ -775,25 +779,6 @@ func (r *run) waitForContextAndTools(timeout time.Duration, contextReply, toolsR
 	}
 
 	return contextResult, toolsResult, nil
-}
-
-// isRateLimitMsg returns true if an error string indicates an HTTP 429 rate-limit.
-func isRateLimitMsg(msg string) bool {
-	lower := strings.ToLower(msg)
-	return strings.Contains(msg, "429") ||
-		strings.Contains(lower, "rate limit") ||
-		strings.Contains(lower, "too many requests")
-}
-
-// isTransientMsg returns true if an error string indicates a failure that a
-// fresh attempt usually clears: a stalled/dropped stream, or an upstream
-// overload. The judgement lives in providerutils.TransientMessage so the turn
-// loop and the out-of-band QuickComplete callers classify identically;
-// deliberately narrow there, and it does NOT match the CLI's "exited
-// unexpectedly" message, which can signal genuine quota exhaustion that
-// retrying would only paper over.
-func isTransientMsg(msg string) bool {
-	return providerutils.TransientMessage(msg)
 }
 
 // defaultRetryWait is what a rate limit that states no reset is retried after.

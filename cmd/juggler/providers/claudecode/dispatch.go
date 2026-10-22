@@ -164,7 +164,7 @@ func (c *Client) cliBootError(what string, err error) error {
 			msg += ": " + stderr
 		}
 	}
-	return &transientCLIError{msg: msg, processExited: true}
+	return cliExitError(msg)
 }
 
 // attachControlProtocol constructs a controlProtocol bound to the active
@@ -576,7 +576,7 @@ func (c *Client) finalizeTurn(req provider.MessageRequest, turn *turnResult, err
 				OutputTokens:     turn.OutputTokens,
 				CachedTokens:     provider.Reported(turn.CacheReadTokens),
 				CacheWriteTokens: provider.Reported(turn.CacheWriteTokens),
-			}, &transientCLIError{msg: "claude CLI stopped for tool_use but emitted no usable tool call"}
+			}, noUsableToolCallError()
 		}
 		c.activeSession.pendingTools = pending
 		// Clock start for the idle sweeper's parked ceiling: from here the CLI

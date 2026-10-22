@@ -37,7 +37,3 @@ func (e *SetupError) Error() string {
 	}
 	return fmt.Sprintf("%s is not set up on this machine", e.Provider)
 }
-
-// Retryable marks this terminal for generic classifiers: asking again changes
-// nothing until a human installs or points at the missing piece.
-func (e *SetupError) Retryable() bool { return false }

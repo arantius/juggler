@@ -496,7 +496,7 @@ func TestAdmissionUnknownLimitsFailClosedUnlessExplicitlyAllowed(t *testing.T) {
 	if !errors.As(err, &unknown) {
 		t.Fatalf("error = %T %v, want UnknownContextLimitError", err, err)
 	}
-	if unknown.Retryable() {
+	if ClassifyFailure(err).Kind.Transient() {
 		t.Fatal("unknown-limit error must be non-retryable")
 	}
 	if wrapped.submits != 0 {
@@ -529,7 +529,7 @@ func TestAdmissionRejectsOutputReserveAtOrAboveContextWindow(t *testing.T) {
 			if invalid.ContextWindowTokens != 100 || invalid.OutputReserveTokens != reserve {
 				t.Fatalf("typed fields = %+v, want window 100 and reserve %d", invalid, reserve)
 			}
-			if invalid.Retryable() {
+			if ClassifyFailure(err).Kind.Transient() {
 				t.Fatal("invalid reserve error must be non-retryable")
 			}
 			if wrapped.submits != 0 {

@@ -473,16 +473,11 @@ func (c *Client) streamOnce(ctx context.Context, model string, contents []*genai
 	genaiStream := c.client.Models.GenerateContentStream(streamCtx, model, contents, config)
 	for result, err := range genaiStream {
 		if err != nil {
-			// Content already delivered has visible side effects (UI text inserts,
-			// tool_use blocks the frontend will execute), so replaying this turn
-			// would duplicate them. Say so, and name it as nothing to retry.
-			// Checked before the stall test on purpose: a stall arriving after
-			// content is deliberately terminal, not transient.
-			if sentAnyContent {
-				return nil, fmt.Errorf("gemini stream error after %d chunks (cannot retry mid-stream): %w", len(streamedResults), err)
-			}
+			// A failure after content has streamed is retried like one before
+			// it: tool calls act only from a finished response, and the worker
+			// discards the failed attempt's partial output before trying again.
 			// Our watchdog cancelled streamCtx because the upstream went silent
-			// (parent ctx still alive). Surface the canonical stall text.
+			// (parent ctx still alive). Surface the canonical stall error.
 			if stall := sess.StallError(); stall != nil {
 				return nil, stall
 			}
@@ -570,47 +565,37 @@ func (c *Client) streamOnce(ctx context.Context, model string, contents []*genai
 	return c.processStreamResult(lastFinishReason, sentAnyContent, streamedResults, inputTokens, outputTokens, cachedTokens)
 }
 
-// statusOverloaded is the non-standard 529 a Google frontend returns for a
-// momentarily saturated model; net/http has no constant for it.
-const statusOverloaded = 529
-
-// classifyStreamError names a failed Gemini stream in the vocabulary the
-// worker's retry classifier reads. That classifier is text-based — the turn
-// loop's rate-limit check and providerutils.TransientMessage both match
-// substrings — while the genai SDK reports capacity failures as a typed
-// genai.APIError whose message wording carries no guarantee: a 503 was retried
-// only when the body happened to say "overloaded". Mapping the status code onto
-// the canonical marker makes that judgement structural rather than a
-// coincidence of phrasing, and %w keeps the provider's own text in the message
-// the user reads.
+// classifyStreamError maps a failed Gemini stream onto provider.APIError, so the
+// worker classifies it by its status rather than by the SDK's wording, which
+// carries no guarantee. A failure that is not an API error at all (the
+// transport) is left for provider.ClassifyFailure to read from its own types.
+// The provider's own text stays in the message the user reads.
 func classifyStreamError(err error) error {
 	var apiErr genai.APIError
 	if !errors.As(err, &apiErr) {
 		return fmt.Errorf("gemini API error: %w", err)
 	}
-	switch apiErr.Code {
-	case http.StatusTooManyRequests:
-		return fmt.Errorf("gemini rate limit: %w", err)
-	case http.StatusBadGateway:
-		return fmt.Errorf("gemini bad gateway: %w", err)
-	case http.StatusServiceUnavailable:
-		return fmt.Errorf("gemini service unavailable: %w", err)
-	case http.StatusGatewayTimeout:
-		return fmt.Errorf("gemini gateway timeout: %w", err)
-	case statusOverloaded:
-		return fmt.Errorf("gemini overloaded: %w", err)
+	return &provider.APIError{
+		Provider: "gemini",
+		Status:   apiErr.Code,
+		Message:  fmt.Sprintf("gemini API error: %s", err.Error()),
+		Cause:    err,
 	}
-	return fmt.Errorf("gemini API error: %w", err)
 }
 
 // processStreamResult handles the final processing of a successful stream result.
 func (c *Client) processStreamResult(lastFinishReason genai.FinishReason, sentAnyContent bool, streamedResultsFromSuccess []*genai.GenerateContentResponse, inputTokens, outputTokens int, cachedTokens *int) (*provider.StreamResult, error) {
 	// Check finish reason for errors
-	if lastFinishReason == genai.FinishReasonSafety {
-		return nil, fmt.Errorf("gemini blocked response due to safety filters")
-	}
-	if lastFinishReason == genai.FinishReasonRecitation {
-		return nil, fmt.Errorf("gemini blocked response due to recitation (copyright)")
+	switch lastFinishReason {
+	case genai.FinishReasonSafety:
+		return nil, provider.NewFailureError(provider.FailureRefused, "gemini blocked response due to safety filters", nil)
+	case genai.FinishReasonRecitation:
+		return nil, provider.NewFailureError(provider.FailureRefused, "gemini blocked response due to recitation (copyright)", nil)
+	case "", genai.FinishReasonUnspecified:
+		// The final candidate always names why it stopped; a stream whose
+		// candidates never did ended before its last one arrived.
+		return nil, provider.NewFailureError(provider.FailureTruncated,
+			fmt.Sprintf("gemini stream ended before any candidate gave a finish reason (chunks=%d)", len(streamedResultsFromSuccess)), nil)
 	}
 	if lastFinishReason == genai.FinishReasonOther {
 		return nil, fmt.Errorf("gemini stopped for unknown reason")

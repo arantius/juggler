@@ -154,6 +154,13 @@ type turnState struct {
 	// failed attempt only for the silence that ended it.
 	lastOutputAt atomic.Int64
 
+	// attemptOutput is the ids of the items the current LLM attempt has
+	// appended — its text, thinking and provider state. A failed attempt that
+	// is retried has them removed (discardAttemptOutput): a half-answer left in
+	// place reads as part of the reply, and is sent back to the model as
+	// history. Cleared as each attempt starts.
+	attemptOutput []string
+
 	// retryStatusActive is true while the spinner is showing "retrying" and no
 	// content has arrived since. It keeps the honest label up for the whole of
 	// the next attempt — which may itself spend minutes backing off — until real
