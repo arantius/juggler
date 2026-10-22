@@ -17,6 +17,7 @@
 
 import { waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { waitsInFlightReport } from '../utilities/test-patience.js';
+import { observeUntil } from '../utilities/turn-sync.js';
 
 /**
  * @typedef {object} TestResult
@@ -85,5 +86,72 @@ export async function runTests(_ctx) {
     if (!line.includes(HERE)) throw new Error(`the race's call site is not this file: ${line}`);
   });
 
+  // The harnesses' waits on a conversation are woken by observers, not polled,
+  // so they register through `trackWait`; and the state they report is the
+  // conversation's, read when the report is taken.
+  await run('a wait on the turn reports the frame, the threads and the tools it last saw', async () => {
+    const conversation = fakeConversation();
+    const pending = observeUntil(conversation, () => conversation.done, { timeoutMs: 5000, label: 'idle after the probe' });
+    conversation.status = 'calling_llm';
+    const lines = waitsInFlightReport();
+    conversation.done = true;
+    conversation.fire();
+    await pending;
+    const line = lines.find((l) => l.includes('STILL WAITING') && l.includes('idle after the probe'));
+    if (!line) throw new Error(`the turn wait was not reported: ${JSON.stringify(lines)}`);
+    if (!line.includes(HERE)) throw new Error(`the wait's call site is not this file: ${line}`);
+    for (const part of ['status=calling_llm', 'completedTurns=3', 'thread_1 run=open driven=true', 'bash#tu_1 running']) {
+      if (!line.includes(part)) throw new Error(`the report is missing "${part}": ${line}`);
+    }
+  });
+
+  await run('and its own timeout carries the same account', async () => {
+    const conversation = fakeConversation();
+    let message = '';
+    try {
+      await observeUntil(conversation, () => false, { timeoutMs: 20, label: 'a turn that never ends' });
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    if (!message.includes('a turn that never ends') || !message.includes('thread_1 run=open') || !message.includes('bash#tu_1 running')) {
+      throw new Error(`the timeout did not say what it saw: ${message}`);
+    }
+  });
+
   return { passed, failed, errors };
+}
+
+/**
+ * The little of a conversation a turn wait reads: a frame, a turn counter, and
+ * a root holding one open sub-thread with a running tool in it.
+ * @returns {any} The stand-in, with `fire()` to wake its observers.
+ */
+function fakeConversation() {
+  /** @type {Set<() => void>} */
+  const observers = new Set();
+  const ymap = (/** @type {Record<string, any>} */ fields) => ({ get: (/** @type {string} */ k) => fields[k] });
+  const tool = ymap({ type: 'tool-action', toolName: 'bash', toolUseId: 'tu_1', state: 'running', result: null });
+  const starter = ymap({ type: 'user', runToolUseId: 'call_1' });
+  const thread = ymap({ type: 'thread', itemId: 'thread_1', items: { toArray: () => [starter, tool] } });
+  const conversation = {
+    status: 'idle',
+    done: false,
+    completedTurns: 3,
+    get processingState() { return { status: conversation.status }; },
+    isThreadProcessing: (/** @type {string|null} */ id) => id === 'thread_1',
+    rootMessageThread: { items: [thread] },
+    _doc: {
+      metadata: {
+        get: () => ({ status: conversation.status }),
+        observe: (/** @type {() => void} */ fn) => observers.add(fn),
+        unobserve: (/** @type {() => void} */ fn) => observers.delete(fn),
+      },
+      root: {
+        observeDeep: (/** @type {() => void} */ fn) => observers.add(fn),
+        unobserveDeep: (/** @type {() => void} */ fn) => observers.delete(fn),
+      },
+    },
+    fire: () => { for (const fn of [...observers]) fn(); },
+  };
+  return conversation;
 }

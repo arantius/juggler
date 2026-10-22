@@ -22,6 +22,7 @@ import { assert } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { __resetPrefsForTests, getGlobalSettings } from '../../js/services/prefs.js';
 import providersCache from '../../js/services/providers-cache.js';
+import { holdBroadcasts } from '../utilities/hold-broadcasts.js';
 import '../../js/components/settings-panel.js';
 
 /**
@@ -209,31 +210,52 @@ export async function runTests(_ctx) {
     // The prefs store memoises its read for the life of the page, so an earlier
     // case here would otherwise have paid for it and this one would count none.
     __resetPrefsForTests();
-    await withPanel({ providersPayload: { providers: [FAKE_PROVIDER], ready: true } }, async (el, backend) => {
-      await el.open();
-      // Visiting a tab must not re-fetch: every tab is live from construction
-      // and was handed the document already.
-      el.switchTab('updates');
-      el.switchTab('connectivity');
-      await settle();
+    // What is counted is what opening the panel costs. This lane's socket
+    // reconnecting re-reads the document (prefs.js, rightly: nothing could be
+    // delivered while it was down) — and that, mid-case, was this case's second
+    // GET on a quiet machine. A sibling lane saving a setting broadcasts one
+    // too. Both are held, and played here on every run, so the count is the
+    // panel's alone (holdBroadcasts).
+    const hold = holdBroadcasts(['settings-changed', 'open']);
+    try {
+      await withPanel({ providersPayload: { providers: [FAKE_PROVIDER], ready: true } }, async (el, backend) => {
+        await el.open();
+        hold.simulate('settings-changed', {
+          updates: { mode: 'notify' },
+          network: { proxy: { mode: 'none' } },
+          connectivity: { lanOnLaunch: true, wanOnLaunch: '' },
+          models: {},
+          ui: { 'a-sibling-lane-pref': 1 },
+        });
+        hold.simulate('open', new Event('open'));
+        // Visiting a tab must not re-fetch: every tab is live from construction
+        // and was handed the document already.
+        el.switchTab('updates');
+        el.switchTab('connectivity');
+        await settle();
 
-      const gets = backend.calls.filter((u) => u === '/api/settings');
-      assert(gets.length === 1, `exactly one GET /api/settings; got ${gets.length}`);
+        const gets = backend.calls.filter((u) => u === '/api/settings');
+        assert(gets.length === 1, `exactly one GET /api/settings; got ${gets.length} (${hold.describe()})`);
 
-      // Localise a failure: did the store read the document, or did the panel fail
-      // to receive what it read?
-      const doc = await getGlobalSettings();
-      assert(doc && doc.updates && doc.updates.mode === 'notify',
-        `the store holds the document; got ${JSON.stringify(doc)}`);
+        // Localise a failure: did the store read the document, or did the panel fail
+        // to receive what it read?
+        const doc = await getGlobalSettings();
+        assert(doc && doc.updates && doc.updates.mode === 'notify',
+          `the store holds the document; got ${JSON.stringify(doc)}`);
 
-      // The one fetch still reached every section that reads it.
-      const mode = [...el.querySelectorAll('.updates-mode-radio')].find((r) => r.checked);
-      assert(mode && mode.value === 'notify', `Updates read its section; got ${mode && mode.value}`);
-      const proxy = el.querySelector('#proxy-mode');
-      assert(proxy && proxy.value === 'none', `the proxy box read its section; got ${proxy && proxy.value}`);
-      const lan = el.querySelector('.connectivity-launch-checkbox[data-launch="lan"]');
-      assert(lan && lan.checked === true, 'Connectivity read its section');
-    });
+        // The one fetch still reached every section that reads it.
+        const mode = [...el.querySelectorAll('.updates-mode-radio')].find((r) => r.checked);
+        assert(mode && mode.value === 'notify', `Updates read its section; got ${mode && mode.value}`);
+        const proxy = el.querySelector('#proxy-mode');
+        assert(proxy && proxy.value === 'none', `the proxy box read its section; got ${proxy && proxy.value}`);
+        const lan = el.querySelector('.connectivity-launch-checkbox[data-launch="lan"]');
+        assert(lan && lan.checked === true, 'Connectivity read its section');
+      });
+    } finally {
+      // After the backend stub is gone, so a real event held meanwhile talks to
+      // the real server, as it would have.
+      hold.release();
+    }
   });
 
   return { passed, failed, errors };

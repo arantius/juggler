@@ -18,6 +18,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
 import { REGISTRIES_RELOADED } from '../../js/registries/reload-registries.js';
@@ -253,30 +254,20 @@ export async function runTests(_ctx) {
     // lane's focus() during the frames below blurs this frame's element to
     // <body> — and the HUD reads document.activeElement when it opens and when
     // it closes, so a steal changes what the code under test does, not just
-    // what an assertion sees. The case therefore keeps focus lane-local: every
-    // focus() request is recorded instead of performed, and
-    // document.activeElement answers with the last element asked for.
-    const realFocus = HTMLElement.prototype.focus;
-    /** @type {HTMLElement} */
-    let focused = textarea;
-    /** @type {HTMLElement[]} */
-    const focusRequests = [];
-    HTMLElement.prototype.focus = function () {
-      focusRequests.push(this);
-      focused = this;
-    };
-    Object.defineProperty(document, 'activeElement', { get: () => focused, configurable: true });
+    // what an assertion sees. The case therefore keeps focus lane-local
+    // (isolateFocus), starting in the composer.
+    const focus = isolateFocus({ activeElement: textarea });
     /**
      * @param {string} type - 'keydown' or 'keyup'
      * @param {KeyboardEventInit} init - The key
      * @returns {boolean} False when the event was preventDefault-ed
      */
-    const key = (type, init) => focused
+    const key = (type, init) => /** @type {Element} */ (document.activeElement)
       .dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
     /**
      * @returns {string} The focus() requests aimed anywhere but the composer.
      */
-    const strayFocus = () => focusRequests.filter((el) => el !== textarea)
+    const strayFocus = () => focus.requests.map((r) => r.element).filter((el) => el !== textarea)
       .map((el) => `${el.localName}${el.getAttribute('role') ? `[role=${el.getAttribute('role')}]` : ''}`).join(', ');
     try {
       selector.setMessageThread(/** @type {any} */ ({
@@ -285,10 +276,10 @@ export async function runTests(_ctx) {
       }));
 
       key('keydown', { key: 'Tab', shiftKey: true });
-      // What a sibling lane's focus() does to this frame, taken on every run so
-      // the case is proven not to depend on the window's real focus.
-      realFocus.call(textarea);
-      textarea.blur();
+      // What a sibling lane's focus() does to this frame — the composer's blur
+      // included — taken on every run so the case is proven not to depend on
+      // the window's real focus.
+      focus.steal({ blurring: true });
       await frame();
       await frame();
       assert(!!selector._menu?.surface, 'the gesture did not open the strategy HUD');
@@ -297,11 +288,10 @@ export async function runTests(_ctx) {
       key('keydown', { key: 'Tab', shiftKey: true });
       key('keyup', { key: 'Shift' });
       assert(!selector._menu, 'releasing Shift did not close the HUD');
-      assert(strayFocus() === '' && focused === textarea,
-        `focus did not stay in the composer (focus() on ${strayFocus() || focused.localName})`);
+      assert(strayFocus() === '' && document.activeElement === textarea,
+        `focus did not stay in the composer (focus() on ${strayFocus() || document.activeElement?.localName})`);
     } finally {
-      HTMLElement.prototype.focus = realFocus;
-      delete (/** @type {any} */ (document).activeElement);
+      focus.restore();
       switcher.destroy();
       selector.closeDropdown();
       selector.remove();

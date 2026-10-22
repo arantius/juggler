@@ -400,13 +400,29 @@ export async function runTests(ctx) {
   await test('an empty folder says it is empty rather than looking unread', async () => {
     const root = await makeTree('hollow', ['void'], []);
     const mounted = mount(root);
+    // Every op this lane's page answers from here on. Observed rather than
+    // buffered: the page's resource buffer has long since filled by this suite.
+    // A frame has its own timeline, so a sibling lane's reads are not counted.
+    let opsReplies = 0;
+    const replies = new window.PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) if (entry.name.includes('/ops/call')) opsReplies++;
+    });
     try {
       await settled(mounted.body);
+      replies.observe({ type: 'resource' });
       /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row')).click();
-      await waitForPin(() => (mounted.body.textContent || '').includes('Empty'),
-        'the empty folder to say so', mounted.body);
+      // Which half never happened: the click opening the row, or the listing
+      // coming back. A read still out past the grace period draws "Reading…";
+      // one that came back empty draws "Empty"; neither means it was never asked.
+      await waitFor(() => (mounted.body.textContent || '').includes('Empty'), () => {
+        const notes = [...mounted.body.querySelectorAll('.project-files-pin__note')].map((n) => n.textContent);
+        return `the empty folder to say so — the row's aria-expanded=${rowsOf(mounted.body)[0]?.expanded ?? '(no row)'}, ` +
+          `notes [${notes.join(', ')}], ${opsReplies} op repl${opsReplies === 1 ? 'y' : 'ies'} since the click ` +
+          `(the listing is one), showed [${namesOf(mounted.body).join(', ')}]`;
+      });
       assert(rowsOf(mounted.body).length === 1, 'and to add no rows of its own');
     } finally {
+      replies.disconnect();
       mounted.teardown();
     }
   });

@@ -1430,7 +1430,12 @@ export async function runTests() {
           conversation: 'conv_other',
           thread: 'thread_7',
         });
-        await waitFor(() => conversation.sent.length === 1, 'the review to be handed over');
+        // The owner hydrates, switches, then sends: which of those it reached
+        // places a sighting where it stopped.
+        await waitFor(() => conversation.sent.length === 1, () =>
+          `the review to be handed over — the owner hydrated ${JSON.stringify(session.loaded)}, ` +
+          `switched to ${JSON.stringify(session.switched)} (showing ${session.visible?.id ?? 'nothing'}), ` +
+          `and sent ${conversation.sent.length} message(s)`);
 
         assert(session.switched.includes('conv_other'),
           'the conversation is shown first — text in a box nobody can see is worse than no text');

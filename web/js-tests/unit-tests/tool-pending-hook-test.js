@@ -75,7 +75,55 @@ function insertUnstartedBash(conversation, toolUseId, command) {
     toolName: 'bash',
     toolInput: { command }
   }));
+  followStates(conversation, toolUseId);
   return toolUseId;
+}
+
+/**
+ * Every state each tool-action in this suite has been through, from the moment
+ * it was inserted, by toolUseId.
+ * @type {Map<string, {conversation: any, seen: string[]}>}
+ */
+const stateTrails = new Map();
+
+/** Whether a read has already printed the trails, so the rest stay one line. */
+let trailsPrinted = false;
+
+/**
+ * Start recording a just-inserted tool-action's state.
+ * @param {any} conversation - The conversation it was inserted into.
+ * @param {string} toolUseId - Its id.
+ * @returns {void}
+ */
+function followStates(conversation, toolUseId) {
+  const ta = conversation.rootMessageThread.getToolAction(toolUseId);
+  const seen = [ta ? `inserted ${ta.get('state') ?? '(no state)'}` : 'NOT FOUND right after insert'];
+  ta?.observe((/** @type {any} */ event) => {
+    if (event.keysChanged.has('state')) seen.push(String(ta.get('state') ?? '(cleared)'));
+  });
+  stateTrails.set(toolUseId, { conversation, seen });
+}
+
+/**
+ * A tool-action's state, for an assertion's message. A state that never arrived
+ * says which half was missing: the gate runs only as the engine
+ * (`isViewer()` returns early), and only on a call it can find. The first such
+ * read prints the history of every call in the suite, since one unread state
+ * has been every case's at once.
+ * @param {any} mt - The message thread it lives in.
+ * @param {string} toolUseId - Its id.
+ * @returns {string} The state, or an account of why there is none.
+ */
+function stateOf(mt, toolUseId) {
+  const ta = mt.getToolAction(toolUseId);
+  const state = ta?.get('state');
+  if (state !== undefined) return String(state);
+  const here = `undefined — ${ta ? 'found' : 'NOT found'} in a thread of ${(mt.items || []).length} items, ` +
+    `JUGGLER_ENGINE=${String(/** @type {any} */ (globalThis).JUGGLER_ENGINE)} now`;
+  if (trailsPrinted) return `${here} (state histories with the first such read)`;
+  trailsPrinted = true;
+  const trails = [...stateTrails].map(([id, { conversation, seen }]) => `${id}@${conversation.id}: ${seen.join(' → ')}`);
+  return `${here}; every call's states since insert: [${trails.join('; ')}]`;
 }
 
 /**
@@ -101,6 +149,7 @@ function insertUnstartedAsk(conversation, toolUseId) {
       }]
     }
   }));
+  followStates(conversation, toolUseId);
   return toolUseId;
 }
 
@@ -114,6 +163,8 @@ export async function runTests(_ctx) {
   let failed = 0;
   /** @type {string[]} */
   const errors = [];
+  stateTrails.clear();
+  trailsPrinted = false;
 
   await initializeRegistries();
   const session = await createTestSession();
@@ -146,7 +197,7 @@ export async function runTests(_ctx) {
       await handleNewToolAction(mt, toolUseId, conversation);
 
       const ta = mt.getToolAction(toolUseId);
-      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${ta?.get('state')}`);
+      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${stateOf(mt, toolUseId)}`);
       assert(calls.length === 1, `onToolPending should fire exactly once, got ${calls.length}`);
       assert(calls[0].toolUseId === toolUseId, 'hook receives toolUseId');
       assert(calls[0].toolName === 'bash', `hook receives toolName, got ${calls[0].toolName}`);
@@ -183,7 +234,7 @@ export async function runTests(_ctx) {
       await handleNewToolAction(mt, toolUseId, conversation);
 
       const ta = mt.getToolAction(toolUseId);
-      assert(ta?.get('state') === TOOL_STATES.APPROVED, `should auto-approve, got ${ta?.get('state')}`);
+      assert(ta?.get('state') === TOOL_STATES.APPROVED, `should auto-approve, got ${stateOf(mt, toolUseId)}`);
       assert(calls.length === 0, `onToolPending must NOT fire for an auto-approved tool, got ${calls.length}`);
 
       passed++;
@@ -217,7 +268,7 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       assert(ta?.get('state') === TOOL_STATES.APPROVED,
-        `resolving in the hook should approve the tool, got ${ta?.get('state')}`);
+        `resolving in the hook should approve the tool, got ${stateOf(mt, toolUseId)}`);
 
       passed++;
     } catch (e) {
@@ -244,7 +295,7 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       assert(ta?.get('state') === TOOL_STATES.PENDING,
-        `a throwing hook must leave the tool parked (fail-closed), got ${ta?.get('state')}`);
+        `a throwing hook must leave the tool parked (fail-closed), got ${stateOf(mt, toolUseId)}`);
 
       passed++;
     } catch (e) {
@@ -274,7 +325,7 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       assert(ta?.get('state') === TOOL_STATES.PENDING,
-        `an elicitation should still park pending, got ${ta?.get('state')}`);
+        `an elicitation should still park pending, got ${stateOf(mt, toolUseId)}`);
       assert(calls.length === 0,
         `onToolPending must NOT fire for an elicitation, got ${calls.length}`);
 
@@ -308,7 +359,7 @@ export async function runTests(_ctx) {
       await handleNewToolAction(mt, toolUseId, conversation);
 
       const ta = mt.getToolAction(toolUseId);
-      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${ta?.get('state')}`);
+      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${stateOf(mt, toolUseId)}`);
       const rs = ta?.get('reviewStatus');
       const busy = rs && (rs.get ? rs.get('busy') : rs.busy);
       assert(busy === true, `reviewStatus.busy should be true during review, got ${busy}`);
@@ -350,7 +401,7 @@ export async function runTests(_ctx) {
       await handleNewToolAction(mt, toolUseId, conversation);
 
       const ta = mt.getToolAction(toolUseId);
-      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${ta?.get('state')}`);
+      assert(ta?.get('state') === TOOL_STATES.PENDING, `should park pending, got ${stateOf(mt, toolUseId)}`);
       const rs = ta?.get('reviewStatus');
       assert(rs === null || rs === undefined,
         `reviewStatus must not be set for a synchronous hook, got ${JSON.stringify(rs)}`);
@@ -384,7 +435,7 @@ export async function runTests(_ctx) {
       const ta = mt.getToolAction(toolUseId);
       // Reviewer approved out-of-band before its promise settled.
       mt.resolveApproval(toolUseId, 'yes');
-      assert(ta?.get('state') === TOOL_STATES.APPROVED, `should be approved, got ${ta?.get('state')}`);
+      assert(ta?.get('state') === TOOL_STATES.APPROVED, `should be approved, got ${stateOf(mt, toolUseId)}`);
 
       // Now settle the promise: clearReviewStatus sees a non-PENDING tool and
       // must leave it untouched (guarded no-op) — no throw, state unchanged.
@@ -393,7 +444,7 @@ export async function runTests(_ctx) {
       await new Promise((r) => setTimeout(r, 0));
 
       assert(ta?.get('state') === TOOL_STATES.APPROVED,
-        `clear must not disturb a resolved tool, got ${ta?.get('state')}`);
+        `clear must not disturb a resolved tool, got ${stateOf(mt, toolUseId)}`);
 
       passed++;
     } catch (e) {
@@ -426,7 +477,7 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       assert(ta?.get('state') === TOOL_STATES.PENDING,
-        `a note must never resolve the tool, got ${ta?.get('state')}`);
+        `a note must never resolve the tool, got ${stateOf(mt, toolUseId)}`);
       const rs = ta?.get('reviewStatus');
       const busy = rs && (rs.get ? rs.get('busy') : rs.busy);
       const label = rs && (rs.get ? rs.get('label') : rs.label);
@@ -506,7 +557,7 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       assert(ta?.get('state') === TOOL_STATES.COMPLETED,
-        `a refusal must settle the call as completed, got ${ta?.get('state')}`);
+        `a refusal must settle the call as completed, got ${stateOf(mt, toolUseId)}`);
       const result = ta?.get('result');
       /**
        * @param {string} k - Result field name

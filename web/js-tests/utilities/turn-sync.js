@@ -15,6 +15,9 @@
  */
 
 import { inspectTurn, observeUntil as observeUntilTerminal, scanToolStates } from '../../js/model/turn-completion.js';
+import { threadRunSettled } from '../../js/model/run-records.js';
+import { TOOL_STATES } from '../../sdk/lib/message.js';
+import { trackWait } from './test-patience.js';
 
 export { scanToolStates };
 
@@ -63,6 +66,50 @@ export function hasIncompleteApprovedTools(items) {
 }
 
 /**
+ * What a harness wait on the turn last saw, for its failure line: the worker's
+ * frame, the turn counter, every sub-thread with its run and whether the worker
+ * is driving it, and every tool not yet done.
+ *
+ * Each of those is a different half that can fail to happen — a cancel the
+ * worker never acted on, a thread whose run was never stamped, a tool whose
+ * result never came back — and a bare "timed out waiting for idle" names none
+ * of them.
+ * @param {any} conversation - Conversation instance.
+ * @returns {string} One line.
+ */
+export function describeTurnState(conversation) {
+  const ps = conversation.processingState;
+  const frame = ps
+    ? `status=${ps.status ?? '(none)'}${ps.threadId ? ` thread=${ps.threadId}` : ''}${ps.activity ? ` activity=${ps.activity}` : ''}`
+    : 'no processingState';
+  /** @type {string[]} */
+  const threads = [];
+  /** @type {string[]} */
+  const tools = [];
+  const walk = (/** @type {any[]} */ list) => {
+    for (const item of list) {
+      const type = item.get('type');
+      if (type === 'tool-action') {
+        const state = item.get('state');
+        const result = item.get('result');
+        const hasResult = result !== undefined && result !== null;
+        if (!hasResult || state === TOOL_STATES.PENDING) {
+          tools.push(`${item.get('toolName')}#${item.get('toolUseId')} ${state}${hasResult ? ' (has result)' : ''}`);
+        }
+      } else if (type === 'thread') {
+        const id = item.get('itemId');
+        threads.push(`${id} run=${threadRunSettled(item) ? 'settled' : 'open'} driven=${conversation.isThreadProcessing?.(id) === true}`);
+        const nested = item.get('items');
+        if (nested?.toArray) walk(nested.toArray());
+      }
+    }
+  };
+  walk(conversation.rootMessageThread?.items || []);
+  return `${frame}, completedTurns=${conversation.completedTurns}, root driven=${conversation.isThreadProcessing?.(null) === true}; ` +
+    `threads [${threads.join('; ')}]; tools not done [${tools.join('; ')}]`;
+}
+
+/**
  * The shared observe-until-predicate wait, carrying the harnesses' deadline
  * policy. Resolves when `predicate(items, ps)` is truthy (ps = raw metadata
  * processingState), rejects if the predicate throws (constraint-violation path),
@@ -73,16 +120,36 @@ export function hasIncompleteApprovedTools(items) {
  * undefined) falls back to `timeoutMs`. `signal` tears the wait down at the
  * per-test deadline. This is the ONLY place that deadline policy lives, so a
  * blanket change can't silently corrupt one caller.
+ *
+ * Every wait says what it last saw ({@link describeTurnState}): on its own
+ * rejection, and in the runner's failure block while it is still open, where a
+ * stall reports it ({@link trackWait}).
  * @param {any} conversation - Conversation instance
  * @param {(items: any[], ps: any) => boolean} predicate
  * @param {{deadlineMs?: number, signal?: AbortSignal, timeoutMs?: number, label?: string}} [opts]
  * @returns {Promise<void>}
  */
-export function observeUntil(conversation, predicate, { deadlineMs, signal, timeoutMs = 5000, label = '' } = {}) {
+export async function observeUntil(conversation, predicate, { deadlineMs, signal, timeoutMs = 5000, label = '' } = {}) {
   const effectiveTimeoutMs = deadlineMs
     ? Math.max(0, deadlineMs - Date.now() + 1000)
     : timeoutMs;
-  return observeUntilTerminal(conversation, predicate, { timeoutMs: effectiveTimeoutMs, signal, label });
+  const saw = () => {
+    try { return describeTurnState(conversation); }
+    catch (e) { return `(the state could not be read: ${e instanceof Error ? e.message : String(e)})`; }
+  };
+  const close = trackWait(() => `${label || 'a condition on the conversation'} — saw ${saw()}`);
+  try {
+    await observeUntilTerminal(conversation, predicate, { timeoutMs: effectiveTimeoutMs, signal, label });
+    close('satisfied');
+  } catch (err) {
+    close('threw');
+    // The predicate's own throw is a constraint violation with its own words;
+    // only the wait's timeout or abort is missing what it saw.
+    if (err instanceof Error && /waiting for condition/.test(err.message)) {
+      err.message = `${err.message} — saw ${saw()}`;
+    }
+    throw err;
+  }
 }
 
 /**

@@ -31,7 +31,7 @@ export async function runTests(_ctx) {
 
   // Imported dynamically: the executor's own table imports this suite, and a
   // static import back would read its exports before they are initialised.
-  const { suiteVerdict } = await import('../utilities/integration-test-executor.js');
+  const { suiteVerdict, suiteBudgetWarning } = await import('../utilities/integration-test-executor.js');
 
   /**
    * @param {string} label
@@ -63,6 +63,23 @@ export async function runTests(_ctx) {
   run('a failing test fails with its own errors, unchanged', () => {
     const v = suiteVerdict('unit:bad', { passed: 2, failed: 1, errors: ['boom'] });
     if (v.passed || v.errors.join('|') !== 'boom') throw new Error(`got ${JSON.stringify(v)}`);
+  });
+
+  // A passing suite prints nothing, so the warning is the only way one creeping
+  // towards its budget is found before it fails instead of by its sightings.
+  run('a passing suite over ten seconds of its own time is flagged, naming itself and the time', () => {
+    const w = suiteBudgetWarning('unit:slow', { wallMs: 12_340, grantedMs: 0 });
+    if (!w.includes('unit:slow') || !w.includes('12.3s')) throw new Error(`got ${JSON.stringify(w)}`);
+  });
+
+  run('time granted for load is not the suite\u2019s own', () => {
+    const w = suiteBudgetWarning('unit:loaded', { wallMs: 12_000, grantedMs: 4_000 });
+    if (w !== '') throw new Error(`8s of its own was flagged: ${JSON.stringify(w)}`);
+  });
+
+  run('under ten seconds is not flagged', () => {
+    const w = suiteBudgetWarning('unit:fine', { wallMs: 9_900, grantedMs: 0 });
+    if (w !== '') throw new Error(`got ${JSON.stringify(w)}`);
   });
 
   return { passed, failed, errors };

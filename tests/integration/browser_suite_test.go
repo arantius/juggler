@@ -378,9 +378,10 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 	}
 
 	var result struct {
-		Passed  bool     `json:"passed"`
-		Details string   `json:"details"`
-		Errors  []string `json:"errors"`
+		Passed        bool     `json:"passed"`
+		Details       string   `json:"details"`
+		Errors        []string `json:"errors"`
+		BudgetWarning string   `json:"budgetWarning"`
 	}
 	if err := pollServer(srv, "/api/test/result?name="+name, testTimeout, &result); err != nil {
 		// A dead server makes the queue audit unanswerable, so the audit's own
@@ -403,7 +404,43 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		} else {
 			t.Error(result.Details)
 		}
+		return
 	}
+	recordSuiteBudget(t, result.BudgetWarning)
+}
+
+// suiteBudgetLogEnv names a file each passing unit suite that crossed its split
+// line appends one line to — the lane's warning, then the machine's reading.
+// A passing subtest prints nothing without -v, so this file is the only place
+// such a suite is heard of; the parent's `check` and `test-all` set it and
+// report what was written.
+const suiteBudgetLogEnv = "JUGGLER_SUITE_BUDGET_LOG"
+
+// recordSuiteBudget reports a passing suite's budget warning (empty for one
+// within its line): logged, which -v and the CI legs that run with it show,
+// and appended to the suiteBudgetLogEnv file when one is named. Never a
+// failure: the time is concurrent wall time, which the reader weighs against
+// the load before splitting anything.
+func recordSuiteBudget(t *testing.T, warning string) {
+	t.Helper()
+	if warning == "" {
+		return
+	}
+	line := machineload.Line()
+	t.Logf("SUITE OVER ITS SPLIT LINE (passing): %s\n%s", warning, line)
+	path := os.Getenv(suiteBudgetLogEnv)
+	if path == "" {
+		return
+	}
+	// O_APPEND, one short line per suite: the subtests of a run write it
+	// concurrently.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Logf("could not record the budget warning in %s: %v", path, err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintf(f, "%s\t%s\n", warning, strings.TrimSpace(line))
 }
 
 // postToServer sends a JSON POST to srv's address and returns on non-2xx.

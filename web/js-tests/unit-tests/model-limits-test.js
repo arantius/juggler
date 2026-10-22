@@ -24,6 +24,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 
@@ -461,20 +462,19 @@ export async function runTests(_ctx) {
       }
       const box = host.querySelector('[data-model="guessed-model"] .model-visibility-check');
       // Lanes share one window's focus, so a sibling lane's focus() can take it
-      // from the field before this lane looks. The field's focus and select
-      // calls (WebKit's select() focuses too) are observed rather than made; the
-      // decoy stands in for the sibling.
+      // from the field before this lane looks. Focus is kept lane-local and a
+      // sibling's steal is taken on every run (isolateFocus).
       const field = limitInput(host, 'guessed-model', 'contextWindow');
-      let focusAsked = false;
-      field.focus = () => { focusAsked = true; };
-      field.select = () => {};
-      const decoy = document.createElement('button');
-      host.appendChild(decoy);
-      marker.click();
-      decoy.focus();
-      await settle();
-      assert(focusAsked, 'the marker did not lead to the window field');
-      assert(box && box.checked, 'clicking the marker hid the model');
+      const focus = isolateFocus();
+      try {
+        marker.click();
+        focus.steal();
+        await settle();
+        assert(focus.asked(field), 'the marker did not lead to the window field');
+        assert(box && box.checked, 'clicking the marker hid the model');
+      } finally {
+        focus.restore();
+      }
     });
   });
 

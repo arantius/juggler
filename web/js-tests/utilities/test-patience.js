@@ -347,6 +347,23 @@ export async function racePatiently(promise, nominalMs, { what, track = true } =
 }
 
 /**
+ * List a wait that neither polls nor races — one woken by observers, which
+ * {@link pollPatiently} and {@link racePatiently} cannot carry — for
+ * {@link waitsInFlightReport}, until the returned function is called.
+ * @param {WaitDescription} what - What it waits for; a function is evaluated when a report asks.
+ * @returns {(outcome: 'satisfied'|'gave up'|'threw'|'abandoned') => void} Call once, as the wait ends.
+ */
+export function trackWait(what) {
+  const wait = openWait(what);
+  let closed = false;
+  return (outcome) => {
+    if (closed) return;
+    closed = true;
+    closeWait(wait, outcome);
+  };
+}
+
+/**
  * A wait in progress, as the suite timeout reports it.
  * @typedef {object} OpenWait
  * @property {WaitDescription|undefined} what What it waits for, if its caller said.
@@ -396,7 +413,7 @@ function closeWait(wait, outcome) {
 }
 
 /** The frames that are this machinery's own, never a caller worth naming. */
-const OWN_FRAME = /\/js-tests\/utilities\/(test-patience|test-helpers)\.js:/;
+const OWN_FRAME = /\/js-tests\/utilities\/(test-patience|test-helpers|turn-sync)\.js:/;
 
 /**
  * Where a wait was called from: the first two frames outside the waits

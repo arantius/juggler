@@ -15,6 +15,7 @@
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import { buildApprovalButtons } from '../../js/services/approval-options.js';
 import { buildApprovalOptions } from '../../js/services/response-handler-actions.js';
 import { isPseudoLocalized, setLocale } from '../../sdk/lib/i18n.js';
@@ -83,23 +84,21 @@ export async function runTests() {
 
       // Lanes share one window's focus, and a blur of the edit input cancels the
       // edit (hiding the notice for good), so a sibling lane's focus() would
-      // fail this case. The input's focus and select calls (WebKit's select()
-      // focuses too) are observed rather than made; the decoy stands in for the
-      // sibling.
+      // fail this case. Focus is kept lane-local and a sibling's steal is taken
+      // on every run (isolateFocus).
       const input = /** @type {HTMLInputElement} */ (single.querySelector('.pattern-edit-input'));
-      let focusAsked = false;
-      input.focus = () => { focusAsked = true; };
-      input.select = () => {};
-      const decoy = document.createElement('button');
-      document.body.appendChild(decoy);
-      made.push(decoy);
-      single.querySelector('.pattern-edit-btn').click();
-      decoy.focus();
-      assert(focusAsked, 'editing did not put the cursor in the pattern input');
-      await waitFor(() => !single.querySelector('.pattern-edit-notice')?.hidden,
-        { description: 'the invalid-pattern notice' });
-      assertPseudoLocalized(/** @type {Element} */ (single.querySelector('.pattern-edit-field')),
-        { where: 'invalid edit' });
+      const focus = isolateFocus();
+      try {
+        single.querySelector('.pattern-edit-btn').click();
+        focus.steal();
+        assert(focus.asked(input), 'editing did not put the cursor in the pattern input');
+        await waitFor(() => !single.querySelector('.pattern-edit-notice')?.hidden,
+          { description: 'the invalid-pattern notice' });
+        assertPseudoLocalized(/** @type {Element} */ (single.querySelector('.pattern-edit-field')),
+          { where: 'invalid edit' });
+      } finally {
+        focus.restore();
+      }
 
       const two = render([{ itemType: 'execute', rules, patterns: ['1', '2'] }]);
       made.push(two);

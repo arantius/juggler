@@ -245,7 +245,7 @@
         // reached the server, so re-sending is safe — the same rationale as
         // the Go harness's postToServer retry. This matters most for
         // /api/test/result: the browser never retries a failed POST itself,
-        // and a lost result post turns into a 60s Go-side subtest timeout.
+        // and a lost result post turns into a 120s Go-side subtest timeout.
         async function postJSON(url, body) {
             const payload = JSON.stringify(body);
             const deadline = Date.now() + 10000;
@@ -296,16 +296,20 @@
                 });
                 return;
             }
-            let passed = false, details = '', errors = [];
+            let passed = false, details = '', errors = [], budgetWarning = '';
             try {
                 const result = await runTestByName(name, { fixtureDir: projectPath });
                 ({ passed, errors } = suiteVerdict(name, result));
                 details = errors.length > 0 ? errors.join('\n') : 'OK';
+                // A unit suite's verdict on its own time (suiteBudgetWarning):
+                // a passing one prints nothing, so this is how a suite outgrowing
+                // its budget is heard of.
+                budgetWarning = result.budgetWarning || '';
             } catch (err) {
                 errors = [String(err)];
                 details = String(err);
             }
-            await postJSON(apiUrl('/test/result'), { name, passed, details, errors });
+            await postJSON(apiUrl('/test/result'), { name, passed, details, errors, budgetWarning });
         }
 
         if (urlParams.has('list') || urlParams.has('test') || urlParams.has('lane')) {

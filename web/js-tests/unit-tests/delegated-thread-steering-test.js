@@ -18,6 +18,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import MessageThread from '../../js/model/message-thread.js';
 import StrategySwitcher from '../../js/services/strategy-switcher.js';
 import '../../js/components/strategy-selector.js';
@@ -117,21 +118,20 @@ export async function runTests(_ctx) {
 
     // The test window is not the focused window, so a real focus() call may not
     // take. The resolver reads exactly one thing to find the focused column —
-    // document.activeElement — so stub that, and put it back afterwards.
-    const setFocus = (/** @type {Element} */ el) =>
-      Object.defineProperty(document, 'activeElement', { value: el, configurable: true });
+    // document.activeElement — so focus is lane-local (isolateFocus).
+    const focus = isolateFocus();
 
     const switcher = new StrategySwitcher();
     try {
-      setFocus(childInput);
+      focus.set(childInput);
       assert(/** @type {any} */ (switcher)._resolveActiveSelector() === null,
         'a hidden selector in the focused column must resolve to null — NOT fall through to the root column');
 
-      setFocus(rootInput);
+      focus.set(rootInput);
       assert(/** @type {any} */ (switcher)._resolveActiveSelector() === rootSelector,
         'an ordinary column still resolves its own selector');
     } finally {
-      delete (/** @type {any} */ (document).activeElement);
+      focus.restore();
     }
   });
 

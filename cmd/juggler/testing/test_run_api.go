@@ -45,6 +45,10 @@ type testResult struct {
 	Passed  bool     `json:"passed"`
 	Details string   `json:"details"`
 	Errors  []string `json:"errors"`
+	// BudgetWarning is a unit suite's account of its own time when it crossed
+	// the line past which a suite is split (suiteBudgetWarning in
+	// integration-test-executor.js), empty otherwise. Carried, never judged here.
+	BudgetWarning string `json:"budgetWarning,omitempty"`
 	// PostedUnder is the path prefix the result's POST arrived under: the
 	// X-Forwarded-Prefix a reverse proxy set, "" for a lane that reached this
 	// server directly. Recorded by the server, never taken from the body, so

@@ -17,6 +17,7 @@
 import GitPin from '../pins/git-pin.js';
 import gitReviewService from '../../../js/services/git-review-service.js';
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import { DEFAULT_SCOPE, SCOPE_PRESETS, SCOPE_SYNTAX } from '../lib/git-scope.js';
@@ -662,13 +663,12 @@ export async function runTests(_ctx) {
       ]),
     });
     const rows = m.rows();
-    // Focus is observed rather than read back from `document.activeElement`. The
-    // lanes in one window share a single focused frame, so a sibling lane
-    // focusing anything takes this document's active element to its body — which
-    // makes reading it back a measure of what else is running.
-    /** @type {any[]} */
-    const focused = [];
-    for (const row of rows) row.focus = () => { focused.push(row); };
+    // Focus is observed rather than read back from the window. The lanes in one
+    // window share a single focused frame, so a sibling lane focusing anything
+    // takes this document's active element to its body — which makes reading it
+    // back a measure of what else is running (isolateFocus).
+    const focus = isolateFocus();
+    const lastFocused = () => focus.requests[focus.requests.length - 1]?.element;
 
     /**
      * @param {any} row - The row to send the key to.
@@ -680,17 +680,22 @@ export async function runTests(_ctx) {
       await settle();
     };
 
-    await press(rows[0], 'ArrowDown');
-    assert(m.active() === rows[1], `Down should move to the next file, got ${m.active()?.textContent}`);
-    assert(focused[focused.length - 1] === rows[1], 'and focus should go with it');
-    assert(rows[1].tabIndex === 0 && rows[0].tabIndex === -1 && rows[2].tabIndex === -1,
-      `Tab should reach the row being read and no other, got ${rows.map((/** @type {any} */ r) => r.tabIndex)}`);
+    try {
+      await press(rows[0], 'ArrowDown');
+      focus.steal();
+      assert(m.active() === rows[1], `Down should move to the next file, got ${m.active()?.textContent}`);
+      assert(lastFocused() === rows[1], 'and focus should go with it');
+      assert(rows[1].tabIndex === 0 && rows[0].tabIndex === -1 && rows[2].tabIndex === -1,
+        `Tab should reach the row being read and no other, got ${rows.map((/** @type {any} */ r) => r.tabIndex)}`);
 
-    await press(rows[1], 'End');
-    assert(m.active() === rows[2], `End should reach the last file, got ${m.active()?.textContent}`);
-    await press(rows[2], 'Home');
-    assert(m.active() === rows[0], `Home should come back to the first, got ${m.active()?.textContent}`);
-    m.teardown();
+      await press(rows[1], 'End');
+      assert(m.active() === rows[2], `End should reach the last file, got ${m.active()?.textContent}`);
+      await press(rows[2], 'Home');
+      assert(m.active() === rows[0], `Home should come back to the first, got ${m.active()?.textContent}`);
+    } finally {
+      focus.restore();
+      m.teardown();
+    }
   });
 
   await test('the rail leaves Left and Right to the Pinboard', async () => {
@@ -770,18 +775,22 @@ export async function runTests(_ctx) {
     const anchor = m.viewer().querySelector('.diff-comment-btn[data-line="85"]');
     anchor.click();
     await settle();
-    // Observed, not read back from `document.activeElement`: see the rail's own
-    // keyboard case for why that is a measure of the other lanes.
-    let refocused = false;
-    anchor.focus = () => { refocused = true; };
-    const textarea = m.editor().querySelector('textarea');
-    textarea.value = 'Never mind.';
-    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await settle();
-    assert(!m.editor(), 'Escape should close the editor');
-    assert(m.saves().length === 0, 'and write nothing');
-    assert(refocused, 'and focus belongs back on the anchor it came from');
-    m.teardown();
+    // Observed, not read back from the window: see the rail's own keyboard case
+    // for why that is a measure of the other lanes.
+    const focus = isolateFocus();
+    try {
+      const textarea = m.editor().querySelector('textarea');
+      textarea.value = 'Never mind.';
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      focus.steal();
+      await settle();
+      assert(!m.editor(), 'Escape should close the editor');
+      assert(m.saves().length === 0, 'and write nothing');
+      assert(focus.asked(anchor), 'and focus belongs back on the anchor it came from');
+    } finally {
+      focus.restore();
+      m.teardown();
+    }
   });
 
   await test('a saved comment is drawn against its line and counted on its row', async () => {

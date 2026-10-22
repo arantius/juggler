@@ -21,6 +21,7 @@
  */
 
 import { initializeRegistries, assert, waitFor } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import gitStatusCache from '../../js/services/git-status-cache.js';
@@ -571,18 +572,13 @@ export async function runTests() {
         // workspace ended up passes here whether the bug is present or not.
         // The request is the part this code controls, so the request is what is
         // checked.
-        /** @type {(FocusOptions|undefined)[]} */
-        const asked = [];
-        const realFocus = HTMLElement.prototype.focus;
-        HTMLElement.prototype.focus = function focus(options) {
-          asked.push(options);
-          return realFocus.call(this, options);
-        };
+        const focus = isolateFocus();
         try {
           panel.focus();
         } finally {
-          HTMLElement.prototype.focus = realFocus;
+          focus.restore();
         }
+        const asked = focus.requests.map((r) => r.options);
 
         assert(asked.length === 1, `focus went to one place, got ${asked.length}`);
         assert(asked[0]?.preventScroll === true,

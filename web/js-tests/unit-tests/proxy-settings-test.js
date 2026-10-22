@@ -21,6 +21,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import wsService from '../../js/services/websocket.js';
 import { __resetPrefsForTests } from '../../js/services/prefs.js';
 import '../../js/components/settings-panel.js';
@@ -256,19 +257,22 @@ export async function runTests(_ctx) {
       const urlInput = el.querySelector('#proxy-url');
       // The test window is not the focused window and its lanes share one focus,
       // so a real focus() call may not take. The box reads exactly one thing to
-      // tell it is mid-edit — document.activeElement — so stub that, and put it
-      // back afterwards.
-      Object.defineProperty(document, 'activeElement', { value: urlInput, configurable: true });
+      // tell it is mid-edit — document.activeElement — so focus is lane-local,
+      // starting in the field, and a sibling's steal is taken on every run. Not
+      // a blurring one: the field commits on blur, and a blurred field is not
+      // mid-edit.
+      const focus = isolateFocus({ activeElement: urlInput });
       try {
         // Mid-edit: typed, not yet committed — the field commits on blur and Enter.
         urlInput.value = 'http://half-typed';
+        focus.steal();
 
         broadcastProxy({ mode: 'manual', url: 'http://someone-else.example:3128' });
 
         assert(urlInput.value === 'http://half-typed',
           `what the user was typing survives; got ${urlInput.value}`);
       } finally {
-        delete (/** @type {any} */ (document).activeElement);
+        focus.restore();
       }
     });
   });

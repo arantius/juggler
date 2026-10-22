@@ -24,7 +24,7 @@ import logger from './test-logger.js';
 import { dumpTape, clearTape, lastTapeTs } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
-import { askForMoreTime, resetPatience, patienceGranted, whyGivingUp } from './test-patience.js';
+import { askForMoreTime, resetPatience, patienceGranted, whyGivingUp, waitsInFlightReport } from './test-patience.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
 import { lastConfirmGiveUp } from './ui-operation-executor.js';
@@ -551,9 +551,10 @@ async function _fetchWorkerTape(convId) {
  * @param {RunTrace} args.trace
  * @param {TestOperation[]} args.operations
  * @param {any} args.harness
+ * @param {string[]} [args.waitLines] - Where the test was parked, taken before the abort closed its waits.
  * @returns {Promise<string>} the assembled multi-line failure message
  */
-async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeoutMs, stalls, trace, operations, harness }) {
+async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeoutMs, stalls, trace, operations, harness, waitLines = [] }) {
   const ident = _captureIframeIdentity();
   // Start the shared-project size probe now and read it at the end: it is an
   // HTTP round-trip like the tape fetches below, and overlapping it with them
@@ -625,9 +626,21 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   } catch (e) { /* swallow */ }
 
   // Worker tapes for each affected conv (one HTTP round-trip per conv).
+  /** @type {string[]} */
+  const mockLines = [];
   try {
     for (const cid of convIds) {
       const entries = await _fetchWorkerTape(cid);
+      // How much of the script the worker had left, so a turn that never
+      // started (responses left, none popped) reads differently from one that
+      // ran dry (exhausted) without counting pops down the tape by hand.
+      const pops = entries.filter((/** @type {any} */ e) => e.kind === 'mock-pop');
+      if (pops.length > 0) {
+        const last = /** @type {any} */ (pops[pops.length - 1]).summary || {};
+        mockLines.push(`  MOCK (${cid}): ${pops.length} response(s) popped on this tape, ${last.exhausted ? 'the last pop found the script EXHAUSTED' : `${last.remaining} left after the last`}`);
+      } else if (entries.length > 0) {
+        mockLines.push(`  MOCK (${cid}): no response popped on this tape (it is a ring: an early pop may have scrolled off a long one)`);
+      }
       if (entries.length > 0) {
         tapeLines.push(`  === WORKER TAPE (${cid}) ===`);
         for (const e of entries) tapeLines.push(_renderTapeEntry('worker', e));
@@ -654,6 +667,8 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
     ...machineLoadLines(await machineLoad, await timerGrid),
     ...patienceLines(),
     ...confirmLines,
+    ...waitLines,
+    ...mockLines,
     `  ${opLine}`,
     `  ops completed (last 8 of ${trace.opsCompleted.length}): ${completedTypes}`,
     `  doc snapshot:`,
@@ -930,10 +945,14 @@ export async function runIntegrationTest(testDef, ctx) {
     setTestDeadline(deadlineMs, { sameTest: true });
   });
 
+  // Where the test was parked when it failed. Read before the abort, which
+  // tears every open wait down and so would leave nothing to report.
+  /** @type {string[]|null} */
+  let waitLines = null;
   try {
     await Promise.race([
       _runTestBody(harness, testDef, trace),
-      watchdog.stalled.catch((stall) => { ac.abort(); throw stall; })
+      watchdog.stalled.catch((stall) => { waitLines = waitsInFlightReport(); ac.abort(); throw stall; })
     ]);
     watchdog.stop();
 
@@ -941,6 +960,7 @@ export async function runIntegrationTest(testDef, ctx) {
 
   } catch (error) {
     watchdog.stop();
+    waitLines ??= waitsInFlightReport();
     ac.abort();
     const rawMsg = error instanceof Error ? error.message : String(error);
     const durationMs = Date.now() - startTime;
@@ -959,7 +979,8 @@ export async function runIntegrationTest(testDef, ctx) {
         stalls: watchdog.stalls(),
         trace,
         operations: testDef.operations,
-        harness
+        harness,
+        waitLines
       }),
       5000,
       `[${testDef.name}] ${rawMsg}\n  (failure diagnostics unavailable — this page could not build them in 5s: the server stopped answering it, or this page's main thread was too busy to read the answers; ask the server from outside the page before believing the first)`,

@@ -19,6 +19,7 @@
  */
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized, pseudoLocalize } from '../../sdk/lib/i18n.js';
@@ -221,15 +222,15 @@ export async function runTests() {
   const Dialog = /** @type {any} */ (customElements.get('modal-dialog'));
   const realShow = Dialog.prototype.show;
   const clipboardOwn = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-  const inputProto = window.HTMLInputElement.prototype;
-  const realFocus = inputProto.focus;
-  const realSelect = inputProto.select;
   /** @type {{bar: any, container: HTMLElement}|null} */
   let xa = null;
+  // Lanes share one window's focus, and the rename editor keeps what was typed
+  // on blur (utils/inline-rename.js), so a sibling's focus() mid-edit would
+  // commit an edit this case has not finished (isolateFocus).
+  const focus = isolateFocus();
   try {
     /** @type {string[]} */
     const shown = [];
-    let focusAsked = 0;
     /** @type {any} */ (window).showModal = async (/** @type {any} */ options) => {
       for (const key of ['title', 'message', 'confirmText', 'cancelText']) {
         // A failure's message on its own is the error's, shown as given.
@@ -242,8 +243,6 @@ export async function runTests() {
       return null;
     };
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
-    inputProto.focus = function () { focusAsked++; };
-    inputProto.select = function () {};
     const knobs = { naming: new Set(), loadFails: false, renameError: /** @type {any} */ (null) };
 
     // In English, a tab named "Untitled 3" still reads exactly that.
@@ -348,7 +347,8 @@ export async function runTests() {
       await waitFor(() => !wsError.hidden, { timeoutMs: budgetFor(2000), description: 'the workspace refusal' });
       shown.push(wsError.textContent || '');
       wsInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      assert(focusAsked > 0, 'the rename editor never asked for focus');
+      assert(focus.requests.some((r) => r.element.classList.contains('inline-rename-input')),
+        'the rename editor never asked for focus');
 
       assert(shown.length >= 30, `en-XA: expected every state's strings, got ${shown.length}`);
       const raw = shown.filter((s) => !isPseudoLocalized(s));
@@ -365,8 +365,7 @@ export async function runTests() {
     Dialog.prototype.show = realShow;
     if (clipboardOwn) Object.defineProperty(navigator, 'clipboard', clipboardOwn);
     else delete /** @type {any} */ (navigator).clipboard;
-    inputProto.focus = realFocus;
-    inputProto.select = realSelect;
+    focus.restore();
     xa?.bar._hideBinUndo?.();
     xa?.container.remove();
   }

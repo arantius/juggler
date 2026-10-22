@@ -94,6 +94,17 @@ export async function runTests(ctx) {
     const abort = new AbortController();
     /** @type {(() => void)[]} */
     const listeners = [];
+    // What a wait needs to say which half never happened: the change event
+    // reaching the pin, or the read it causes coming back. A case's own writes
+    // are awaited before it signals, and a frame has its own timeline, so an op
+    // begun after the last change event is one of the pin's reads.
+    const trail = { changes: 0, lastChangeAt: 0, /** @type {{start: number, end: number}[]} */ ops: [] };
+    const reads = new window.PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.name.includes('/ops/call')) trail.ops.push({ start: entry.startTime, end: /** @type {PerformanceResourceTiming} */ (entry).responseEnd });
+      }
+    });
+    reads.observe({ type: 'resource' });
 
     const controller = /** @type {any} */ (pin.mount(body, /** @type {any} */ ({
       pin: { id: 'pin_test', type: 'memory', config: { path } },
@@ -128,8 +139,23 @@ export async function runTests(ctx) {
       body,
       controller,
       watchers: () => listeners.length,
-      fireChange: () => { for (const listener of [...listeners]) listener(); },
+      fireChange: () => {
+        trail.changes++;
+        trail.lastChangeAt = performance.now();
+        for (const listener of [...listeners]) listener();
+      },
+      /** @returns {string} What the pin was told and what it asked, for a wait's failure. */
+      sawSoFar: () => {
+        if (!trail.changes) return `${listeners.length} listener(s), no change event fired`;
+        const since = trail.ops.filter((op) => op.start >= trail.lastChangeAt);
+        const ago = Math.round(performance.now() - trail.lastChangeAt);
+        return `${listeners.length} listener(s) to reach; ${trail.changes} change event(s) fired, the last ${ago}ms ago; ` +
+          `${since.length} read(s) answered since it${since.length
+            ? ` (the last ${Math.round(performance.now() - since[since.length - 1].end)}ms ago — the read came back, and drew nothing new: stale, or the same bytes)`
+            : ' — the event never reached the pin, its settling timer never read, or that read is still out'}`;
+      },
       teardown: () => {
+        reads.disconnect();
         controller.teardown?.();
         abort.abort();
         body.remove();
@@ -177,22 +203,22 @@ export async function runTests(ctx) {
    * @param {(text: string) => boolean} wanted - What the body should end up saying.
    * @param {number} [timeout] - How long to give it.
    * @param {() => void} [nudge] - Re-signal the pin, at most every NUDGE_INTERVAL_MS.
+   * @param {() => string} [saw] - What the pin was told and asked, for the failure ({@link mount}'s `sawSoFar`).
    * @returns {Promise<string>} The body's text.
    */
-  async function until(body, wanted, timeout = 5000, nudge = undefined) {
-    const deadline = Date.now() + timeout;
+  async function until(body, wanted, timeout = 5000, nudge = undefined, saw = undefined) {
     let nextNudge = Date.now() + NUDGE_INTERVAL_MS;
-    let text = '';
-    while (Date.now() < deadline) {
-      text = body.textContent || '';
-      if (wanted(text)) return text;
-      await new Promise((r) => { setTimeout(r, 20); });
+    // Boxed, because an empty body is a text a case may be waiting for.
+    const got = await waitFor(() => {
+      const text = body.textContent || '';
+      if (wanted(text)) return { text };
       if (nudge && Date.now() >= nextNudge) {
         nudge();
         nextNudge = Date.now() + NUDGE_INTERVAL_MS;
       }
-    }
-    throw new Error(`the pin never said it (showed "${text}")`);
+      return null;
+    }, () => `the pin to say it (showed "${body.textContent || ''}")${saw ? `; ${saw()}` : ''}`, timeout);
+    return got.text;
   }
 
   /**
@@ -324,7 +350,7 @@ export async function runTests(ctx) {
     // What a `remember` tool action looks like from the pin: the conversation's
     // context items changed, so the file it reads may have too.
     m.fireChange();
-    await until(m.body, (t) => t.includes('Two facts'), 5000, m.fireChange);
+    await until(m.body, (t) => t.includes('Two facts'), 5000, m.fireChange, m.sawSoFar);
     m.teardown();
   });
 
@@ -343,7 +369,7 @@ export async function runTests(ctx) {
     // this case signals continuously instead of in a tidy burst.
     const nudging = setInterval(m.fireChange, 20);
     try {
-      await until(m.body, (t) => t.includes('After the burst'), 4000);
+      await until(m.body, (t) => t.includes('After the burst'), 4000, undefined, m.sawSoFar);
     } finally {
       clearInterval(nudging);
       m.teardown();
