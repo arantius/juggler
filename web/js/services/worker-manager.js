@@ -25,6 +25,7 @@ import * as protocols from './worker-manager-protocols.js';
 import { routeWorkerMessage } from './worker-manager-inbound.js';
 import { ConversationLoader } from './conversation-loader.js';
 import { bytesToBase64 } from '../utils/base64.js';
+import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 
 // ============================================================================
 // Type Definitions
@@ -441,21 +442,22 @@ export class WorkerManager {
    * and then handed over; held sends go out in the order they were made, so
    * messages to one conversation stay in call order either way.
    *
-   * The promise says nothing about delivery: it resolves once the message has
-   * been handed to the transport — which drops it if the link is down — or
-   * immediately when no worker exists for the conversation. It rejects only when
-   * a not-yet-ready worker never becomes ready (init failure or ready timeout).
-   * Fire-and-forget callers are correct to ignore it; an ack'd request
-   * ({@link WorkerManager#sendWithAck}) is how to learn the worker acted.
+   * The promise says nothing about delivery: it resolves true once the message
+   * has been handed to the transport, and false when it never got that far —
+   * no worker exists for the conversation, or the transport refused it because
+   * the link is down. It rejects only when a not-yet-ready worker never becomes
+   * ready (init failure or ready timeout). Fire-and-forget callers are correct
+   * to ignore it; an ack'd request ({@link WorkerManager#sendWithAck}) is how to
+   * learn the worker acted.
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send
-   * @returns {Promise<void>} Resolves on hand-off to the transport, not on delivery
+   * @returns {Promise<boolean>} Whether the transport took it — not whether it was delivered
    */
   async sendToWorker(conversationId, message) {
     const entry = this._workers.get(conversationId);
     if (!entry) {
       console.warn(`[WorkerManager] No worker found for ${conversationId}`);
-      return;
+      return false;
     }
 
     // Wait for ready if not already
@@ -463,7 +465,7 @@ export class WorkerManager {
       await this.waitForWorkerReady(conversationId);
     }
 
-    wsService.sendWorkerMessage(conversationId, message);
+    return wsService.sendWorkerMessage(conversationId, message);
   }
 
   /**
@@ -762,7 +764,24 @@ export class WorkerManager {
         }
       });
 
-      this.sendToWorker(conversationId, { ...message, ackId });
+      // A message that never left cannot be answered, so the request fails
+      // now and says so, instead of waiting out the timeout to report an
+      // "Ack timeout" that reads as a worker that never replied.
+      const fail = (/** @type {string} */ why) => {
+        const pending = this._pendingAcks.get(ackId);
+        if (!pending) return;
+        this._pendingAcks.delete(ackId);
+        pending.reject(new Error(`[WorkerManager] ${message.type} (${ackId}) was not sent: ${why}`));
+      };
+      this.sendToWorker(conversationId, { ...message, ackId }).then(
+        (sent) => {
+          if (sent !== false) return;
+          fail(this._workers.has(conversationId)
+            ? 'the connection to the server is down'
+            : `there is no worker for ${conversationId}`);
+        },
+        (/** @type {unknown} */ err) => fail(extractErrorMessage(err))
+      );
     });
   }
 
@@ -1146,8 +1165,9 @@ export class WorkerManager {
    * one conversation's messages in call order; the snapshot therefore reflects
    * state before the first write whether or not the caller awaits.
    * @param {string} conversationId - Conversation ID
-   * @returns {Promise<void>} {@link sendToWorker}'s promise: awaiting it surfaces
-   *   a worker that never became ready, so the caller can skip the bracket.
+   * @returns {Promise<boolean>} {@link sendToWorker}'s promise: awaiting it
+   *   surfaces a worker that never became ready, so the caller can skip the
+   *   bracket.
    */
   beginUndoCoalescing(conversationId) {
     return this.sendToWorker(conversationId, { type: 'begin-undo-coalesce' });

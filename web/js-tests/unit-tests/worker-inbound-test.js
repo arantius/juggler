@@ -262,6 +262,41 @@ export async function runTests(_ctx) {
     assert(result && result.blob === 1, `the ack's result must reach the caller; got ${JSON.stringify(result)}`);
   });
 
+  await run('an ack\'d request that never left fails at once with why, not as an ack timeout', async () => {
+    // Left to the ack timeout, each of these would report "Ack timeout" —
+    // which reads as a worker that never answered, when the worker was never
+    // asked.
+    const timeout = 60000;
+    const conv = 'conv_inbound_unsent';
+
+    const noWorker = /** @type {any} */ (new WorkerManager());
+    const { warns } = await captureConsole(conv, async () => {
+      const err = await soon(noWorker.sendWithAck(conv, { type: 'clear-undo-stacks' }, timeout).then(() => null, (/** @type {Error} */ e) => e),
+        'a request to a conversation with no worker');
+      assert(err instanceof Error && err.message.includes('not sent') && err.message.includes('no worker'),
+        `expected a not-sent rejection naming the missing worker; got ${err && err.message}`);
+    });
+    assert(warns.length === 1, `the missing worker is still logged once; got ${warns.length}`);
+
+    const refused = managerWithEntry(conv);
+    refused.sendToWorker = () => Promise.resolve(false);
+    const refusedErr = await soon(refused.sendWithAck(conv, { type: 'clear-undo-stacks' }, timeout).then(() => null, (/** @type {Error} */ e) => e),
+      'a request the transport refused');
+    assert(refusedErr instanceof Error && refusedErr.message.includes('not sent') && refusedErr.message.includes('clear-undo-stacks'),
+      `expected a not-sent rejection naming the message; got ${refusedErr && refusedErr.message}`);
+
+    const neverReady = managerWithEntry(conv);
+    neverReady.sendToWorker = () => Promise.reject(new Error('Worker initialization timeout'));
+    const readyErr = await soon(neverReady.sendWithAck(conv, { type: 'clear-undo-stacks' }, timeout).then(() => null, (/** @type {Error} */ e) => e),
+      'a request to a worker that never became ready');
+    assert(readyErr instanceof Error && readyErr.message.includes('Worker initialization timeout'),
+      `expected the ready failure's reason; got ${readyErr && readyErr.message}`);
+
+    for (const wm of [noWorker, refused, neverReady]) {
+      assert(wm._pendingAcks.size === 0, 'a request that failed must leave no pending ack behind');
+    }
+  });
+
   await run('the manager is a transport: the loader builds conversations, tests send their own messages', async () => {
     const wm = new WorkerManager();
     assert(wm.loader instanceof ConversationLoader, 'workerManager.loader must be a ConversationLoader');

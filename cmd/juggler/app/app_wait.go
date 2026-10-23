@@ -157,7 +157,7 @@ func (a *App) waitForExit() {
 
 	gracefulSig := make(chan os.Signal, 8)
 	signal.Notify(gracefulSig, os.Interrupt, syscall.SIGTERM)
-	go func() {
+	{
 		var serverErr <-chan error
 		var shutdownChan <-chan struct{}
 		if a.serverErrChan != nil {
@@ -166,39 +166,9 @@ func (a *App) waitForExit() {
 		if a.server != nil {
 			shutdownChan = a.server.ShutdownChan()
 		}
-		n := 0
-		for {
-			var reason string
-			select {
-			case s := <-gracefulSig:
-				n++
-				switch n {
-				case 1:
-					reason = fmt.Sprintf("📴 Received %v, initiating graceful shutdown... (Ctrl-C twice more to force quit)", s)
-				case 2:
-					jlog.Info("Still shutting down. Press Ctrl-C again to force quit.")
-					continue
-				default:
-					// Emergency goroutine handles 3rd press. Don't fall
-					// through to quit() — it's already been called once.
-					continue
-				}
-			case err := <-serverErr:
-				n++
-				if err != nil {
-					jlog.Error("Server error: %v", err)
-				}
-				reason = "📴 Server exited, shutting down..."
-			case <-shutdownChan:
-				n++
-				reason = "📴 Shutdown requested via API..."
-			}
-			jlog.Info("%s", reason)
-			// Fire quit() on its own goroutine so a wedged Cocoa/WebKit main
-			// thread can't prevent this loop from receiving further signals.
-			go quit()
-		}
-	}()
+		go watchQuitRequests(gracefulSig, serverErr, shutdownChan,
+			func(line string) { jlog.Info("%s", line) }, quit)
+	}
 
 	// togglePublic flips the LAN gate and prints the new status.
 	togglePublic := func() {
@@ -401,6 +371,53 @@ func readKeys(serverURL string, quit func(), launchWindow, togglePublic func(), 
 				toggle()
 			}
 		}
+	}
+}
+
+// watchQuitRequests is the graceful half of the signal handling: it reports
+// each request to stop — a Ctrl-C or SIGTERM, the server exiting, a shutdown
+// asked for over the API — and fires quit for it. It never returns.
+//
+// quit runs on its own goroutine so a wedged Cocoa/WebKit main thread can't
+// prevent this loop from receiving further signals; it is single-shot, so
+// firing it again is harmless.
+//
+// serverErr and shutdown are dropped once they fire: the server closes
+// shutdown rather than sending on it, and a closed channel is ready on every
+// receive, so left in the select it would report the same request until the
+// process exits — a spinning core, and a log buried under that one line.
+func watchQuitRequests(gracefulSig <-chan os.Signal, serverErr <-chan error, shutdown <-chan struct{}, report func(string), quit func()) {
+	n := 0
+	for {
+		var reason string
+		select {
+		case s := <-gracefulSig:
+			n++
+			switch n {
+			case 1:
+				reason = fmt.Sprintf("📴 Received %v, initiating graceful shutdown... (Ctrl-C twice more to force quit)", s)
+			case 2:
+				report("Still shutting down. Press Ctrl-C again to force quit.")
+				continue
+			default:
+				// Emergency goroutine handles 3rd press. Don't fall
+				// through to quit() — it's already been called once.
+				continue
+			}
+		case err := <-serverErr:
+			serverErr = nil
+			n++
+			if err != nil {
+				jlog.Error("Server error: %v", err)
+			}
+			reason = "📴 Server exited, shutting down..."
+		case <-shutdown:
+			shutdown = nil
+			n++
+			reason = "📴 Shutdown requested via API..."
+		}
+		report(reason)
+		go quit()
 	}
 }
 
