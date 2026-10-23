@@ -6,6 +6,7 @@ of changes; this project follows semantic versioning.
 ## [Unreleased]
 
 - New-workspace dialog: found trees no longer add a second Tab stop to the list
+- Background bash runs open the Background tasks pin from their panel or selected badge
 
 ## [0.7.8] - 2026-10-23
 

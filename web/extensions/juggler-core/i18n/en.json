@@ -432,6 +432,7 @@
   "Shell command patterns": "Shell command patterns",
   "Show": "Show",
   "Show a summary of the git working tree in the sidebar — the project's, or the visible conversation's workspace.": "Show a summary of the git working tree in the sidebar — the project's, or the visible conversation's workspace.",
+  "Show background tasks": "Show background tasks",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "Show how far the visible conversation is through its plan and todo list, while either has work left.",
   "Show on Pinboard": "Show on Pinboard",
   "Show rendered preview": "Show rendered preview",

@@ -271,6 +271,25 @@ class TasksPin extends PinboardItemType {
   }
 
   /**
+   * The tasks themselves, wherever a surface offers to show them — a background
+   * run's properties panel and its card's Background badge.
+   * @param {import('juggler/pinboard-item-type').PinSource} source - The source to pin.
+   * @returns {boolean} True for this conversation's tasks.
+   */
+  static canPinSource(source) {
+    return source?.kind === 'tasks';
+  }
+
+  /**
+   * The pin lists whatever the board's conversation is running, so a request to
+   * show it carries nothing: an empty config is the whole of it.
+   * @returns {Record<string, any>} The config.
+   */
+  static configFromSource() {
+    return {};
+  }
+
+  /**
    * The name, and nothing else. Which conversation these tasks belong to is the
    * board's business rather than this pin's: every pin on a board reads the same
    * conversation, so naming it here would be one tab's answer to a question the

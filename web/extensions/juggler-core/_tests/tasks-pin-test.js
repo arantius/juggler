@@ -208,6 +208,14 @@ export async function runTests(_ctx) {
       `the conversation belongs to the board, not the tab, got ${JSON.stringify(described)}`);
   });
 
+  await test('a request to show the tasks reaches this pin, and nothing else does', () => {
+    assert(TasksPin.canPinSource(/** @type {any} */ ({ kind: 'tasks' })) === true, 'tasks should be pinnable');
+    assert(TasksPin.canPinSource(/** @type {any} */ ({ kind: 'plan' })) === false, 'a plan is not tasks');
+    assert(TasksPin.canPinSource(/** @type {any} */ (null)) === false, 'nothing is not tasks');
+    const config = TasksPin.configFromSource(/** @type {any} */ ({ kind: 'tasks' }));
+    assert(!!config && Object.keys(config).length === 0, `expected an empty config, got ${JSON.stringify(config)}`);
+  });
+
   // --- the three states -----------------------------------------------------
 
   await test('before an answer it says it is looking, not that nothing is running', () => {

@@ -26,6 +26,9 @@ import { posixNormalize, isGrantableRoot, isPathInsideAllowedRoots } from 'juggl
 import ExecuteContextItem, { describeTaskStatus } from '../context-items/execute-context-item.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
+import TasksPin from '../pins/tasks-pin.js';
+import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
+import pinboardView from '../../../js/services/pinboard-view.js';
 
 const PROJECT_ROOT = '/Users/jules/code/juggler';
 const TEST_HOME = '/Users/jules';
@@ -2261,6 +2264,89 @@ export async function runTests() {
     else passed++;
   }
 
+  // === A background run's way to the Background tasks pin ===
+  // The properties panel offers a control for it whenever something enabled can
+  // show the tasks, and the card's Background badge opens the same pin — but only
+  // on a selected card, so the first click on a card still just selects it.
+  {
+    const session = { platform: 'darwin', home: TEST_HOME, projectPath: '/p' };
+    const mt = { getAllowedPaths: () => [], getRulesFor: () => [], items: [] };
+    const item = new ExecuteContextItem({ id: 'bg', session, conversation: { id: 'c1', session }, messageThread: mt });
+    const helpers = { addSubsection: () => {}, addLlmDescription: () => {}, labeledSubsection: () => document.createElement('div') };
+    const launched = {
+      get: (/** @type {string} */ k) => ({
+        result: { content: 'started', fullResult: { result: { task_id: 'bg-1' } } },
+        displayData: { backgroundTask: { status: 'running' } },
+      })[k],
+    };
+    /**
+     * @param {Record<string, any>} input
+     * @returns {HTMLElement[]} The controls the panel was handed.
+     */
+    const controlsFor = (input) => {
+      const out = /** @type {any} */ (item.renderToolActionDetails(document.createElement('div'),
+        /** @type {any} */ ({ input, helpers, toolAction: launched })));
+      return out?.controls || [];
+    };
+    /** @type {any[]} */
+    const opened = [];
+    const originalAddSource = pinboardView.addSource;
+    pinboardView.addSource = /** @type {any} */ (async (/** @type {any} */ source) => { opened.push(source); return null; });
+    /** @type {HTMLElement|null} */
+    let row = null;
+    try {
+      pinboardItemRegistry.reset();
+      pinboardItemRegistry.registerClass(/** @type {any} */ (TasksPin), { extensionId: 'test' });
+
+      const bgInput = { command: 'npm run dev', run_in_background: true };
+      const controls = controlsFor(bgInput);
+      const show = controls.find((c) => (c.textContent || '').includes('Show background tasks'));
+      if (!show) throw new Error(`panel: no Show background tasks control in ${JSON.stringify(controls.map((c) => c.textContent))}`);
+      if (show.className !== 'properties-panel-btn') throw new Error(`panel: control belongs in the controls block, got ${show.className}`);
+      show.click();
+      if (opened.length !== 1 || opened[0]?.kind !== 'tasks') throw new Error(`panel: click should open the tasks pin, got ${JSON.stringify(opened)}`);
+
+      if (controlsFor({ command: 'ls' }).length) throw new Error('panel: a foreground run offers no tasks control');
+
+      // The badge: inert on an unselected card, so the click selects it as usual.
+      const summary = /** @type {any} */ (item.getStatusUI({ pending: true }, bgInput))?.summary;
+      const badge = summary?.querySelector?.('.action-summary-background-tag');
+      if (!badge) throw new Error('badge: none drawn');
+      // A stand-in row: the real element redraws its own content when connected,
+      // and the badge reads no more of it than its message-id and selection.
+      row = document.createElement('div');
+      row.setAttribute('message-id', 'm1');
+      row.appendChild(summary);
+      document.body.appendChild(row);
+      let reachedRow = 0;
+      row.addEventListener('click', () => { reachedRow++; });
+      opened.length = 0;
+      badge.click();
+      if (opened.length) throw new Error('badge: an unselected card\'s badge should not open the pin');
+      if (reachedRow !== 1) throw new Error('badge: an unselected card\'s click should reach the card to select it');
+
+      row.classList.add('selected');
+      badge.click();
+      if (opened.length !== 1 || opened[0]?.kind !== 'tasks') throw new Error(`badge: a selected card's badge should open the tasks pin, got ${JSON.stringify(opened)}`);
+      if (reachedRow !== 1) throw new Error('badge: a click that opened the pin should not go on to the card');
+
+      // With nothing enabled to show tasks, there is no control and no dead badge.
+      pinboardItemRegistry.reset();
+      if (controlsFor(bgInput).length) throw new Error('panel: with no tasks pin enabled, no control is offered');
+      opened.length = 0;
+      badge.click();
+      if (opened.length) throw new Error('badge: with no tasks pin enabled, the badge opens nothing');
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`tasks pin from a background run: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      pinboardView.addSource = originalAddSource;
+      pinboardItemRegistry.reset();
+      row?.remove();
+    }
+  }
+
   // === en-XA: everything the plugin shows the user is translated ===
   // The edit notices, the row's states and type name, the properties-panel
   // labels, the background task's status line, the approval message and the
@@ -2287,7 +2373,7 @@ export async function runTests() {
       'Executing: {command}', 'Waiting for filesystem-access permission — check for a system dialog',
       'Running… (no output yet)', 'Command cancelled: {command}', '{command} — failed', 'Background',
       'Bash', 'Output', 'Command', 'Description', 'Timeout', 'Background task', '(starting…)', 'Result',
-      'Stop task', '… (truncated)',
+      'Stop task', '… (truncated)', 'Show background tasks',
     ];
     await underPseudoLocale('bash-command-approval-test', async () => {
       /** @type {Record<string, string>} */
@@ -2409,12 +2495,23 @@ export async function runTests() {
         })[k],
       };
       const panel = document.createElement('div');
-      item.renderToolActionDetails(panel, /** @type {any} */ ({ input, helpers, toolAction: launched }));
+      pinboardItemRegistry.reset();
+      pinboardItemRegistry.registerClass(/** @type {any} */ (TasksPin), { extensionId: 'test' });
+      /** @type {any} */
+      let rendered;
+      try {
+        rendered = item.renderToolActionDetails(panel, /** @type {any} */ ({ input, helpers, toolAction: launched }));
+      } finally {
+        pinboardItemRegistry.reset();
+      }
       assertTrue(sections.length === 5, `expected a Result section too: ${JSON.stringify(sections)}`);
       shown['result label'] = sections[4].label;
       const stop = panel.querySelector('.live-task-output-stop');
       assertTrue(!!stop, 'the launched task drew no Stop button');
       shown['stop button'] = String(stop?.textContent);
+      const showTasks = rendered?.controls?.[0];
+      assertTrue(!!showTasks, 'the launched task offered no way to its tasks pin');
+      shown['show tasks control'] = String(showTasks?.textContent).trim();
 
       const raw = Object.entries(shown).filter(([, s]) => !isPseudoLocalized(s));
       assertTrue(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);

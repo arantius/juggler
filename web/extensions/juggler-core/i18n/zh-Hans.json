@@ -432,6 +432,7 @@
   "Shell command patterns": "Shell 命令模式",
   "Show": "显示",
   "Show a summary of the git working tree in the sidebar — the project's, or the visible conversation's workspace.": "在侧边栏显示 git 工作树的摘要 — 项目的，或可见对话的工作区。",
+  "Show background tasks": "显示后台任务",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "在计划或待办仍有剩余时，显示可见对话在计划和待办上的进度。",
   "Show on Pinboard": "在置顶项中显示",
   "Show rendered preview": "显示渲染预览",

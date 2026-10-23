@@ -941,6 +941,17 @@ action-confirmation:focus {
     vertical-align: middle;
 }
 
+/* On a selected card the tag opens the Background tasks pin
+   (execute-context-item.js), so only there does it look like it can be pressed.
+   On an unselected card a click on it selects the card like any other. */
+tool-action-message.selected .action-summary-background-tag {
+    cursor: pointer;
+}
+
+tool-action-message.selected .action-summary-background-tag:hover {
+    background: var(--text-secondary);
+}
+
 /* Rich-mode summary (an HTMLElement summary, e.g. a two-line summary) may wrap
    across multiple lines rather than truncating to a single line. */
 .action-result-summary.action-result-summary-rich {

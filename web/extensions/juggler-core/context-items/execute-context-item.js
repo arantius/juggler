@@ -6,7 +6,7 @@
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { shellKill, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
-import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput } from 'juggler/ui';
+import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
 import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
@@ -39,6 +39,13 @@ function prettyTimeout(ms) {
   return t('{minutes, plural, one {# minute} other {# minutes}} {seconds, plural, one {# second} other {# seconds}}',
     { minutes, seconds });
 }
+
+/**
+ * The conversation's background tasks, as something the board can be asked to
+ * show. Named by kind, so this plugin never imports the pin that shows them.
+ * @type {import('juggler/pinboard-item-type').PinSource}
+ */
+const TASKS_SOURCE = { kind: 'tasks' };
 
 /**
  * Describe a background task's state for the live output section's status line.
@@ -1023,6 +1030,12 @@ class ExecuteContextItem extends ContextItem {
    * "[background task]" tag before the command text, with the LLM-provided
    * description (unchanged) as the subtitle line when present. The task id is
    * intentionally omitted here — it lives in the properties panel.
+   *
+   * On a selected card the tag opens the Background tasks pin. On an unselected
+   * one it does nothing of its own, so the click selects the card like a click
+   * anywhere else on it; that is also why the tag is a span and not a button,
+   * which the conversation would treat as a control and select without
+   * revealing. The tag's selected-card affordance is in `approvals.css`.
    * @param {string} command - The command that was launched
    * @param {string|undefined} description - Optional LLM description
    * @returns {HTMLElement} Summary element
@@ -1036,6 +1049,14 @@ class ExecuteContextItem extends ContextItem {
     const tag = document.createElement('span');
     tag.className = 'context-item-type-badge action-summary-background-tag';
     tag.textContent = t('Background');
+    tag.addEventListener('click', (e) => {
+      // The row's selection is read before the conversation's own click handler
+      // runs, so this sees the state the user clicked on, not the one it makes.
+      const row = tag.closest('[message-id]');
+      if (!row?.classList.contains('selected') || !canPinSource(TASKS_SOURCE)) return;
+      e.stopPropagation();
+      void pinSource(TASKS_SOURCE);
+    });
     mainEl.appendChild(tag);
     mainEl.appendChild(createHighlightedCode(command, 'bash'));
     wrapper.appendChild(mainEl);
@@ -1147,7 +1168,9 @@ class ExecuteContextItem extends ContextItem {
    * @override
    * @param {HTMLElement} wrapper
    * @param {import('juggler/context-item').ToolActionRenderContext} ctx
-   * @returns {{ skipResultSection?: boolean } | void} Render result; set skipResultSection when output is rendered inline
+   * @returns {{ skipResultSection?: boolean, controls?: HTMLElement[] } | void} Render result; set
+   *   skipResultSection when output is rendered inline, and a background run's
+   *   control to show the Background tasks pin
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
@@ -1189,7 +1212,24 @@ class ExecuteContextItem extends ContextItem {
       stopLabel: t('Stop task')
     });
 
-    return { skipResultSection: true };
+    const showTasks = ExecuteContextItem._createShowTasksControl();
+    return { skipResultSection: true, controls: showTasks ? [showTasks] : [] };
+  }
+
+  /**
+   * The panel control that opens the Background tasks pin, for the controls
+   * block at the top of a background run's panel. Null when nothing enabled
+   * can show the tasks: a button that would do nothing is left out.
+   * @returns {HTMLElement|null} The control, or null to offer nothing.
+   */
+  static _createShowTasksControl() {
+    if (!canPinSource(TASKS_SOURCE)) return null;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'properties-panel-btn';
+    button.textContent = t('Show background tasks');
+    button.addEventListener('click', () => { void pinSource(TASKS_SOURCE); });
+    return button;
   }
 
   /**
