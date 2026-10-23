@@ -23,7 +23,7 @@
  * @module integration-tests/footer-cache-tests
  */
 
-import { textResponse } from '../utilities/integration-test-runner.js';
+import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 import providersCache from '../../js/services/providers-cache.js';
 import { tabFor } from '../utilities/conversation-tab-lookup.js';
 import { waitFor } from '../utilities/test-helpers.js';
@@ -472,6 +472,51 @@ export const footerFallsBackPastUnmeasuredTurnTest = {
   }
 };
 
+/**
+ * A round-trip that only thinks and calls tools writes no assistant message,
+ * yet it measured its prompt like any other, and in an agentic run it is most
+ * of them. The meter must count it. Anchored on assistant messages alone, a
+ * sub-thread whose later round-trips were all tool calls read 58k — its second
+ * round-trip — while its newest measured one was 224k, and kept reading it.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const footerAnchorsOnToolOnlyRoundTripTest = {
+  name: 'footer-anchors-on-tool-only-round-trip',
+  description: 'A round-trip that wrote only tool calls is still the newest measurement; the footer must not skip back past it to an older round-trip that happened to write text.',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    toolUseResponse('call_1', 'glob', { pattern: '**/*.go' }, 'Searching.', { inputTokens: 3000, outputTokens: 20, cachedTokens: 2000 }),
+    // No prefix text: this round-trip leaves only a tool-action behind.
+    toolUseResponse('call_2', 'glob', { pattern: '**/*.js' }, undefined, { inputTokens: 250000, outputTokens: 20, cachedTokens: 240000 }),
+    // Reports nothing, like the stopped call that ended the run in the report.
+    textResponse('Done.', { inputTokens: 0, outputTokens: 0 })
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'find things' }
+  ],
+
+  expectedItems: [
+    { type: 'system-prompt' },
+    { type: 'user', content: 'find things' },
+    { type: 'assistant', content: 'Searching.' },
+    { type: 'tool-action', toolName: 'glob' },
+    { type: 'tool-action', toolName: 'glob' },
+    { type: 'assistant', content: 'Done.' }
+  ],
+
+  async customAssertions(conversation) {
+    const td = findTokenDisplay(conversation);
+    if (!td) return; // headless
+
+    forceContextWindow(conversation, 1000000);
+
+    await waitFor(() => /\b250k\b/.test(td.textContent || ''),
+      'footer anchors on the newest measured round-trip even when it wrote no assistant message', 4000);
+  }
+};
+
 // ============================================================================
 // TEST 7: mid-turn, a live reading that lapses must not fall back to the anchor.
 // ============================================================================
@@ -794,6 +839,7 @@ export const tests = [
   footerCacheHiddenWhileProcessingTest,
   footerCacheUnknownTest,
   footerFallsBackPastUnmeasuredTurnTest,
+  footerAnchorsOnToolOnlyRoundTripTest,
   footerHoldsLiveCountThroughGapTest,
   footerHoldsLiveCountAcrossRebindTest,
   footerStatesOverrunTest,

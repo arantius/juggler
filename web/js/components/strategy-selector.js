@@ -9,7 +9,7 @@ import { presentInlineMenu } from '../utils/popup-surface.js';
 import { attachMenuKeyboard } from '../utils/menu-roles.js';
 import { INFO_SVG } from '../utils/icons.js';
 import CycleBuffer from '../services/cycle-buffer.js';
-import { findLastAssistantTxnId } from '../utils/transaction-anchor.js';
+import { findLastRoundTripTxnId } from '../utils/transaction-anchor.js';
 import { generateToolDefinitions } from '../services/tool-generator.js';
 import { buildPrefixFingerprint, classifyContextCacheImpact, CONTEXT_CACHE_IMPACT_CHANGED } from '../services/context-cache-impact.js';
 import { contextPositionOf } from '../services/system-prompt-builder.js';
@@ -424,7 +424,7 @@ class StrategySelector extends JugglerElement {
    * Resolve what the anchored turn cached: its input tokens (the size of the
    * prefix a switch would discard) and the model that built it. Both come from
    * one read of the transaction blob the footer's meter shows
-   * (findLastAssistantTxnId → blob), so the anchor is measured and attributed
+   * (findLastRoundTripTxnId → blob), so the anchor is measured and attributed
    * from a single source.
    *
    * The model matters as much as the size. The baseline claims what the provider
@@ -443,7 +443,7 @@ class StrategySelector extends JugglerElement {
    */
   async _resolveAnchor(thread) {
     const none = { tokens: 0, modelSig: '' };
-    const txnId = findLastAssistantTxnId(thread?.items);
+    const txnId = findLastRoundTripTxnId(thread?.items);
     const convId = thread?.conversation?.id;
     if (!txnId || !convId) return none;
     try {

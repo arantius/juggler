@@ -3,56 +3,66 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Find the transactionId of the most recent assistant message in a thread's
- * items list. This identifies the most recent user-visible LLM call —
- * the right anchor for "what does the footer show" and "should we
- * auto-compact".
+ * Finding a thread's round-trips — its LLM calls — from the items they left.
  *
- * The anchor is the visible call the user is looking at, so the scan keys on
- * `type === 'assistant'`: the worker stamps `currentTxnID` onto every item
- * produced during a round-trip (assistant, tool-actions, errors, context
- * inserts, post-compaction bookkeeping), and the assistant message is the one
- * whose txnID points at the blob the footer and auto-compact care about.
- * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
- * @returns {string} transactionId, or '' if no assistant with a txnId is found
+ * The worker stamps a round-trip's `transactionId` on every item produced
+ * during it, and the transaction blob behind that id is what the footer meter,
+ * the cache-bust detector and the tool-drift check read. Any of those items
+ * names the same round-trip, so which one is read does not matter; what matters
+ * is that every round-trip leaves one that is looked at.
+ *
+ * The anchors are the items a round-trip PRODUCED: its text, its reasoning and
+ * its tool calls. A round-trip that only thinks and calls tools — most of them,
+ * in an agentic run — writes no assistant message at all, so keying on
+ * assistant messages alone skips straight past it to whichever older call last
+ * wrote text, and the meter then reports that call's size for as long as the
+ * run stays in tools. The user message that started a round-trip carries the
+ * same id but sits on the input side, and is not an anchor.
  */
-export function findLastAssistantTxnId(items) {
-  if (!items) return '';
-  for (let i = items.length - 1; i >= 0; i--) {
-    const get = items[i]?.get?.bind(items[i]);
-    if (!get) continue;
-    if (get('type') !== 'assistant') continue;
-    const txnId = String(get('transactionId') || '');
-    if (txnId) return txnId;
-  }
-  return '';
+
+/** Item types a round-trip produces; see the module comment. */
+const ROUND_TRIP_OUTPUT_TYPES = new Set(['assistant', 'thinking', 'tool-action']);
+
+/**
+ * The transactionId an item anchors, or '' when it is not a round-trip's output.
+ * @param {{get?: (key: string) => any}|undefined} item
+ * @returns {string} The round-trip's transactionId, or ''
+ */
+function anchoredTxnId(item) {
+  const get = item?.get?.bind(item);
+  if (!get || !ROUND_TRIP_OUTPUT_TYPES.has(get('type'))) return '';
+  return String(get('transactionId') || '');
 }
 
 /**
- * The same anchors, newest first: the transactionIds of a thread's assistant
- * messages, most recent first, stopping at `limit`.
+ * The transactionId of a thread's most recent round-trip.
+ * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
+ * @returns {string} transactionId, or '' if no round-trip has left an item
+ */
+export function findLastRoundTripTxnId(items) {
+  return findRoundTripTxnIds(items, 1)[0] ?? '';
+}
+
+/**
+ * The same anchors, newest first, stopping at `limit`.
  *
  * The most recent round-trip is not always one that can say what it sent — a
- * turn stopped before its provider reported usage, or one that failed, writes a
+ * call stopped before its provider reported usage, or one that failed, writes a
  * blob with no input count. A consumer that needs a measurement rather than
  * simply the latest round-trip walks back from the newest until it finds one,
  * which is what the limit bounds: each step costs a blob read, and a
- * measurement many turns old describes a context that has since moved on.
+ * measurement many calls old describes a context that has since moved on.
  * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
  * @param {number} [limit] - How many to return at most
  * @returns {string[]} transactionIds, newest first; empty if the thread has none
  */
-export function findAssistantTxnIds(items, limit = 1) {
+export function findRoundTripTxnIds(items, limit = 1) {
   /** @type {string[]} */
   const found = [];
   if (!items || limit <= 0) return found;
   for (let i = items.length - 1; i >= 0 && found.length < limit; i--) {
-    const get = items[i]?.get?.bind(items[i]);
-    if (!get) continue;
-    if (get('type') !== 'assistant') continue;
-    const txnId = String(get('transactionId') || '');
-    // One round-trip lands several assistant messages when its output is split,
-    // and they share its id — the blob behind them is the same blob.
+    const txnId = anchoredTxnId(items[i]);
+    // One round-trip leaves several items, and they share its id.
     if (txnId && !found.includes(txnId)) found.push(txnId);
   }
   return found;
@@ -60,20 +70,19 @@ export function findAssistantTxnIds(items, limit = 1) {
 
 /**
  * The same anchor, named by item rather than by round-trip: the id of the most
- * recent assistant message that has a transaction behind it. The transaction
- * panel is a lens on a selected item, so anything wanting to *open* that
- * round-trip needs the item, not the blob id.
+ * recent item a round-trip produced — of `txnId`'s round-trip when one is given.
+ * The transaction panel is a lens on a selected item, so anything wanting to
+ * *open* a round-trip needs an item of it, not the blob id.
  * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
- * @returns {string} itemId, or '' if no assistant with a txnId is found
+ * @param {string} [txnId] - The round-trip to name an item of; any when omitted
+ * @returns {string} itemId, or '' if there is no such item
  */
-export function findLastAssistantItemId(items) {
+export function findLastRoundTripItemId(items, txnId) {
   if (!items) return '';
   for (let i = items.length - 1; i >= 0; i--) {
-    const get = items[i]?.get?.bind(items[i]);
-    if (!get) continue;
-    if (get('type') !== 'assistant') continue;
-    if (!String(get('transactionId') || '')) continue;
-    const itemId = String(get('itemId') || '');
+    const anchored = anchoredTxnId(items[i]);
+    if (!anchored || (txnId && anchored !== txnId)) continue;
+    const itemId = String(items[i]?.get?.('itemId') || '');
     if (itemId) return itemId;
   }
   return '';

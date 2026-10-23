@@ -23,9 +23,9 @@
  * ConversationFooter - footer element at the end of a conversation.
  *
  * Token counts are read on-demand from the transaction blob of the most recent
- * assistant message in this thread that measured its own prompt — usually the
- * last one, walking back past round-trips that reported no input usage (see
- * findAssistantTxnIds and MAX_ANCHOR_LOOKBACK). Nothing is persisted in Yjs:
+ * round-trip in this thread that measured its own prompt — usually the last
+ * one, walking back past round-trips that reported no input usage (see
+ * findRoundTripTxnIds and MAX_ANCHOR_LOOKBACK). Nothing is persisted in Yjs:
  * the blob on disk is the only record. A small per-element cache keyed by
  * transactionId avoids refetching on every items-array event, and holds null
  * for a blob that resolved with nothing to report so it is asked for once.
@@ -40,7 +40,7 @@
  * settled.
  */
 import JugglerElement from './juggler-element.js';
-import { findAssistantTxnIds, findLastAssistantItemId } from '../utils/transaction-anchor.js';
+import { findRoundTripTxnIds, findLastRoundTripItemId } from '../utils/transaction-anchor.js';
 import { formatRelativeDateTime } from '../utils/format.js';
 import providersCache from '../services/providers-cache.js';
 import { openSettings } from '../services/settings-launcher.js';
@@ -123,6 +123,15 @@ class ConversationFooter extends JugglerElement {
    * @private
    */
   _pendingTxnId = '';
+
+  /**
+   * The round-trip whose blob the meter last rendered, or '' when it rendered
+   * none. The token pill opens this round-trip, which after a walk back past
+   * unmeasured calls is not the newest.
+   * @type {string}
+   * @private
+   */
+  _anchorTxnId = '';
 
   /**
    * How many times each transaction has been asked for and come back with no
@@ -705,8 +714,9 @@ class ConversationFooter extends JugglerElement {
     // this conversation, and the conversation did not shrink because a turn was
     // interrupted. So the walk continues back to the most recent round-trip
     // that does have a number, and the meter states that.
-    const txnIds = findAssistantTxnIds(this._messageThread?.items, MAX_ANCHOR_LOOKBACK);
+    const txnIds = findRoundTripTxnIds(this._messageThread?.items, MAX_ANCHOR_LOOKBACK);
     let anchor = null;
+    this._anchorTxnId = '';
     for (const id of txnIds) {
       if (!this._blobTokenCache.has(id)) {
         this._ensureBlobLoaded(id);
@@ -715,6 +725,7 @@ class ConversationFooter extends JugglerElement {
       const resolved = this._blobTokenCache.get(id);
       if (resolved) {
         anchor = resolved;
+        this._anchorTxnId = id;
         break;
       }
     }
@@ -817,7 +828,10 @@ class ConversationFooter extends JugglerElement {
     if (tokenPill) {
       tokenPill.addEventListener('token-display:show-transaction', (e) => {
         e.stopPropagation();
-        const itemId = findLastAssistantItemId(this._messageThread?.items);
+        // The round-trip the meter settled on, which after a walk back past
+        // unmeasured calls is not the newest one.
+        const itemId = findLastRoundTripItemId(this._messageThread?.items, this._anchorTxnId)
+          || findLastRoundTripItemId(this._messageThread?.items);
         if (!itemId) return;
         this.dispatchEvent(new CustomEvent('show-transaction-requested', {
           bubbles: true,

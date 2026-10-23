@@ -778,8 +778,8 @@ class SystemPromptContextItem extends ContextItem {
    */
   async _toolDriftSinceLastTurn(offered) {
     try {
-      const { findLastAssistantTxnId } = await import('../../../js/utils/transaction-anchor.js');
-      const txnId = findLastAssistantTxnId(this.messageThread?.items);
+      const { findLastRoundTripTxnId } = await import('../../../js/utils/transaction-anchor.js');
+      const txnId = findLastRoundTripTxnId(this.messageThread?.items);
       const convId = this.messageThread?.conversation?.id;
       if (!txnId || !convId) return null;
 

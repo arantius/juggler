@@ -16,6 +16,7 @@ of changes; this project follows semantic versioning.
 - Large images are scaled down before they're sent, so photo batches no longer stall
 - Long image-heavy conversations leave out their oldest images to keep requests sendable
 - A request over the provider's size limit no longer compacts history trying to fit
+- The context meter counts tool-only calls, so it no longer shows stale sizes
 - Models reporting no output limit get a larger Max output on large windows, up to 64k
 - Settings shows the number Max output's "auto" resolves to, and how it was derived
 - An output-limit notice explains a derived Max output and the context window it came from

@@ -23,7 +23,7 @@ import '../../js/components/token-display.js';
 const BUDGET = 200000;
 
 /**
- * A thread's items list, shaped for the reads `findLastAssistantTxnId` makes:
+ * A thread's items list, shaped for the reads `findRoundTripTxnIds` makes:
  * the assistant message carries the transactionId the footer anchors on.
  * @param {string} txnId - transactionId stamped on the assistant item
  * @returns {Array<{get: (key: string) => any}>} Y.Map-shaped items
