@@ -382,5 +382,37 @@ export async function runTests() {
     }
   }
 
+  // ── Test 6: an armed countdown badge pulses; an idle button holds still ───
+  // Under reduced motion (which CI machines report) the badge holds still too,
+  // so the armed case asserts whichever behaviour this machine is entitled to.
+  {
+    const { box, textarea, container } = mountComposer();
+    try {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+      const badge = /** @type {HTMLElement} */ (box.querySelector('.schedule-send-countdown'));
+      for (const mode of /** @type {const} */ (['delay', 'turn-end'])) {
+        armWithText(box, textarea, 'scheduled text');
+        box._scheduledSendMode = mode;
+        updateScheduleButton(box);
+        assert(!badge.hidden, `precondition: an armed ${mode} send shows its badge`);
+        const pulse = getComputedStyle(badge).animationName;
+        if (reduce) {
+          assert(pulse === 'none', `under reduced motion the ${mode} badge holds still, got ${pulse}`);
+        } else {
+          assert(pulse === 'schedule-countdown-pulse', `an armed ${mode} badge must pulse, got ${pulse}`);
+        }
+      }
+      clearScheduledSendState(box);
+      assert(getComputedStyle(/** @type {Element} */ (box.querySelector('.schedule-send-btn'))).animationName === 'none',
+        'a disarmed clock button must not animate');
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push('armed-badge-pulses: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      container.remove();
+    }
+  }
+
   return { passed, failed, errors };
 }

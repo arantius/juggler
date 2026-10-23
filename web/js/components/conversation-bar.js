@@ -106,6 +106,10 @@ const BIN_ICON_SVG = withAttrs(BIN_SVG, { width: '1rem', height: '1rem' });
 // with the tab names.
 const ADD_ICON_SVG = withAttrs(ADD_SVG, { width: '1rem', height: '1rem' });
 
+// The scheduler's clock after the name of a tab with a send scheduled. It fills
+// the box conversation-bar.css sizes for it.
+const SCHEDULE_ICON_SVG = withAttrs(CLOCK_SVG, { width: '100%', height: '100%' });
+
 // Keys in `_cachedElements` that name the bar's own furniture rather than a
 // conversation tab, so render()'s cleanup pass leaves them alone.
 const CHROME_ELEMENT_KEYS = new Set([
@@ -1745,21 +1749,22 @@ class ConversationBar extends JugglerElement {
       tab.dataset.conversationId = conv.id;
 
       // The status circle is the shared badge circle (patterns/item-badge.css):
-      // a preset fill for the state and one of four white glyphs, both set by
+      // a preset fill for the state and one of three white glyphs, both set by
       // _refreshTabStatus — the assistant; a question while the user is waited
-      // on or nothing has been said yet; a "!" when the last turn failed; a
-      // clock while a send is scheduled. The glyphs are the app's own: the
-      // panel's assistant icon, the ask item's question, the scheduler's clock.
+      // on or nothing has been said yet; a "!" when the last turn failed. The
+      // glyphs are the app's own: the panel's assistant icon, the ask item's
+      // question. The scheduler's clock after the name is shown (flashing) by
+      // the .has-scheduled-send class _refreshTabStatus sets.
       const assistantSvg = TYPE_ICONS.assistant;
       tab.innerHTML = `
         <span class="item-circle conversation-tab-status color-meta" aria-hidden="true">
           <span class="conversation-tab-glyph conversation-tab-glyph-assistant">${assistantSvg}</span>
           <span class="conversation-tab-glyph conversation-tab-glyph-question icon-question"></span>
-          <span class="conversation-tab-glyph conversation-tab-glyph-clock">${CLOCK_SVG}</span>
           <span class="conversation-tab-glyph conversation-tab-glyph-alert">${ALERT_SVG}</span>
         </span>
         <button class="conversation-tab-button">
           <span class="conversation-tab-name" data-tooltip-overflow></span>
+          <span class="conversation-tab-schedule" aria-hidden="true">${SCHEDULE_ICON_SVG}</span>
         </button>
       `;
       // The name ellipsises in the strip's width; `data-tooltip-overflow` has
@@ -1850,10 +1855,11 @@ class ConversationBar extends JugglerElement {
    * The circle's preset is the state: the ask family's yellow while the user is
    * waited on, green while the turn runs, red when the last turn failed, the
    * meta slate at rest. Its glyph, in priority order: a question while waited
-   * on, a "!" for a failure, a clock for a scheduled send, a question for a
-   * conversation with nothing said yet, otherwise the assistant. It is status,
-   * steady and small, so the tab-highlight preference does not reach it — that
-   * gates the attention manager's tint and flash, the strip's actual alerts.
+   * on, a "!" for a failure, a question for a conversation with nothing said
+   * yet, otherwise the assistant. It is status, steady and small, so the
+   * tab-highlight preference does not reach it — that gates the attention
+   * manager's tint and flash, the strip's actual alerts. A scheduled send is
+   * not in the circle: .has-scheduled-send shows the clock after the name.
    * @param {string} convId
    * @private
    */
@@ -1884,9 +1890,8 @@ class ConversationBar extends JugglerElement {
     }
     const glyph = awaiting ? 'question'
       : failed ? 'alert'
-        : scheduled ? 'clock'
-          : empty ? 'question'
-            : 'assistant';
+        : empty ? 'question'
+          : 'assistant';
     if (circle.dataset.glyph !== glyph) circle.dataset.glyph = glyph;
   }
 

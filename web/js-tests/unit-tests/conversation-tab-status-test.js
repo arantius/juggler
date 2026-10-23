@@ -10,9 +10,13 @@
  * fill and a white glyph. The fill says the state — the meta slate at rest,
  * green while the turn runs, red when it failed, the ask family's yellow
  * while it waits on the user — and the glyph says what is in it: the
- * assistant, a question (waited on, or nothing said yet), a "!" for a
- * failure, or a clock while a send is scheduled. Only running pulses; nothing
- * else on the tab animates.
+ * assistant, a question (waited on, or nothing said yet), or a "!" for a
+ * failure. Only running pulses.
+ *
+ * A send scheduled on the conversation is the one mark outside the circle: a
+ * clock directly after the name, flashing so a timer about to fire is hard to
+ * miss. It sits beside the circle rather than in it, so a scheduled send never
+ * hides what the circle says (a failure, a question) and vice versa.
  *
  * The fills are compared against a panel circle of the same preset class,
  * which is the claim being made: the two are one definition, not two that
@@ -166,8 +170,41 @@ export async function runTests() {
         assert(!!(circles[0].compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING),
           `tab ${id}'s circle must come before its name`);
       }
-      assert(!bar.querySelector('.conversation-tab-activity, .conversation-tab-schedule'),
-        'the circle is the only status mark: no separate activity blob or clock slot');
+      assert(!bar.querySelector('.conversation-tab-activity'),
+        'the circle is the only activity mark: no separate activity blob');
+    });
+
+    /**
+     * A tab's scheduled-send clock, when it is showing.
+     * @param {string} id - The conversation id.
+     * @returns {HTMLElement|null} The clock, or null when it is absent or hidden.
+     */
+    const scheduleClock = (id) => {
+      const clock = /** @type {HTMLElement|null} */ (tab(id).querySelector('.conversation-tab-schedule'));
+      return clock && getComputedStyle(clock).display !== 'none' ? clock : null;
+    };
+
+    await check('a scheduled send shows a flashing clock directly after the name', () => {
+      for (const id of ['scheduled', 'empty-scheduled', 'failed-scheduled']) {
+        const clock = scheduleClock(id);
+        assert(!!clock, `tab ${id} has a send scheduled and must show the clock`);
+        const name = /** @type {Element} */ (tab(id).querySelector('.conversation-tab-name'));
+        assert(name.nextElementSibling === clock, `tab ${id}'s clock must sit directly after its name`);
+        assert(!!clock?.querySelector('svg'), `tab ${id}'s clock must draw the scheduler's clock icon`);
+        const name0 = name.getBoundingClientRect();
+        const clock0 = /** @type {HTMLElement} */ (clock).getBoundingClientRect();
+        assert(clock0.width > 0 && clock0.left >= name0.right - 0.5,
+          `tab ${id}'s clock must be drawn to the right of its name, got clock at ${clock0.left} against name ending ${name0.right}`);
+        const flash = getComputedStyle(/** @type {HTMLElement} */ (clock)).animationName;
+        if (reducedMotion()) {
+          assert(flash === 'none', `under reduced motion the clock holds still, got ${flash}`);
+        } else {
+          assert(flash === 'tab-schedule-flash', `tab ${id}'s clock must flash, got ${flash}`);
+        }
+      }
+      for (const id of ['idle', 'running', 'awaiting', 'failed', 'empty']) {
+        assert(!scheduleClock(id), `tab ${id} has nothing scheduled and must show no clock`);
+      }
     });
 
     await check('the fill says the state, and is the panel\'s own preset', () => {
@@ -207,7 +244,8 @@ export async function runTests() {
       assert(visibleGlyphs(circle('idle')).join() === 'assistant', `idle shows the assistant, got ${visibleGlyphs(circle('idle'))}`);
       assert(visibleGlyphs(circle('running')).join() === 'assistant', `running shows the assistant, got ${visibleGlyphs(circle('running'))}`);
       assert(visibleGlyphs(circle('awaiting')).join() === 'question', `awaiting shows a question, got ${visibleGlyphs(circle('awaiting'))}`);
-      assert(visibleGlyphs(circle('scheduled')).join() === 'clock', `a scheduled send shows the clock, got ${visibleGlyphs(circle('scheduled'))}`);
+      assert(visibleGlyphs(circle('scheduled')).join() === 'assistant',
+        `a scheduled send leaves the circle saying what it says without one, got ${visibleGlyphs(circle('scheduled'))}`);
     });
 
     await check('a turn that ended in an error shows a red "!" until something follows it', () => {
@@ -217,7 +255,7 @@ export async function runTests() {
       assert(visibleGlyphs(circle('retried')).join() === 'assistant',
         `an error with a later turn after it is history, got ${visibleGlyphs(circle('retried'))}`);
       assert(circle('retried').classList.contains('color-meta'), 'and is back at rest');
-      assert(visibleGlyphs(circle('failed-scheduled')).join() === 'alert', 'an error outranks a scheduled send\'s clock');
+      assert(visibleGlyphs(circle('failed-scheduled')).join() === 'alert', 'a scheduled send does not hide a failure');
     });
 
     await check('a conversation with no messages yet shows a question mark on slate', () => {
@@ -226,10 +264,10 @@ export async function runTests() {
       assert(visibleGlyphs(circle('unloaded')).join() === 'assistant',
         `a conversation not loaded yet has no items to judge by and is not called empty, got ${visibleGlyphs(circle('unloaded'))}`);
       assert(circle('empty-awaiting').classList.contains('color-ask'), 'awaiting still wins the fill over empty');
-      assert(visibleGlyphs(circle('empty-scheduled')).join() === 'clock', 'a scheduled send outranks empty');
+      assert(visibleGlyphs(circle('empty-scheduled')).join() === 'question', 'a scheduled send does not hide an empty conversation\'s question');
     });
 
-    await check('only running pulses, and nothing else on the tab animates', () => {
+    await check('only a running circle pulses, and a tab at rest holds still', () => {
       const pulse = getComputedStyle(circle('running')).animationName;
       if (reducedMotion()) {
         assert(pulse === 'none', `under reduced motion a running circle holds still, got ${pulse}`);

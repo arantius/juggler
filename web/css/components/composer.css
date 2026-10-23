@@ -639,7 +639,9 @@ composer-box .strategy-selector-button .strategy-name {
 
 /* Schedule-send ("send after a delay") button — shares the .input-ctrl-btn
    ghost pill. Icon-only when idle; when a send is armed it turns accent and
-   reveals a compact countdown badge to its right. */
+   reveals a compact countdown badge to its right, which pulses for as long as
+   the send is armed so a pending timer is hard to overlook. Reduced motion
+   keeps the badge and drops the pulse. */
 composer-box .schedule-send-btn {
     justify-content: center;
 }
@@ -660,6 +662,19 @@ composer-box .schedule-send-btn .schedule-send-countdown {
     font-size: var(--font-size-xs);
     font-variant-numeric: tabular-nums;
     line-height: 1;
+}
+
+composer-box .schedule-send-btn.armed .schedule-send-countdown {
+    animation: schedule-countdown-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes schedule-countdown-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    composer-box .schedule-send-btn.armed .schedule-send-countdown { animation: none; }
 }
 
 /* Delay picker — extends the .dropdown-menu base (surface, border, shadow,

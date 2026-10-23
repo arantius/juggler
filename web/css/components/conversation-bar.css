@@ -519,12 +519,12 @@ conversation-bar .conversation-tab.has-close {
 
    - a question while the user is waited on;
    - a "!" when the last turn failed;
-   - a clock while a send is scheduled;
    - a question when nothing has been said yet;
    - otherwise the assistant, at rest and while running.
 
-   Running pulses with the badge pulse, as a busy item circle does. Nothing else
-   on the tab moves: the circle is the whole of its status. */
+   Running pulses with the badge pulse, as a busy item circle does. The one
+   status mark outside the circle is the scheduled-send clock after the name
+   (below), so a timer never hides what the circle says. */
 conversation-bar .conversation-tab-status {
     width: var(--tab-status-column);
     height: var(--tab-status-column);
@@ -547,9 +547,32 @@ conversation-bar .conversation-tab-glyph svg {
 conversation-bar .conversation-tab-status:not([data-glyph]) .conversation-tab-glyph-assistant,
 conversation-bar .conversation-tab-status[data-glyph="assistant"] .conversation-tab-glyph-assistant,
 conversation-bar .conversation-tab-status[data-glyph="question"] .conversation-tab-glyph-question,
-conversation-bar .conversation-tab-status[data-glyph="clock"] .conversation-tab-glyph-clock,
 conversation-bar .conversation-tab-status[data-glyph="alert"] .conversation-tab-glyph-alert {
     display: flex;
+}
+
+/* A send scheduled on the conversation: the scheduler's clock, directly after
+   the name, in the accent the armed clock button wears, flashing for as long as
+   the timer is set so a pending send is hard to miss in a strip of tabs. It
+   never shrinks — the name ellipsises first. Reduced motion keeps the clock and
+   drops the flash. */
+conversation-bar .conversation-tab-schedule {
+    display: none;
+    flex: 0 0 auto;
+    width: var(--message-icon-size);
+    height: var(--message-icon-size);
+    margin-left: 0.3rem;
+    color: var(--accent-blue);
+}
+
+conversation-bar .conversation-tab.has-scheduled-send .conversation-tab-schedule {
+    display: flex;
+    animation: tab-schedule-flash 1.2s ease-in-out infinite;
+}
+
+@keyframes tab-schedule-flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
 }
 
 conversation-bar .conversation-tab.is-running .conversation-tab-status {
@@ -594,6 +617,7 @@ conversation-bar .conversation-tab:not(.active).attention-flash {
 @media (prefers-reduced-motion: reduce) {
     conversation-bar .conversation-tab.is-running .conversation-tab-status { animation: none; }
     conversation-bar .conversation-tab.attention-flash { animation: none; }
+    conversation-bar .conversation-tab.has-scheduled-send .conversation-tab-schedule { animation: none; }
 }
 
 /* Hover is a step toward selected, in the same neutral, not a colour of its own. */
