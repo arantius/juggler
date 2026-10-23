@@ -25,7 +25,9 @@ import {
   extractSkillMentions,
   renderSkillMenuItem,
 } from './skill-mention-provider.js';
-import { THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, KEBAB_SVG, CLOCK_SVG } from '../utils/icons.js';
+import {
+  THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, KEBAB_SVG, CLOCK_SVG, OPEN_IN_FULL_SVG, CLOSE_FULLSCREEN_SVG,
+} from '../utils/icons.js';
 import { showNotice } from './modal-dialog.js';
 import { openSettings } from '../services/settings-launcher.js';
 import tooltipManager from '../services/tooltip-manager.js';
@@ -90,8 +92,27 @@ import {
  * itself — text, drafts, history, sending, and the menus.
  */
 
-/** Maximum height (px) the prompt textarea grows to before it starts scrolling. */
+/**
+ * The prompt textarea grows with its text up to a cap, then scrolls. The cap is
+ * a share of the column the box sits in, never more than MAX_TEXTAREA_HEIGHT_PX
+ * and never less than MIN_TEXTAREA_CAP_PX: a fixed pixel cap suits a desktop
+ * window but takes a phone's whole column once its keyboard is up. Past the
+ * cap the expand button lets the box fill the column instead.
+ */
 const MAX_TEXTAREA_HEIGHT_PX = 400;
+const TEXTAREA_CAP_COLUMN_SHARE = 0.4;
+const MIN_TEXTAREA_CAP_PX = 96;
+
+/**
+ * The textarea's height cap in a column of the given height.
+ * @param {number} columnHeight - The column's height in px; 0 when unknown.
+ * @returns {number} The cap in px.
+ */
+function textareaHeightCap(columnHeight) {
+  if (!(columnHeight > 0)) return MAX_TEXTAREA_HEIGHT_PX;
+  const share = Math.round(columnHeight * TEXTAREA_CAP_COLUMN_SHARE);
+  return Math.min(MAX_TEXTAREA_HEIGHT_PX, Math.max(MIN_TEXTAREA_CAP_PX, share));
+}
 
 /**
  * Hard cap on a single message's length (characters, ~25k tokens). A message
@@ -499,6 +520,10 @@ class Composer extends JugglerElement {
    * (2) defer the height write to the next frame — _scheduleAutoResize, whose
    * deferral this depends on — so it lands outside the observer's own
    * delivery cycle rather than mutating layout mid-delivery.
+   *
+   * The column's height is watched too, since the cap is a share of it: a
+   * phone keyboard opening or closing resizes the column (utils/viewport-fit).
+   * The column's height does not follow the box's, so this cannot feed back.
    * @param {HTMLTextAreaElement} textarea
    * @private
    */
@@ -513,6 +538,20 @@ class Composer extends JugglerElement {
     });
     resizeObserver.observe(textarea);
     this._renderBindings.push(() => resizeObserver.disconnect());
+
+    const column = this.parentElement;
+    if (column) {
+      /** @type {number|null|undefined} */
+      let lastHeight = null;
+      const columnObserver = new ResizeObserver((entries) => {
+        const height = entries[0]?.contentRect.height;
+        if (height === lastHeight) return;
+        lastHeight = height;
+        this._scheduleAutoResize(textarea);
+      });
+      columnObserver.observe(column);
+      this._renderBindings.push(() => columnObserver.disconnect());
+    }
   }
 
   /**
@@ -552,6 +591,9 @@ class Composer extends JugglerElement {
     // stopPropagation. The menu surfaces are detached to <body>, outside
     // input-controls, so their own focusable inputs (e.g. the permission path
     // editor) are untouched by this.
+    //
+    // The expand button keeps focus for every pointer: it opens no popup, and
+    // resizing the box is something done mid-edit, keyboard up.
     const inputControls = this.querySelector('input-controls');
     if (inputControls) {
       let lastPointerType = 'mouse';
@@ -560,7 +602,9 @@ class Composer extends JugglerElement {
       }, true);
       this._listen(inputControls, 'mousedown', (e) => {
         const target = /** @type {Element|null} */ (e.target);
-        if (lastPointerType === 'mouse' && target && target.closest('button, .input-ctrl-btn')) {
+        if (!target) return;
+        if (target.closest('.expand-input-btn')
+          || (lastPointerType === 'mouse' && target.closest('button, .input-ctrl-btn'))) {
           e.preventDefault();
         }
       }, true);
@@ -631,6 +675,9 @@ class Composer extends JugglerElement {
     // Touch-only "⋮" overflow button: opens the actions sheet (commands, attach
     // image, new thread) so those affordances need no inline row on a phone.
     onClick('#more-actions-button', () => this._actionsPopup.toggle());
+
+    // Expand / shrink the box (shown once the text outgrows its cap).
+    onClick('.expand-input-btn', () => this.setExpanded(!this.hasAttribute('expanded')));
   }
 
   /**
@@ -1397,12 +1444,50 @@ class Composer extends JugglerElement {
   autoResize(textarea) {
     // This measurement supersedes any frame already queued for the same job.
     this._cancelScheduledAutoResize();
+    // Expanded, the column decides the height (CSS) and the box scrolls.
+    if (this.hasAttribute('expanded')) {
+      textarea.style.height = '';
+      textarea.style.overflowY = 'auto';
+      this._updateExpandButton(true);
+      return;
+    }
+    const cap = textareaHeightCap(this.parentElement?.clientHeight ?? 0);
     textarea.style.overflowY = 'hidden'; // Temporarily hide scrollbar for accurate measurement
     textarea.style.height = 'auto'; // Reset height to auto to get correct scrollHeight
-    const newHeight = Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT_PX);
+    const newHeight = Math.min(textarea.scrollHeight, cap);
     textarea.style.height = newHeight + 'px';
     // Enable scrolling if the maximum height is reached
-    textarea.style.overflowY = newHeight < MAX_TEXTAREA_HEIGHT_PX ? 'hidden' : 'auto';
+    const atCap = newHeight >= cap;
+    textarea.style.overflowY = atCap ? 'auto' : 'hidden';
+    this._updateExpandButton(atCap);
+  }
+
+  /**
+   * Show the expand button while the text has outgrown the cap, or while the
+   * box is expanded (it is then the way back), and label it for its state.
+   * @param {boolean} show
+   * @private
+   */
+  _updateExpandButton(show) {
+    const button = /** @type {HTMLButtonElement|null} */ (this.querySelector('.expand-input-btn'));
+    if (!button) return;
+    const expanded = this.hasAttribute('expanded');
+    button.hidden = !show;
+    button.setAttribute('aria-pressed', String(expanded));
+    const label = expanded ? t('Shrink the message box') : t('Expand the message box');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+
+  /**
+   * Fill the column with the box, or return it to its capped height.
+   * @param {boolean} expanded
+   */
+  setExpanded(expanded) {
+    if (expanded === this.hasAttribute('expanded')) return;
+    this.toggleAttribute('expanded', expanded);
+    const textarea = this.querySelector('textarea');
+    if (textarea) this.autoResize(textarea);
   }
 
   /**
@@ -1602,6 +1687,9 @@ class Composer extends JugglerElement {
     // empty box. Every successful send funnels through here, so this covers the
     // Enter, touch Send button, and scheduled-flush paths alike.
     this._completions?.close();
+
+    // A sent message gives the column back to the transcript.
+    this.toggleAttribute('expanded', false);
 
     // Reset history navigation state
     this.historyIndex = -1;
@@ -2490,6 +2578,13 @@ class Composer extends JugglerElement {
                                 aria-haspopup="dialog" aria-expanded="false">
                             <span class="schedule-send-icon">${CLOCK_SVG}</span>
                             <span class="schedule-send-countdown" hidden></span>
+                        </button>
+                        <button class="expand-input-btn input-ctrl-btn" hidden
+                                title="${escapeHtml(t('Expand the message box'))}"
+                                aria-label="${escapeHtml(t('Expand the message box'))}"
+                                aria-pressed="false">
+                            <span class="expand-input-icon">${OPEN_IN_FULL_SVG}</span>
+                            <span class="shrink-input-icon">${CLOSE_FULLSCREEN_SVG}</span>
                         </button>
                     </input-controls-actions>
                     <input-controls-send>

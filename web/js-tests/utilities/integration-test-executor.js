@@ -271,6 +271,7 @@ import { runTests as runCommandMenuOrderTests } from '../unit-tests/command-menu
 import { runTests as runMobileComposerTests } from '../unit-tests/mobile-composer-test.js';
 import { runTests as runComposerSendLatchTests } from '../unit-tests/composer-send-latch-test.js';
 import { runTests as runComposerAutoresizeDeferTests } from '../unit-tests/composer-autoresize-defer-test.js';
+import { runTests as runComposerExpandTests } from '../unit-tests/composer-expand-test.js';
 import { runTests as runComposerRestoreMessageTests } from '../unit-tests/composer-restore-message-test.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { runTests as runPendingMessageRestoreTests } from '../unit-tests/pending-message-restore-test.js';
@@ -659,6 +660,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:mobile-composer', run: runMobileComposerTests },
   { name: 'unit:composer-send-latch', run: runComposerSendLatchTests },
   { name: 'unit:composer-autoresize-defer', run: runComposerAutoresizeDeferTests },
+  { name: 'unit:composer-expand', run: runComposerExpandTests },
   { name: 'unit:composer-restore-message', run: runComposerRestoreMessageTests },
   { name: 'unit:pending-message-restore', run: runPendingMessageRestoreTests },
   { name: 'unit:turn-active-status', run: runTurnActiveStatusTests },

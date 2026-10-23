@@ -24,7 +24,7 @@ import { buildDisplayItems, isGroupEntry } from '../utils/item-grouping.js';
 import { isToolGroupingEnabled } from '../utils/tool-grouping-pref.js';
 import { createIconBadge, createTypeBadge } from '../utils/icon-message-renderer.js';
 import { badgeForItem } from '../utils/item-badge.js';
-import { SCROLL_TOP_SVG, SCROLL_BOTTOM_SVG } from '../utils/icons.js';
+import { SCROLL_TOP_SVG, SCROLL_BOTTOM_SVG, OPEN_IN_FULL_SVG } from '../utils/icons.js';
 import { setupColumnResize, startingColumnWidth } from '../utils/column-resize.js';
 import {
   hasPendingApprovalInTree,
@@ -862,7 +862,7 @@ class ConversationArea extends JugglerElement {
           <div class="conversation-message-list-inner" id="message-list-inner">
             <thread-column-actions class="hidden">
               <button class="properties-panel-btn thread-expand-btn" title="${escapeHtml(t('Expand this thread back into the parent'))}">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M120-120v-320h80v184l504-504H520v-80h320v320h-80v-184L256-200h184v80H120Z"/></svg>
+                ${OPEN_IN_FULL_SVG}
                 ${escapeHtml(t('Expand into parent'))}
               </button>
               <button class="properties-panel-btn thread-copy-tab-btn" title="${escapeHtml(t('Copy this thread (with inherited context) to a new conversation'))}">

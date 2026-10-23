@@ -342,6 +342,56 @@ composer-box .skill-button .skill-glyph {
     line-height: 1;
 }
 
+/* Expand / shrink button — icon-only, shown (JS toggles [hidden]) once the
+   text outgrows the box's cap. One glyph per state; [expanded] on the host
+   picks which. */
+composer-box .expand-input-btn {
+    justify-content: center;
+    padding: 0.125rem 0.5rem;
+}
+
+composer-box .expand-input-btn > span {
+    display: flex;
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+composer-box .expand-input-btn svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+composer-box .expand-input-btn .shrink-input-icon,
+composer-box[expanded] .expand-input-btn .expand-input-icon {
+    display: none;
+}
+
+composer-box[expanded] .expand-input-btn .shrink-input-icon {
+    display: flex;
+}
+
+/* Expanded, the box lies over its whole column — transcript, suggestions and
+   thread header beneath it untouched, so their scroll positions survive — and
+   the textarea takes whatever height the rest of the box leaves. autoResize
+   clears its inline height while expanded so this flex sizing governs. The
+   column is the containing block (conversation-area is position: relative),
+   and a phone's column already ends at the keyboard (utils/viewport-fit). */
+composer-box[expanded] {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-raised);
+}
+
+composer-box[expanded] composer-box-wrapper {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+composer-box[expanded] textarea:not(.field-input) {
+    flex: 1 1 0;
+}
+
 /* Attach-files button — a paperclip beside Send, where the eye already goes.
    The same 2rem circle as its send-cluster neighbours, but a ghost (no fill)
    so the accent send stays the one primary control. The glyph is larger than
@@ -1034,6 +1084,14 @@ composer-box.touch-composer .schedule-send-btn:not(.armed) {
    so the whole composer, send button included, lands above the keyboard. */
 composer-box.touch-composer textarea {
     scroll-margin-bottom: 4rem;
+}
+
+/* A finger needs the row's 2rem target, not the desktop pill's 1.5rem. */
+composer-box.touch-composer .expand-input-btn.input-ctrl-btn {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: 50%;
 }
 
 /* These live in the "⋮" actions sheet: the commands (`/`) and skill (`$`)
