@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-10-23
+
 - Dropped connections, cut-off streams and provider server errors now retry automatically
 - A retried reply replaces the half-answer the failed attempt had shown
 - Simplified Chinese translation; choose it under Settings → Language
