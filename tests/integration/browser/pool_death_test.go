@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package integration_test
+package browser_test
 
 import (
 	"errors"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"juggler/tests/helpers"
 )
 
 // deadProc builds the liveness record of a subprocess that has already exited,
@@ -102,7 +104,7 @@ func TestHarnessFailsFastAgainstAnExitedServer(t *testing.T) {
 	if err := postToServer(srv, "/api/test/run", map[string]any{"name": "whatever"}); err == nil {
 		t.Fatal("postToServer succeeded against a closed port")
 	}
-	if elapsed := time.Since(start); elapsed > postConnectWindow/2 {
+	if elapsed := time.Since(start); elapsed > helpers.PostConnectWindow/2 {
 		t.Errorf("postToServer waited %s against an exited server; it should give up at once", elapsed)
 	}
 

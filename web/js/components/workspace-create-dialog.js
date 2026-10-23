@@ -381,6 +381,14 @@ export function openWorkspaceCreate(session) {
         rows: offered.filter((row) => row.kind === 'adopt')
       });
 
+      // Each band arrives holding a tab stop of its own, but the arrows walk the
+      // rail as one, so it keeps one: the chosen kind's, or the first row when
+      // nothing is chosen. A second would put every found tree between the
+      // kinds and the form.
+      rail.querySelectorAll('.setup-row[tabindex="0"]').forEach((row, index) => {
+        if (index > 0) /** @type {HTMLElement} */ (row).tabIndex = -1;
+      });
+
       // What the chosen kind is, and what it needs, down the other.
       const detail = document.createElement('div');
       detail.className = 'workspace-create-detail';

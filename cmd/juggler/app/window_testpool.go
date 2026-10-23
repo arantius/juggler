@@ -270,7 +270,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	// dimensions). 2x2 iframes at 600x450 each → 1200x900 host.
 	minW, minH := 800, 600
 	if headless && testMode {
-		if testIframes > 1 {
+		if testIframes > 0 {
 			// Square-ish grid. 2 iframes = 1x2; 4 = 2x2; 9 = 3x3; 16 = 4x4.
 			cols := int(math.Ceil(math.Sqrt(float64(testIframes))))
 			rows := (testIframes + cols - 1) / cols
@@ -394,7 +394,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	//  - --test --test-window-url=U: U — the production app served from
 	//    elsewhere, e.g. this server's session behind a machine server's proxy
 	mainURL := "http://" + srv.GetAddr() + "/?window=1"
-	if headless && testMode && testIframes > 1 {
+	if headless && testMode && testIframes > 0 {
 		mainURL = fmt.Sprintf("http://%s/test-pool?n=%d", srv.GetAddr(), testIframes)
 	}
 	if testWindowURL != "" {
@@ -410,11 +410,11 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		HideToolbarSeparator: true,
 		FullSizeContent:      true,
 	}
-	if headless && testMode && testIframes > 1 {
+	if headless && testMode && testIframes > 0 {
 		macTitleBar = application.MacTitleBar{}
 	}
 	winTitle := "Juggler"
-	if headless && testMode && testIframes > 1 {
+	if headless && testMode && testIframes > 0 {
 		winTitle = "Juggler Test Pool"
 	}
 	macWindow := application.MacWindow{
@@ -434,7 +434,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	// lights) and Linux (keeps its WM decorations). The test-pool host keeps a
 	// normal frame so the dev can see/move it like any other window.
 	frameless := platformFrameless
-	if headless && testMode && testIframes > 1 {
+	if headless && testMode && testIframes > 0 {
 		frameless = false
 	}
 	// Keep the Aero shadow + Win11 rounded corners in frameless mode (the
@@ -444,7 +444,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		DisableFramelessWindowDecorations: false,
 	}
 
-	if headless && testMode && testIframes > 1 {
+	if headless && testMode && testIframes > 0 {
 		// In the tiled test-pool this window hosts the test iframes (the
 		// engine + viewer lanes) — execution happens *here*, not just in the
 		// dedicated engine window. If the dev moves it offscreen or to another
@@ -509,7 +509,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	// Native application menu. The tiled test-pool host has no use for it and
 	// its accelerators (Cmd+O / Cmd+N) could fight the test page's own
 	// shortcuts, so install it only for the real app windows.
-	isTestPoolHost := headless && testMode && testIframes > 1
+	isTestPoolHost := headless && testMode && testIframes > 0
 	if !isTestPoolHost {
 		installAppMenu(app, win, devMode)
 	}

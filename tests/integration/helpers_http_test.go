@@ -1,3 +1,7 @@
+//     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+//     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+//   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+
 package integration_test
 
 import (
@@ -31,35 +35,36 @@ func acceptButNeverReply(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// TestHarnessPollServerFailsFastOnWedgedServer guards the regression that made
+// TestPollJSONFailsFastOnWedgedServer guards the regression that made
 // `make test` "get stuck": the harness HTTP helpers once used the default
 // no-timeout client, so a wedged server (accepts the connection, never replies)
-// blocked the polling goroutine forever. In the parallel phase that goroutine
-// holds a testServerPool slot, so one wedged server hung the WHOLE suite until
-// the outer 15-minute -timeout fired. pollServer must instead fail at its
-// deadline so the per-test failure frees the slot and the run continues.
-func TestHarnessPollServerFailsFastOnWedgedServer(t *testing.T) {
+// blocked the polling goroutine forever. In the browser suite that goroutine
+// holds a pool lane, so one wedged server hung the WHOLE suite until the outer
+// 15-minute -timeout fired. PollJSON must instead fail at its deadline so the
+// per-test failure frees the lane and the run continues.
+func TestPollJSONFailsFastOnWedgedServer(t *testing.T) {
+	t.Parallel()
 	addr := acceptButNeverReply(t)
 
 	var out struct{ Passed bool }
 	start := time.Now()
-	// A bare address with no liveness record: this listener is not a pool
-	// subprocess, and pollServer's death check tolerates a nil one.
-	err := pollServer(testServerEntry{addr: addr}, "/api/test/result", 2*time.Second, &out)
+	// No liveness check: this listener is not a pool subprocess.
+	err := helpers.PollJSON(addr, "/api/test/result", 2*time.Second, &out, nil)
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("pollServer returned nil against a wedged server; expected a timeout error")
+		t.Fatal("PollJSON returned nil against a wedged server; expected a timeout error")
 	}
 	if elapsed > 6*time.Second {
-		t.Fatalf("pollServer blocked %s past its 2s deadline — the no-timeout client "+
+		t.Fatalf("PollJSON blocked %s past its 2s deadline — the no-timeout client "+
 			"regression is back; a wedged server will hang the whole suite", elapsed)
 	}
 }
 
-// TestHarnessWaitForServerFailsFastOnWedgedServer guards the same regression in
-// the cold-start readiness poll (tests/helpers.WaitForServer).
-func TestHarnessWaitForServerFailsFastOnWedgedServer(t *testing.T) {
+// TestWaitForServerFailsFastOnWedgedServer guards the same regression in the
+// cold-start readiness poll.
+func TestWaitForServerFailsFastOnWedgedServer(t *testing.T) {
+	t.Parallel()
 	addr := acceptButNeverReply(t)
 
 	start := time.Now()

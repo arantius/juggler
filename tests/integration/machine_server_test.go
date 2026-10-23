@@ -25,6 +25,7 @@ import (
 	"juggler/internal/apipaths"
 	"juggler/internal/ingress"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // TestMachineServerSessionLifecycle drives one session through the control
@@ -219,19 +220,18 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 		t.Fatalf("find project root: %v", err)
 	}
 	fixture := newProjectDir(t)
-	if err := copyDir(filepath.Join(root, "tests", "benchmarks", "fixtures", "unit-test-fixture"), fixture); err != nil {
+	if err := helpers.CopyDir(filepath.Join(root, "tests", "benchmarks", "fixtures", "unit-test-fixture"), fixture); err != nil {
 		t.Fatalf("copy fixture: %v", err)
 	}
 	sess := ms.openSession(fixture, http.StatusCreated)
 
 	// The child's own test API, reached the way the page reaches it.
-	child := testServerEntry{addr: ms.Addr, fixture: fixture}
 	prefix := "/s/" + sess.ID
 	const name = "integration:read-file-single"
-	if err := postToServer(child, prefix+"/api/test/run", map[string]any{
+	if err := helpers.PostJSON(ms.Addr, prefix+"/api/test/run", map[string]any{
 		"name":        name,
 		"projectPath": fixture,
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("POST %s/api/test/run: %v", prefix, err)
 	}
 	var result struct {
@@ -240,7 +240,7 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 		Errors      []string `json:"errors"`
 		PostedUnder string   `json:"postedUnder"`
 	}
-	if err := pollServer(child, prefix+"/api/test/result?name="+name, 120*time.Second, &result); err != nil {
+	if err := helpers.PollJSON(ms.Addr, prefix+"/api/test/result?name="+name, 120*time.Second, &result, nil); err != nil {
 		t.Fatalf("waiting for %s through the proxy: %v", name, err)
 	}
 	// The test queue is the child's own, so a lane that loaded the child
@@ -369,7 +369,7 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 	var fixtures [2]string
 	for i := range sessions {
 		fixtures[i] = newProjectDir(t)
-		if err := copyDir(filepath.Join(root, "tests", "benchmarks", "fixtures", "unit-test-fixture"), fixtures[i]); err != nil {
+		if err := helpers.CopyDir(filepath.Join(root, "tests", "benchmarks", "fixtures", "unit-test-fixture"), fixtures[i]); err != nil {
 			t.Fatalf("copy fixture: %v", err)
 		}
 		if code := pageCall(http.MethodPost, "/api/server/sessions", map[string]string{"project": fixtures[i]}, &sessions[i]); code != http.StatusCreated {
@@ -400,9 +400,8 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 	for i, sess := range sessions {
 		go func() {
 			o := &outcome{prefix: "/s/" + sess.ID}
-			child := testServerEntry{addr: ms.Addr, fixture: fixtures[i]}
-			if o.err = postToServer(child, o.prefix+"/api/test/run", map[string]any{"name": name, "projectPath": fixtures[i]}); o.err == nil {
-				o.err = pollServer(child, o.prefix+"/api/test/result?name="+name, 120*time.Second, &o.result)
+			if o.err = helpers.PostJSON(ms.Addr, o.prefix+"/api/test/run", map[string]any{"name": name, "projectPath": fixtures[i]}, nil); o.err == nil {
+				o.err = helpers.PollJSON(ms.Addr, o.prefix+"/api/test/result?name="+name, 120*time.Second, &o.result, nil)
 			}
 			done <- o
 		}()

@@ -2,17 +2,14 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package integration_test
+package browser_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -22,36 +19,15 @@ import (
 	"juggler/tests/helpers"
 )
 
-// harnessHTTPTimeout bounds every harness→server HTTP request. The default
-// http client has NO timeout, so a server whose engine main thread has stalled
-// (the macOS hidden-WebView CVDisplayLink hazard the architecture guards
-// against) — accepting the TCP connection but never writing a reply — blocks
-// the calling goroutine FOREVER. In the parallel phase that goroutine holds a
-// testServerPool slot, so one wedged server starves every other lane and the
-// whole suite hangs until the outer `make test` -timeout (15m) fires: the
-// "stuck" symptom. The per-test PerTestTimeout watchdog can't rescue it (it
-// only dumps a stack; FailNow from another goroutine is unsafe). Bounding each
-// request converts an indefinite whole-suite hang into a single loud,
-// attributable per-test failure that frees the slot so the run continues.
-// 60s matches the per-test budget in runOneBrowserTest — a request still
-// outstanding past it means the server is wedged, not slow.
-const harnessHTTPTimeout = 60 * time.Second
-
-// postConnectWindow bounds how long postToServer retries transport (dial)
-// failures. A freshly-spawned pool server announces its address (JUGGLER_ADDR=)
-// the instant it knows its port — which can be a beat before its HTTP listener
-// is actually accepting, and on a loaded CI runner that gap is wider. Without a
-// retry, that single "connection refused" fails the WHOLE suite before any test
-// runs (the __list__ POST that gates test discovery goes through postToServer).
-// A transport error means the request never reached the server, so re-sending
-// is safe; a genuine boot crash still surfaces once this window elapses.
-const postConnectWindow = 10 * time.Second
+// harnessHTTPTimeout bounds every harness→server HTTP request; see
+// helpers.HarnessHTTPTimeout for why it must.
+const harnessHTTPTimeout = helpers.HarnessHTTPTimeout
 
 // listDiscoveryTimeout bounds the wait for the harness to enumerate its tests
 // and POST them back to /api/test/names after the __list__ trigger. Unlike a
 // per-test run — where the harness iframes are already loaded and connected —
 // discovery is the FIRST thing the suite does, so it races a cold engine boot:
-// the pool releases a slot token the instant the subprocess prints JUGGLER_ADDR=
+// the pool hands out a lane the instant the subprocess prints JUGGLER_ADDR=
 // (HTTP listener up), which is well before the WebView2/WebKit host has loaded
 // the test-pool page, brought up every iframe, and connected their sockets. On
 // a loaded CI runner under `-race` that warm-up is slow (Windows especially),
@@ -67,22 +43,20 @@ const listDiscoveryTimeout = 60 * time.Second
 // names — the unit pool for a `unit:` suite, testServerPool for the rest — and
 // shares that subprocess's session only with the lanes of its own pool.
 //
-// Reading the timings: `--- PASS: TestBrowser (20s)` is NOT what this test
+// Reading the timings: `--- PASS: TestBrowser (2s)` is NOT what this test
 // costs. Go stops a parent's clock before it waits on its parallel subtests, so
-// that figure covers only discovery, the fixture resets and the sequential
-// phase below — the parallel phase, usually the larger half, is invisible in it
-// and shows up only as the package total. Profile against `ok
-// juggler/tests/integration <total>` and treat the parent's number as the
-// sequential phase alone, or the phase that actually needs the work looks free.
+// that figure covers only discovery and the initial fixture reset — every
+// subtest is parallel, and their time shows up only as the package total.
+// Profile against `ok juggler/tests/integration/browser <total>`.
 func TestBrowser(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping browser tests in short mode")
 	}
 
-	// Use any pool slot to fetch the test list (read-only, no fixture writes needed).
-	srv := <-testServerPool
+	// Use any pool lane to fetch the test list (read-only, no fixture writes needed).
+	srv := testServerPool.acquire()
 	names, exclusive, err := listBrowserTests(srv)
-	testServerPool <- srv
+	testServerPool.release(srv)
 	if err != nil {
 		t.Fatalf("cannot list browser tests: %v", err)
 	}
@@ -125,127 +99,98 @@ func TestBrowser(t *testing.T) {
 		}
 	}()
 
-	// Phase 1: tests that need the whole pool to themselves, one at a time with
-	// no other test in flight. Two kinds qualify, both because they contend on
-	// something the lanes share and cannot namespace per-test:
+	// Every test runs in parallel, fanned across the pools. Most take one lane.
+	// An exclusive test takes every lane of one subprocess (acquireServer) and
+	// so has that window to itself while the other windows carry on. Two kinds
+	// are exclusive, both because they contend on something the lanes of a
+	// subprocess share and cannot namespace per test:
 	//
 	//   - Fixture-root polluters write a fixed-name file (e.g. CLAUDE.md) that
 	//     production auto-detection scans on every createConversation. A fixed
 	//     filename can't hide behind a per-test prefix, so a sibling lane's
-	//     createConversation would pick it up.
-	//   - Focus-sensitive tests assert on document.activeElement. Every lane is
-	//     an iframe in ONE window, and a window has exactly one focused frame:
-	//     any sibling calling element.focus() takes frame focus away, which
-	//     blurs the asserting lane's element to <body>. That is a property of
-	//     the pool topology, not of the code under test, so these tests are
-	//     only meaningful with no sibling running.
+	//     createConversation would pick it up. Each subprocess has a fixture of
+	//     its own, so only its own lanes can.
+	//   - Focus-sensitive tests assert on document.activeElement. The lanes of a
+	//     subprocess are iframes in ONE window, and a window has exactly one
+	//     focused frame: any sibling calling element.focus() takes frame focus
+	//     away, which blurs the asserting lane's element to <body>. That is a
+	//     property of the pool topology, not of the code under test, so these
+	//     tests are only meaningful with no sibling in their window.
 	//
-	// These run FIRST and synchronously (no t.Parallel): the parallel subtests
-	// registered in phase 2 don't start until this parent function returns, so
-	// no sibling is ever in flight here. Reset every fixture before each so a
-	// previous polluter's file can't linger. Subtest names stay flat
-	// (TestBrowser/<name>), preserving `-run` filters.
+	// The same goes for state an origin keeps (localStorage, a stubbed fetch
+	// seen by the server's settings): each subprocess is its own origin.
+	// The fixture is reset before an exclusive test, so a previous polluter's
+	// file can't linger, and after it, so its own can't reach the ordinary
+	// tests that run there next. Subtest names stay flat (TestBrowser/<name>),
+	// preserving `-run` filters.
+	exclusiveIn := map[*lanePool]int{}
 	for _, name := range names {
-		if !exclusiveSet[name] {
-			continue
-		}
 		name := name
-		t.Run(name, func(t *testing.T) {
-			selected++
-			resetAllFixtures(t)
-
-			pool := poolFor(name)
-			srv := <-pool
-			defer func() {
-				pool <- srv
-			}()
-
-			runOneBrowserTest(t, srv)
-		})
-	}
-
-	// Reset once more before the parallel phase: a polluter that failed before
-	// its own cleanup op could otherwise leave its fixed-name file behind for
-	// every parallel lane to auto-detect.
-	if len(exclusiveSet) > 0 {
-		resetAllFixtures(t)
-	}
-
-	// Phase 2: every test that tolerates siblings, fanned across the pool in parallel.
-	for _, name := range names {
-		if exclusiveSet[name] {
-			continue
-		}
-		name := name
+		exclusive := exclusiveSet[name]
 		t.Run(name, func(t *testing.T) {
 			selected++ // before t.Parallel(), while t.Run is still waiting on it
+			if exclusive {
+				exclusiveIn[poolFor(name)]++
+			}
 			t.Parallel()
 
 			pool := poolFor(name)
-			srv := <-pool
-			defer func() {
-				pool <- srv
-			}()
-
+			if !exclusive {
+				srv := pool.acquire()
+				defer pool.release(srv)
+				runOneBrowserTest(t, srv)
+				return
+			}
+			srv := pool.acquireServer()
+			defer pool.releaseServer(srv)
+			resetFixture(t, srv)
+			defer resetFixture(t, srv)
 			runOneBrowserTest(t, srv)
 		})
 	}
-}
 
-// pooledEntry is a slot token taken out of its pool, with the pool to put it
-// back in.
-type pooledEntry struct {
-	testServerEntry
-	pool chan testServerEntry
-}
-
-// drainAllPools takes every slot token out of every pool. It is for passes that
-// run while no test is in flight, so every token is in its pool and none is
-// waited for; the caller returns them with returnToPools.
-func drainAllPools() []pooledEntry {
-	var slots []pooledEntry
+	// Every subtest -run selected has been counted (each is entered up to its
+	// t.Parallel before t.Run returns) and none has started (they wait for this
+	// function to return), so each pool learns how many exclusive tests it will
+	// see before the first arrives — and frees its solo windows after the last.
 	for _, pool := range allPools() {
-		for len(pool) > 0 {
-			slots = append(slots, pooledEntry{<-pool, pool})
-		}
-	}
-	return slots
-}
-
-// returnToPools puts drained slot tokens back where they came from.
-func returnToPools(slots []pooledEntry) {
-	for _, s := range slots {
-		s.pool <- s.testServerEntry
+		pool.expectExclusive(exclusiveIn[pool])
 	}
 }
 
-// resetAllFixtures POSTs /api/test/reset-fixture to every pool slot, wiping
-// any files left over from a prior `-count` iteration. Drains the pools, hits
-// each slot's reset endpoint, then re-fills them — runs while no tests are in
-// flight so it's safe to clobber the shared fixture dirs. The tokens go back
-// on the way out even when a reset fails, or the next test would wait forever.
+// resetAllFixtures resets every pool subprocess's fixture, wiping any files
+// left over from a prior `-count` iteration. It holds every subprocess whole
+// while it does, so no test is in flight to have its files clobbered; they go
+// back on the way out even when a reset fails, or the next test would wait
+// forever.
 func resetAllFixtures(t *testing.T) {
 	t.Helper()
-	slots := drainAllPools()
-	defer returnToPools(slots)
-	seen := make(map[string]bool, len(slots))
-	for _, s := range slots {
-		// Each (addr, fixture) pair shares one SessionManager — reset once per pair.
-		key := s.addr + "|" + s.fixture
-		if !seen[key] {
-			seen[key] = true
-			url := fmt.Sprintf("/api/test/reset-fixture?fixture=unit-test-fixture&dir=%s",
-				neturlEscape(s.fixture))
-			client := &http.Client{Timeout: harnessHTTPTimeout}
-			resp, err := client.Post("http://"+s.addr+url, "application/json", nil)
-			if err != nil {
-				t.Fatalf("reset-fixture failed for %s: %v", s.addr, err)
+	for _, pool := range allPools() {
+		held := pool.acquireAll()
+		func() {
+			defer pool.releaseAll(held)
+			for _, s := range held {
+				resetFixture(t, s)
 			}
-			resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				t.Fatalf("reset-fixture %s returned %d", s.addr, resp.StatusCode)
-			}
-		}
+		}()
+	}
+}
+
+// resetFixture POSTs /api/test/reset-fixture to one subprocess, wiping its
+// fixture apart from .juggler/ session state. The caller must hold every lane
+// of that subprocess.
+func resetFixture(t *testing.T, s testServerEntry) {
+	t.Helper()
+	url := fmt.Sprintf("/api/test/reset-fixture?fixture=unit-test-fixture&dir=%s",
+		neturlEscape(s.fixture))
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Post("http://"+s.addr+url, "application/json", nil)
+	if err != nil {
+		t.Fatalf("reset-fixture failed for %s: %v", s.addr, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		t.Fatalf("reset-fixture %s returned %d", s.addr, resp.StatusCode)
 	}
 }
 
@@ -257,12 +202,8 @@ func resetAllFixtures(t *testing.T) {
 // the server log identify the leaking test.
 func reportLeakedConversations(t *testing.T) {
 	t.Helper()
-	slots := drainAllPools()
-	defer returnToPools(slots)
-	seen := make(map[string]bool, len(slots))
-	for _, s := range slots {
-		if !seen[s.addr] {
-			seen[s.addr] = true
+	for _, pool := range allPools() {
+		for _, s := range pool.entries() {
 			client := &http.Client{Timeout: harnessHTTPTimeout}
 			resp, err := client.Get("http://" + s.addr + "/api/test/conversation-owners")
 			if err != nil {
@@ -321,8 +262,8 @@ func neturlEscape(s string) string {
 
 // listBrowserTests triggers list mode on the Wails subprocess and waits for the
 // names to be POSTed back to /api/test/names. It returns every test name plus
-// the subset that must run with no sibling in flight (run isolated; see the
-// sequential phase in TestBrowser).
+// the subset that must run with no sibling in flight on their server (see the
+// exclusive tests in TestBrowser).
 func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error) {
 	if err := postToServer(srv, "/api/test/run", map[string]any{
 		"name": "__list__",
@@ -443,75 +384,16 @@ func recordSuiteBudget(t *testing.T, warning string) {
 	_, _ = fmt.Fprintf(f, "%s\t%s\n", warning, strings.TrimSpace(line))
 }
 
-// postToServer sends a JSON POST to srv's address and returns on non-2xx.
-//
-// Transport (dial) errors are retried with a short backoff up to
-// postConnectWindow: a pool server that has just printed its address may not be
-// accepting connections for a few more milliseconds, and a single unretried
-// "connection refused" on the __list__ POST fails the entire suite. A transport
-// error means no request reached the server, so re-sending is safe and cannot
-// double-apply. Once a response IS received (any status), we stop retrying — a
-// non-2xx is a real server-side result, not a transient condition.
-//
-// The retry is for a server that isn't listening YET. A server that has exited
-// will never listen again, so waiting out the window buys nothing and costs
-// every remaining test its full 10s — the difference between a dead pool
-// failing the run in seconds and grinding through it for minutes.
+// postToServer is helpers.PostJSON to a pool subprocess, which stops retrying
+// once the subprocess has exited.
 func postToServer(srv testServerEntry, path string, body any) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Timeout: harnessHTTPTimeout}
-	deadline := time.Now().Add(postConnectWindow)
-	for {
-		resp, err := client.Post("http://"+srv.addr+path, "application/json", bytes.NewReader(data))
-		if err != nil {
-			// Transport failure: the request never landed. Retry until the
-			// connect window closes, then surface the last error.
-			if time.Now().Before(deadline) && !srv.proc.dead() {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			return err
-		}
-		resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return fmt.Errorf("unexpected status %d", resp.StatusCode)
-		}
-		return nil
-	}
+	return helpers.PostJSON(srv.addr, path, body, srv.proc.dead)
 }
 
-// pollServer GET-polls srv's address every 200 ms until 200 OK is returned and
-// the response JSON decodes successfully into out, or until timeout elapses.
-// Each GET is bounded by the poll budget so a wedged server (one that accepts
-// the connection but never replies) can't block past `timeout` — see
-// harnessHTTPTimeout. An exited server ends the poll immediately: the answer it
-// owed can no longer arrive, so sitting out the full budget only delays the
-// failure that already happened.
+// pollServer is helpers.PollJSON against a pool subprocess, which ends the
+// poll once the subprocess has exited.
 func pollServer(srv testServerEntry, path string, timeout time.Duration, out any) error {
-	client := &http.Client{Timeout: timeout}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if srv.proc.dead() {
-			return fmt.Errorf("polling %s: the server exited", path)
-		}
-		resp, err := client.Get("http://" + srv.addr + path)
-		if err == nil {
-			if resp.StatusCode == http.StatusOK {
-				decErr := json.NewDecoder(resp.Body).Decode(out)
-				resp.Body.Close()
-				if decErr == nil {
-					return nil
-				}
-			} else {
-				resp.Body.Close()
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout polling %s after %s", path, timeout)
+	return helpers.PollJSON(srv.addr, path, timeout, out, srv.proc.dead)
 }
 
 // poolStderrTailLines is how much of a dead subprocess's stderr poolDeath
@@ -690,38 +572,4 @@ func projectSize(addr string) string {
 	}
 	return fmt.Sprintf("PROJECT SIZE: %d conversation(s), %d binned — [%s]",
 		len(sess.ConversationOrder), sess.BinnedCount, strings.Join(sess.ConversationOrder, ", "))
-}
-
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		return copyFile(path, target, info.Mode())
-	})
-}
-
-func copyFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
 }

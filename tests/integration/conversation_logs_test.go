@@ -17,6 +17,7 @@ import (
 	"juggler/internal/jlog"
 	"juggler/internal/logpaths"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // TestServerWritesNestedProjectLog boots a real headless server WITHOUT
@@ -35,7 +36,7 @@ func TestServerWritesNestedProjectLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find project root: %v", err)
 	}
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("server binary not built at %s (run make go-build): %v", binary, err)
 	}
@@ -59,7 +60,7 @@ func TestServerWritesNestedProjectLog(t *testing.T) {
 
 	cmd := exec.Command(binary, "--window=false", "--port", "0", "--project", proj)
 	cmd.Env = os.Environ() // includes JUGGLER_LOG_DIR
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
@@ -69,13 +70,13 @@ func TestServerWritesNestedProjectLog(t *testing.T) {
 		t.Fatalf("start %s: %v", binary, err)
 	}
 	defer func() {
-		signalGroup(cmd, syscall.SIGTERM)
+		helpers.SignalGroup(cmd, syscall.SIGTERM)
 		done := make(chan struct{})
 		go func() { _ = cmd.Wait(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(10 * time.Second):
-			signalGroup(cmd, syscall.SIGKILL)
+			helpers.SignalGroup(cmd, syscall.SIGKILL)
 		}
 	}()
 

@@ -11,6 +11,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // TestSuiteServerReportsItselfAsATestBuild pins the one thing that separates a
@@ -34,7 +35,7 @@ func TestSuiteServerReportsItselfAsATestBuild(t *testing.T) {
 		t.Fatalf("srcroot.Find: %v", err)
 	}
 
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	out, err := exec.Command(binary, "--version").Output()
 	if err != nil {
 		t.Fatalf("%s --version: %v", binary, err)

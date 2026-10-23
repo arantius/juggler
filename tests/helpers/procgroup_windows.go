@@ -4,16 +4,19 @@
 
 //go:build windows
 
-package integration_test
+package helpers
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-func setProcGroupAttr(_ *exec.Cmd) {}
+// SetProcGroupAttr is a no-op on Windows, which has no process groups to put
+// cmd in.
+func SetProcGroupAttr(_ *exec.Cmd) {}
 
-func signalGroup(cmd *exec.Cmd, sig syscall.Signal) {
+// SignalGroup signals cmd alone.
+func SignalGroup(cmd *exec.Cmd, sig syscall.Signal) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}

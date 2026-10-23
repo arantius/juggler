@@ -150,7 +150,11 @@ import { runTests as runTabOrderMergeTests } from '../unit-tests/tab-order-merge
 import { runTests as runTabDragOrderTests } from '../unit-tests/tab-drag-order-test.js';
 import { runTests as runTabKeyboardMoveTests } from '../unit-tests/tab-keyboard-move-test.js';
 import { runTests as runTabDragAcrossWorkspaceTests } from '../unit-tests/tab-drag-across-workspace-test.js';
-import { runTests as runTabDragWorkspaceOrderTests } from '../unit-tests/tab-drag-workspace-order-test.js';
+import {
+  runTests as runTabDragWorkspaceOrderTests,
+  runDropSweepTests as runTabDragWorkspaceDropSweepTests,
+  runDropSweepMemberTests as runTabDragWorkspaceDropSweepMemberTests
+} from '../unit-tests/tab-drag-workspace-order-test.js';
 import { runTests as runToolActionRenderTests } from '../unit-tests/tool-action-render-test.js';
 import { runTests as runComponentTeardownTests } from '../unit-tests/component-teardown-test.js';
 import { runTests as runJugglerSpinnerLiveTests } from '../unit-tests/juggler-spinner-live-test.js';
@@ -550,9 +554,9 @@ const ALL_TESTS = [
  * already there.
  *
  * An entry may also set `needsExclusiveRun: true`, which makes the Go runner
- * schedule it alone with no sibling lane in flight. The commonest reason is a
- * suite asserting on `document.activeElement`: every lane is an iframe inside
- * ONE window, and a window has exactly one focused frame, so any sibling calling
+ * give it a window with no sibling lane in it. The commonest reason is a
+ * suite asserting on `document.activeElement`: the lanes of a server are iframes
+ * inside ONE window, and a window has exactly one focused frame, so any sibling calling
  * element.focus() takes frame focus away and blurs this lane's element to <body>
  * — the suite then fails on the pool's topology rather than on the code under
  * test. listExclusiveTests() lists the rest; the same flag carries them all.
@@ -704,6 +708,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:tab-keyboard-move', run: runTabKeyboardMoveTests },
   { name: 'unit:tab-drag-across-workspace', run: runTabDragAcrossWorkspaceTests },
   { name: 'unit:tab-drag-workspace-order', run: runTabDragWorkspaceOrderTests },
+  { name: 'unit:tab-drag-workspace-drop-sweep', run: runTabDragWorkspaceDropSweepTests },
+  { name: 'unit:tab-drag-workspace-drop-sweep-members', run: runTabDragWorkspaceDropSweepMemberTests },
   { name: 'unit:tool-action-render', run: runToolActionRenderTests },
   { name: 'unit:component-teardown', run: runComponentTeardownTests },
   { name: 'unit:juggler-spinner-live', run: runJugglerSpinnerLiveTests },
@@ -1598,9 +1604,12 @@ export function exclusiveNamesIn(...tables) {
  *   - it switches a plugin on or off in the project config, which changes the
  *     tools and system prompt every lane of that server is offered.
  *
- * The Go runner runs these first, one at a time and before any parallel test is
- * started, with a fixture reset before each (see TestBrowser in
- * tests/integration/browser_suite_test.go). An extension suite declares the flag by exporting `needsExclusiveRun`;
+ * Everything listed is shared by the lanes of one server and no further — each
+ * server has its own window, fixture, origin and settings — so the Go runner
+ * runs each of these in a server of its own while the rest of the pool carries
+ * on: a solo window, one lane and no sibling, with a fixture reset before and
+ * after (see TestBrowser and lanePool in tests/integration/browser). An
+ * extension suite declares the flag by exporting `needsExclusiveRun`;
  * everything else declares it on its table entry.
  * @returns {string[]} Names of tests that must run in isolation
  */

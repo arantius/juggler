@@ -26,6 +26,7 @@ import (
 
 	"juggler/internal/enginehost"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // Model id the stand-in gateway advertises. Obviously not a real model, so a
@@ -206,7 +207,7 @@ func oneShotBinary(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("find project root: %v", err)
 	}
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("server binary not built at %s (run make go-build): %v", binary, err)
 	}
@@ -331,7 +332,7 @@ func runOneShot(t *testing.T, binary, proj, cfgDir string, timeout time.Duration
 		"JUGGLER_CONFIG_DIR="+cfgDir,
 		"JUGGLER_LOG_DIR="+logDir,
 		"JUGGLER_ENGINE_HOST=node")
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -342,7 +343,7 @@ func runOneShot(t *testing.T, binary, proj, cfgDir string, timeout time.Duration
 	}
 	t.Cleanup(func() {
 		if cmd.Process != nil {
-			signalGroup(cmd, syscall.SIGKILL)
+			helpers.SignalGroup(cmd, syscall.SIGKILL)
 		}
 	})
 

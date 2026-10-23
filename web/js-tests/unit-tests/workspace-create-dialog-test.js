@@ -18,7 +18,13 @@
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { createBoundOps } from '../../sdk/ops.js';
 import { unregisterWorkspace } from '../../js/services/workspaces.js';
-import { setupRows, probeSetupAdoptions, adoptSetupRow, NEW_ROW_PREFIX } from '../../js/services/workspace-places.js';
+import {
+  setupRows,
+  probeSetupAdoptions,
+  adoptSetupRow,
+  NEW_ROW_PREFIX,
+  __setSetupOffersForTests
+} from '../../js/services/workspace-places.js';
 import {
   openWorkspaceCreate,
   workspaceCreatePlaces
@@ -241,11 +247,16 @@ export async function runTests() {
         const opened = rowsOnScreen().find((row) => row.getAttribute('aria-checked') === 'true');
         assert(opened?.dataset.rowKind === 'new',
           `the dialog opens on a kind, got ${JSON.stringify(opened?.dataset.rowId)}`);
-        const openedName = workspaceProviderRegistry
-          .createProvider(String(opened?.dataset.rowId).slice(NEW_ROW_PREFIX.length), session)
-          ?.getManifest().name;
-        assert(detail.querySelector('.workspace-create-detail-title')?.textContent === openedName,
-          `the chosen kind names itself in its own half, got ${JSON.stringify(detail.textContent)}`);
+        // Named as its rail row names it — the provider's setup label, which is
+        // its manifest name only for a provider that declares none. Which kind
+        // leads depends on what this realm has registered (a lane that has run
+        // the project-folder suite leads with "A subfolder of this project",
+        // whose manifest name is "Subfolder"), so the expectation is read from
+        // the row rather than from any one field of the manifest.
+        const openedLabel = workspaceCreatePlaces(session)
+          .find((row) => row.id === opened?.dataset.rowId)?.label;
+        assert(openedLabel !== undefined && detail.querySelector('.workspace-create-detail-title')?.textContent === openedLabel,
+          `the chosen kind names itself in its own half as its row does (${JSON.stringify(openedLabel)}), got ${JSON.stringify(detail.textContent)}`);
 
         choose(FixtureProvider.MANIFEST.id);
         await waitFor(() => document.querySelector('.workspace-create-overlay #fixture-dir') !== null, 2000);
@@ -352,6 +363,49 @@ export async function runTests() {
       } finally {
         press('.workspace-create-cancel');
         await settled;
+      }
+    });
+
+    await run('the found trees under the kinds add no second tab stop', async () => {
+      // A provider that finds a tree it once parked puts a band of offers under
+      // the kinds. The arrows walk both bands as one rail, so it is still one
+      // stop: a second would put every found tree between the kinds and the form.
+      // Pinned, as the en-XA case is: two kinds and one find, whatever else this
+      // realm has registered, or found on disk and still holds on offer.
+      const registry = /** @type {any} */ (workspaceProviderRegistry);
+      const savedItems = new Map(registry.items);
+      const savedExtensions = new Map(registry.itemExtensions);
+      const savedPaths = new Map(registry.modulePaths);
+      const offersWere = __setSetupOffersForTests(new Map());
+      registry.items.clear();
+      registry.registerClass(AdvisesAndFinds, { extensionId: PLACES_EXTENSION, modulePath: '(test)' });
+      registry.registerClass(SecondKindProvider, { extensionId: 'test', modulePath: '(test)' });
+      const fake = {
+        projectPath: '/1',
+        workspaces: /** @type {any[]} */ ([{ id: 'ws_parked', root: '/3/8', label: '8', state: 'closed', providerId: AdvisesAndFinds.MANIFEST.id }])
+      };
+      try {
+        await probeSetupAdoptions(fake);
+        const settled = openWorkspaceCreate(fake);
+        try {
+          await waitFor(() => document.querySelector('.workspace-create-overlay .setup-row-adopt') !== null, 2000);
+          const stops = rowsOnScreen().filter((row) => row.tabIndex === 0);
+          assert(stops.length === 1,
+            `the rail holds one tab stop with a found tree in it, got ${stops.length} of ${rowsOnScreen().length} rows: ${JSON.stringify(stops.map((row) => row.dataset.rowKind))}`);
+          assert(stops[0]?.dataset.rowKind === 'new',
+            `and it is the chosen kind's, got ${JSON.stringify(stops[0]?.dataset.rowKind)}`);
+        } finally {
+          press('.workspace-create-cancel');
+          await settled;
+        }
+      } finally {
+        __setSetupOffersForTests(offersWere);
+        registry.items.clear();
+        for (const [k, v] of savedItems) registry.items.set(k, v);
+        registry.itemExtensions.clear();
+        for (const [k, v] of savedExtensions) registry.itemExtensions.set(k, v);
+        registry.modulePaths.clear();
+        for (const [k, v] of savedPaths) registry.modulePaths.set(k, v);
       }
     });
 
@@ -761,11 +815,15 @@ export async function runTests() {
     await run('en-XA: the dialog draws no plain English in any state', async () => {
       // Pinned: only the stand-in provider is registered, under an extension id
       // whose catalogue the case supplies, and then none at all, for the dialog
-      // that has nothing to offer.
+      // that has nothing to offer. The offers are pinned too: they are the
+      // module's for the life of the realm, so a tree an earlier suite on this
+      // lane left behind would otherwise stand in the dialog that is meant to
+      // have nothing in it.
       const registry = /** @type {any} */ (workspaceProviderRegistry);
       const savedItems = new Map(registry.items);
       const savedExtensions = new Map(registry.itemExtensions);
       const savedPaths = new Map(registry.modulePaths);
+      const offersWere = __setSetupOffersForTests(new Map());
       registry.items.clear();
       const added = registry.registerClass(AdvisesAndFinds, { extensionId: PLACES_EXTENSION, modulePath: '(test)' });
       const originalFetch = window.fetch;
@@ -829,6 +887,7 @@ export async function runTests() {
       } finally {
         window.fetch = originalFetch;
         overlay()?.remove();
+        __setSetupOffersForTests(offersWere);
         registry.items.clear();
         for (const [k, v] of savedItems) registry.items.set(k, v);
         registry.itemExtensions.clear();

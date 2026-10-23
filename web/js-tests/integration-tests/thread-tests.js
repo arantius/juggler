@@ -1020,8 +1020,8 @@ export const threadAIFilesToSubThreadTest = {
   // per-test prefix the way every other test's scratch files do. While it
   // exists, any sibling lane's createConversation auto-detects it and gains
   // a phantom file-content item. needsExclusiveRun tells the Go runner to
-  // schedule this test alone (sequential phase, fixture reset around it), so
-  // no sibling is ever in flight to observe the transient CLAUDE.md.
+  // run this test in a server of its own (fixture reset around it), so no
+  // sibling is ever in flight to observe the transient CLAUDE.md.
   needsExclusiveRun: true,
 
   operations: [

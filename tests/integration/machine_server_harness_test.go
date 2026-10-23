@@ -27,6 +27,7 @@ import (
 	"juggler/cmd/juggler/machineserver"
 	"juggler/internal/ingress"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // machineServerStartTimeout bounds how long `juggler serve` may take to print
@@ -93,7 +94,7 @@ func startMachineServer(t *testing.T, serveArgs ...string) (*machineServer, func
 
 	cmd := exec.Command(iso.binary, append([]string{"serve", "--port", "0"}, serveArgs...)...)
 	cmd.Env = iso.env
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -180,7 +181,7 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 	if err != nil {
 		t.Fatalf("find project root: %v", err)
 	}
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("server binary not built at %s: %v", binary, err)
 	}
@@ -211,7 +212,7 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 		// An empty skills dir, so a user's skills never reach a child.
 		"JUGGLER_SKILLS_USER_DIR": skills,
 	} {
-		env = envWithOverride(env, k, v)
+		env = helpers.EnvWithOverride(env, k, v)
 	}
 	return isolatedRun{binary: binary, env: env, base: base, home: home, logs: logs}
 }
@@ -225,7 +226,7 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 func startSessionChild(t *testing.T, project, ingressSecret string) string {
 	t.Helper()
 	iso := newIsolatedRun(t)
-	return startServerProcess(t, iso, envWithOverride(iso.env, ingress.SecretEnv, ingressSecret),
+	return startServerProcess(t, iso, helpers.EnvWithOverride(iso.env, ingress.SecretEnv, ingressSecret),
 		"--session-child", "--port", "0", "--project", project)
 }
 
@@ -248,7 +249,7 @@ func startServerProcess(t *testing.T, iso isolatedRun, env []string, args ...str
 	t.Helper()
 	cmd := exec.Command(iso.binary, args...) //nolint:gosec // the suite's own binary
 	cmd.Env = env
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
@@ -281,7 +282,7 @@ func startServerProcess(t *testing.T, iso isolatedRun, env []string, args ...str
 		close(exited)
 	}()
 	t.Cleanup(func() {
-		signalGroup(cmd, syscall.SIGKILL)
+		helpers.SignalGroup(cmd, syscall.SIGKILL)
 		<-exited
 	})
 
@@ -315,7 +316,7 @@ func (ms *machineServer) stop() {
 	case <-ms.exited:
 	case <-time.After(machineServerStopTimeout):
 		t.Errorf("machine server did not exit within %s of a shutdown request — killing it", machineServerStopTimeout)
-		signalGroup(ms.cmd, syscall.SIGKILL)
+		helpers.SignalGroup(ms.cmd, syscall.SIGKILL)
 		<-ms.exited
 	}
 

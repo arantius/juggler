@@ -15,6 +15,7 @@ import (
 
 	"juggler/internal/enginehost"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // TestNodeEngineHostBootsAndConnects is the node-engine-host conformance test.
@@ -57,7 +58,7 @@ func TestNodeEngineHostBootsAndConnects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find project root: %v", err)
 	}
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("server binary not built at %s (run make go-build): %v", binary, err)
 	}
@@ -112,7 +113,7 @@ func startNodeEngineServer(t *testing.T, binary, proj, logFile string) *headless
 		"--window=false", "--port", "0",
 		"--project", proj, "--log-file", logFile)
 	cmd.Env = append(os.Environ(), "JUGGLER_ENGINE_HOST=node")
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

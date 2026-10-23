@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package integration_test
+package browser_test
 
 import "testing"
 
@@ -12,8 +12,6 @@ import "testing"
 // on an integration server would go on passing; it would just be reading its
 // siblings' conversations and settings again, which is the whole thing the split
 // is for, so the routing is checked here rather than trusted.
-//
-// Runs between top-level tests, when every slot token is in its pool.
 func TestUnitSuitesRunOnTheirOwnServers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("no pool in short mode")
@@ -33,29 +31,18 @@ func TestUnitSuitesRunOnTheirOwnServers(t *testing.T) {
 		}
 	}
 
-	slots := drainAllPools()
-	defer returnToPools(slots)
-	owner := map[string]chan testServerEntry{}
-	for _, s := range slots {
-		for _, key := range []string{"addr " + s.addr, "project " + s.fixture} {
-			if p, ok := owner[key]; ok && p != s.pool {
-				t.Errorf("%s serves both pools", key)
+	owner := map[string]*lanePool{}
+	for _, pool := range allPools() {
+		for _, s := range pool.entries() {
+			for _, key := range []string{"addr " + s.addr, "project " + s.fixture} {
+				if p, ok := owner[key]; ok && p != pool {
+					t.Errorf("%s serves both pools", key)
+				}
+				owner[key] = pool
 			}
-			owner[key] = s.pool
 		}
 	}
-	if len(unitSlots(slots)) == 0 {
-		t.Error("the unit pool holds no slots")
+	if unitServerPool.lanes() == 0 {
+		t.Error("the unit pool holds no lanes")
 	}
-}
-
-// unitSlots is the drained tokens that belong to the unit pool.
-func unitSlots(slots []pooledEntry) []pooledEntry {
-	var out []pooledEntry
-	for _, s := range slots {
-		if s.pool == unitServerPool {
-			out = append(out, s)
-		}
-	}
-	return out
 }

@@ -244,14 +244,17 @@ jobs:
       # On Linux the spawned server needs a display, so run under xvfb; other
       # platforms render headless. Full output lands in the step log.
       #
-      # 2 windows x 2 iframes = 4 lanes (default 3x3 = 9). The pool runs
-      # WINDOWS x IFRAMES concurrent test lanes (main_test.go); the default is
-      # tuned for a dev workstation, and a hosted runner (~2-4 vCPU) cannot
-      # service 9 of them. It starves them into failures that look like bugs but
-      # are pure load — lanes whose engine WS can't connect within 30s, tests
-      # that blow a 10s budget by a few ms, and an interrupted lane leaking
-      # state into the next test's preconditions. 4 lanes keeps real
-      # server-side concurrency coverage while fitting the runner.
+      # (2 windows + 2 unit windows) x 2 iframes = 8 lanes, plus one
+      # single-lane solo window per pool for the exclusive suites (defaults:
+      # (2+2) x 3 and the same solo windows). The pool runs (WINDOWS + UNIT_WINDOWS)
+      # x IFRAMES concurrent test lanes (poolConfig, main_test.go); the default
+      # is tuned for a dev workstation, and a hosted runner (~2-4 vCPU) cannot
+      # service 12 lanes. It starves them into failures that look like bugs
+      # but are pure load — lanes whose engine WS can't connect within 30s,
+      # tests that blow a 10s budget by a few ms, and an interrupted lane
+      # leaking state into the next test's preconditions. Every dimension is
+      # pinned here so a change to the defaults never reaches the runner
+      # unasked.
       #
       # Keep BOTH dimensions above 1 when tuning this. Lanes in one subprocess
       # share a WebKit content process, so 1x4 puts four lanes' heap growth in
@@ -261,7 +264,10 @@ jobs:
         shell: bash
         env:
           JUGGLER_TEST_WINDOWS: 2
+          JUGGLER_TEST_UNIT_WINDOWS: 2
           JUGGLER_TEST_IFRAMES: 2
+          JUGGLER_TEST_SOLO_WINDOWS: 1
+          JUGGLER_TEST_UNIT_SOLO_WINDOWS: 1
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
             # WebKitGTK 2.4x+ (2.52 on the runner) defaults to a DMABUF/GPU
@@ -312,9 +318,9 @@ jobs:
       # its stderr — the WebKitGTK/libEGL/WebProcess-crash output, and the fatal
       # line a server writes on its way out, neither of which reaches the go-test
       # log — to <tempdir>/juggler-test-logs/juggler-stderr-*.log (see
-      # startJugglerSubprocess in tests/integration/main_test.go). That directory
-      # is a fixed path, not the run's throwaway log dir, so it survives the pool
-      # shutdown. Without this, a hung WebView surfaces only as an opaque
+      # startJugglerSubprocess in tests/integration/browser/main_test.go).
+      # That directory is a fixed path, not the run's throwaway log dir, so it
+      # survives the pool shutdown. Without this, a hung WebView surfaces only as an opaque
       # "timeout polling /api/test/names" and every fix is a blind guess.
       #
       # Every OS, and every candidate temp dir: the harness uses Go's

@@ -338,10 +338,11 @@ function justBelow(box) {
 }
 
 /**
- * Run the tab-past-a-box ordering tests.
- * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ * A tally of checks, and the runner that adds to it.
+ * @returns {{check: (name: string, body: () => void|Promise<void>) => Promise<void>,
+ *   results: () => {passed: number, failed: number, errors: string[]}}} The runner and its results.
  */
-export async function runTests() {
+function checks() {
   let passed = 0;
   let failed = 0;
   /** @type {string[]} */
@@ -367,6 +368,16 @@ export async function runTests() {
       closeDialogs();
     }
   };
+  return { check, results: () => ({ passed, failed, errors }) };
+}
+
+/**
+ * Run the tab-past-a-box ordering tests, the drop sweep apart (see
+ * {@link runDropSweepTests}).
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ */
+export async function runTests() {
+  const { check, results } = checks();
 
   /**
    * The bar the reported fault was found in: an empty box with tabs either
@@ -899,6 +910,62 @@ export async function runTests() {
     }
   });
 
+  return results();
+}
+
+/**
+ * An arrangement the drop sweep runs over: a name, and how to mount it.
+ * @typedef {[string, () => {bar: any, session: any, teardown: () => void}]} Arrangement
+ */
+
+/**
+ * The drop sweep over the arrangements with no conversation in a box. Its own
+ * suite, as is the half with members ({@link runDropSweepMemberTests}): the
+ * sweep mounts a bar per drop, ~150 of them, which costs more than the rest of
+ * this file together. Sharing one budget with the other checks it ran the
+ * suite past 45s on a busy pool, and alone it still sat at the ten-second
+ * split line.
+ *
+ * A box with no `place` on its row is the state a workspace is left in when
+ * the conversation it sat behind is binned, and it is the one that moved tabs
+ * nobody dragged.
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ */
+export async function runDropSweepTests() {
+  return dropSweep([
+    ['two empty boxes below', () => mountBar(
+      [workspace('w1', 'head'), workspace('w2', 'head')], [['a', ''], ['b', '']])],
+    ['two empty boxes, no place recorded', () => mountBar(
+      [workspace('w1'), workspace('w2')], [['a', ''], ['b', '']])],
+    ['a box between the tabs', () => mountBar(
+      [workspace('ws', 'a')], [['a', ''], ['b', ''], ['c', '']])]
+  ]);
+}
+
+/**
+ * The drop sweep over the arrangements with conversations in their boxes —
+ * the larger half, since a member tab is a slot that can be picked up too.
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ */
+export async function runDropSweepMemberTests() {
+  return dropSweep([
+    ['two boxes with members', () => mountBar(
+      [workspace('w1', 'head'), workspace('w2', 'head')],
+      [['m1', 'w1'], ['m2', 'w2'], ['a', ''], ['b', '']])],
+    ['boxes with members, no place recorded', () => mountBar(
+      [workspace('w1'), workspace('w2')],
+      [['m1', 'w1'], ['m2', 'w2'], ['a', ''], ['b', '']])]
+  ]);
+}
+
+/**
+ * Drag every slot into every gap of every given arrangement.
+ * @param {Arrangement[]} fixtures - Arrangements that have each broken something.
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
+ */
+async function dropSweep(fixtures) {
+  const { check, results } = checks();
+
   // The one assertion this file exists for. The strip a drag draws under the
   // pointer is computed from the geometry and is right; what the drop then
   // writes has, historically, been computed a second time from a single anchor
@@ -912,27 +979,6 @@ export async function runTests() {
   // got in: the question a rebinding asks was being answered and the drop's own
   // answer thrown away with it.
   await check('what a drag shows is what the drop writes, and what the server sends back', async () => {
-    /**
-     * Arrangements that have each broken something. A box with no `place` on
-     * its row is the state a workspace is left in when the conversation it sat
-     * behind is binned, and it is the one that moved tabs nobody dragged.
-     * @type {[string, () => {bar: any, session: any, teardown: () => void}][]}
-     */
-    const fixtures = [
-      ['two empty boxes below', () => mountBar(
-        [workspace('w1', 'head'), workspace('w2', 'head')], [['a', ''], ['b', '']])],
-      ['two empty boxes, no place recorded', () => mountBar(
-        [workspace('w1'), workspace('w2')], [['a', ''], ['b', '']])],
-      ['two boxes with members', () => mountBar(
-        [workspace('w1', 'head'), workspace('w2', 'head')],
-        [['m1', 'w1'], ['m2', 'w2'], ['a', ''], ['b', '']])],
-      ['boxes with members, no place recorded', () => mountBar(
-        [workspace('w1'), workspace('w2')],
-        [['m1', 'w1'], ['m2', 'w2'], ['a', ''], ['b', '']])],
-      ['a box between the tabs', () => mountBar(
-        [workspace('ws', 'a')], [['a', ''], ['b', ''], ['c', '']])]
-    ];
-
     /** @type {string[]} */
     const broken = [];
     for (const [label, mount] of fixtures) {
@@ -1026,5 +1072,5 @@ export async function runTests() {
       + `of it:\n${broken.join('\n')}`);
   });
 
-  return { passed, failed, errors };
+  return results();
 }

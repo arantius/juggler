@@ -162,7 +162,7 @@ endif
 # bin/juggler is the slot the desktop app occupies (on macOS a symlink into
 # Juggler.app), so building a test server there would leave a `make build` owing
 # after every test run. The suites find this one through JUGGLER_TEST_SERVER
-# (tests/integration/main_test.go).
+# (helpers.ServerBinary, tests/helpers/subprocess.go).
 TEST_SERVER_BIN := $(BUILD_DIR)/juggler-testsrv$(BIN_EXT)
 
 ## test-build: Build the test-capable server the suites spawn, stamped -test.

@@ -7,12 +7,14 @@ package integration_test
 import (
 	"reflect"
 	"testing"
+
+	"juggler/tests/helpers"
 )
 
 func TestEnvWithOverride(t *testing.T) {
 	t.Parallel()
 
-	got := envWithOverride([]string{
+	got := helpers.EnvWithOverride([]string{
 		"HOME=/tmp/home",
 		"JUGGLER_CONFIG_DIR=/real/profile",
 		"PATH=/bin",
@@ -24,6 +26,6 @@ func TestEnvWithOverride(t *testing.T) {
 		"JUGGLER_CONFIG_DIR=/tmp/test-profile",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("envWithOverride() = %q, want %q", got, want)
+		t.Fatalf("helpers.EnvWithOverride() = %q, want %q", got, want)
 	}
 }

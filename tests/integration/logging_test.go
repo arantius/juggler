@@ -16,6 +16,7 @@ import (
 
 	"juggler/internal/logpaths"
 	"juggler/internal/srcroot"
+	"juggler/tests/helpers"
 )
 
 // TestServerHonorsLogFileFlagPerInstance boots two real headless servers on two
@@ -40,7 +41,7 @@ func TestServerHonorsLogFileFlagPerInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find project root: %v", err)
 	}
-	binary := serverBinary(root)
+	binary := helpers.ServerBinary(root)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("server binary not built at %s (run make go-build): %v", binary, err)
 	}
@@ -91,7 +92,7 @@ func startHeadlessServer(t *testing.T, binary, proj, logFile string) *headlessSe
 		"--window=false", "--port", "0",
 		"--project", proj, "--log-file", logFile)
 	cmd.Env = os.Environ()
-	setProcGroupAttr(cmd)
+	helpers.SetProcGroupAttr(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -128,7 +129,7 @@ func (s *headlessServer) stop() {
 	if s == nil || s.cmd == nil || s.cmd.Process == nil {
 		return
 	}
-	signalGroup(s.cmd, syscall.SIGTERM)
+	helpers.SignalGroup(s.cmd, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() {
 		_ = s.cmd.Wait()
@@ -137,7 +138,7 @@ func (s *headlessServer) stop() {
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		signalGroup(s.cmd, syscall.SIGKILL)
+		helpers.SignalGroup(s.cmd, syscall.SIGKILL)
 	}
 }
 

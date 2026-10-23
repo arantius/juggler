@@ -4,18 +4,22 @@
 
 //go:build !windows
 
-package integration_test
+package helpers
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-func setProcGroupAttr(cmd *exec.Cmd) {
+// SetProcGroupAttr starts cmd in a process group of its own, so SignalGroup
+// reaches everything it spawns.
+func SetProcGroupAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func signalGroup(cmd *exec.Cmd, sig syscall.Signal) {
+// SignalGroup signals cmd's process group when it leads one, and cmd alone
+// otherwise.
+func SignalGroup(cmd *exec.Cmd, sig syscall.Signal) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
